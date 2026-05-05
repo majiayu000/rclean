@@ -192,6 +192,8 @@ mod tests {
                     restore_hint: "install".to_string(),
                 }],
                 total_bytes: 3,
+                project_bytes: 5,
+                artifact_percent: 60.0,
             }],
         }
     }

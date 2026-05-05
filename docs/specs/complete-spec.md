@@ -240,6 +240,8 @@ Required behavior:
 - git status
 - activity
 - candidates
+- project total bytes
+- project artifact percentage
 
 Candidate fields:
 
@@ -289,6 +291,8 @@ This phase is complete when:
 - ActionPlan write/read dry-run works
 - plan clean revalidates selected paths
 - interactive selection accepts lists and ranges
+- human scan output highlights biggest wins before the full table
+- project reports include total project bytes and artifact percentage
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and extra Node/Python rules exist
 - tests cover ActionPlan, selection parser, and new rules
 - benchmark report exists

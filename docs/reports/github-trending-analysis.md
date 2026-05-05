@@ -58,16 +58,16 @@ path because `rclean` is already occupied on crates.io.
 
 - Added package metadata and MIT license.
 - Strengthened README positioning around trust and ActionPlan review.
+- Added "Biggest wins" above the full scan table.
+- Added per-project total bytes and artifact percentage to reports.
 - Kept `rclean-cli` as package name and `rclean` as binary name.
 - Documented release and packaging flow.
 
 ## Next Trending-Informed Work
 
-1. Add "Biggest wins" output before the full table.
-2. Add project total size and artifact percentage.
-3. Generate a terminal GIF from the real 445 GB benchmark.
-4. Add Homebrew formula after GitHub repository URL is known.
-5. Consider Ratatui TUI after the non-TUI workflow is complete.
+1. Generate a terminal GIF from the real 445 GB benchmark.
+2. Add Homebrew formula after GitHub repository URL is known.
+3. Consider Ratatui TUI after the non-TUI workflow is complete.
 
 ## Sources
 

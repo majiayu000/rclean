@@ -24,6 +24,7 @@ largest candidate: harness-workflow-runtime-phase2/target at 101 GB
 This is a from-scratch Rust CLI. It already supports:
 
 - `scan` with human table output
+- "Biggest wins" scan summary with project artifact percentage
 - `scan --json`
 - `clean --dry-run`
 - `clean --all --permanent --yes`
@@ -44,6 +45,7 @@ Existing tools already clean `node_modules`, `target`, and other artifacts.
 `rclean` focuses on the part that makes people hesitate before deleting:
 
 - clear safety states: `safe`, `caution`, `blocked`
+- immediate top cleanup wins before the detailed table
 - reviewable ActionPlan JSON
 - symlink and root-boundary revalidation before plan-based cleanup
 - dirty git worktrees marked as caution

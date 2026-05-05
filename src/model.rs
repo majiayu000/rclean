@@ -96,6 +96,8 @@ pub struct ProjectReport {
     pub activity: ActivityInfo,
     pub candidates: Vec<Candidate>,
     pub total_bytes: u64,
+    pub project_bytes: u64,
+    pub artifact_percent: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

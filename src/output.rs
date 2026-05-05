@@ -1,4 +1,4 @@
-use crate::model::{Explanation, Safety, ScanReport, format_bytes};
+use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
 
 pub fn print_json(report: &ScanReport) -> Result<(), String> {
@@ -28,12 +28,31 @@ pub fn print_table(report: &ScanReport) {
         return;
     }
 
+    let wins = biggest_wins(report);
+    if !wins.is_empty() {
+        println!();
+        println!("Biggest wins:");
+        for (index, (project, candidate)) in wins.into_iter().enumerate() {
+            let project_name = short_path(&project.path);
+            println!(
+                "  {}. {}/{} - {} reclaimable ({}, {}, {})",
+                index + 1,
+                truncate(&project_name, 44),
+                candidate.name,
+                format_bytes(candidate.bytes),
+                format_percent(project.artifact_percent),
+                candidate.safety,
+                candidate.category
+            );
+        }
+    }
+
     println!();
     println!(
-        "{:<32} {:<14} {:<18} {:<8} {:>10} {:<8} Reason",
-        "Project", "Kind", "Candidate", "Category", "Size", "Safety"
+        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} Reason",
+        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety"
     );
-    println!("{}", "-".repeat(110));
+    println!("{}", "-".repeat(118));
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
@@ -45,12 +64,13 @@ pub fn print_table(report: &ScanReport) {
                 .cloned()
                 .unwrap_or_default();
             println!(
-                "{:<32} {:<14} {:<18} {:<8} {:>10} {:<8} {}",
-                truncate(&project_name, 32),
-                truncate(&project.kind, 14),
+                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {}",
+                truncate(&project_name, 30),
+                truncate(&project.kind, 13),
                 truncate(&candidate.name, 18),
                 candidate.category,
                 format_bytes(candidate.bytes),
+                format_percent(project.artifact_percent),
                 candidate.safety,
                 reason
             );
@@ -107,6 +127,28 @@ fn short_path(path: &str) -> String {
         return path.replacen(&home, "~", 1);
     }
     path.to_string()
+}
+
+fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
+    let mut wins = report
+        .projects
+        .iter()
+        .flat_map(|project| {
+            project
+                .candidates
+                .iter()
+                .filter(|candidate| candidate.safety != Safety::Blocked && candidate.bytes > 0)
+                .map(move |candidate| (project, candidate))
+        })
+        .collect::<Vec<_>>();
+
+    wins.sort_by(|(_, left), (_, right)| right.bytes.cmp(&left.bytes));
+    wins.truncate(5);
+    wins
+}
+
+fn format_percent(value: f64) -> String {
+    format!("{value:.1}%")
 }
 
 fn truncate(value: &str, width: usize) -> String {

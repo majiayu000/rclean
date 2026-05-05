@@ -174,6 +174,8 @@ fn build_project_report(
             activity: activity_info(activity_time, "computed"),
             candidates: Vec::new(),
             total_bytes: 0,
+            project_bytes: 0,
+            artifact_percent: 0.0,
         });
     }
 
@@ -216,6 +218,17 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
+    let candidate_paths = candidates
+        .iter()
+        .map(|candidate| PathBuf::from(&candidate.path))
+        .collect::<Vec<_>>();
+    let source_bytes = project_source_size(dir, &candidate_paths, options.max_depth);
+    let project_bytes = source_bytes + total_bytes;
+    let artifact_percent = if project_bytes == 0 {
+        0.0
+    } else {
+        (total_bytes as f64 / project_bytes as f64) * 100.0
+    };
 
     Ok(ProjectReport {
         path: dir.display().to_string(),
@@ -225,6 +238,8 @@ fn build_project_report(
         activity: activity_info(activity_time, "computed"),
         candidates,
         total_bytes,
+        project_bytes,
+        artifact_percent,
     })
 }
 
@@ -373,6 +388,37 @@ fn dir_size(path: &Path) -> u64 {
     total
 }
 
+fn project_source_size(project_dir: &Path, candidate_paths: &[PathBuf], max_depth: usize) -> u64 {
+    let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
+    let mut total = 0;
+
+    for entry in walkdir::WalkDir::new(project_dir)
+        .max_depth(max_depth)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            let path = entry.path();
+            if candidate_paths.contains(path) {
+                return false;
+            }
+            entry
+                .file_name()
+                .to_str()
+                .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
+        })
+        .flatten()
+    {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_file() {
+            total += metadata.len();
+        }
+    }
+
+    total
+}
+
 fn git_info(dir: &Path) -> Option<GitInfo> {
     let root = Command::new("git")
         .arg("-C")
@@ -486,6 +532,9 @@ mod tests {
             report.projects[0].candidates[0].rule_id,
             "node.node_modules"
         );
+        assert_eq!(report.projects[0].total_bytes, 3);
+        assert_eq!(report.projects[0].project_bytes, 5);
+        assert_eq!(report.projects[0].artifact_percent, 60.0);
     }
 
     #[test]

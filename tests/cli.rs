@@ -30,7 +30,25 @@ fn scan_json_detects_node_modules() {
     .success()
     .stdout(predicate::str::contains(
         "\"ruleId\": \"node.node_modules\"",
-    ));
+    ))
+    .stdout(predicate::str::contains("\"projectBytes\": 5"))
+    .stdout(predicate::str::contains("\"artifactPercent\": 60.0"));
+}
+
+#[test]
+fn scan_table_shows_biggest_wins_and_junk_percent() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", temp.path().to_str().unwrap(), "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Biggest wins:"))
+        .stdout(predicate::str::contains("Junk"))
+        .stdout(predicate::str::contains("60.0%"));
 }
 
 #[test]

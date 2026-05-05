@@ -109,6 +109,18 @@ Blocked cases:
 }
 ```
 
+Project objects include:
+
+- `path`
+- `kind`
+- `markers`
+- `git`
+- `activity`
+- `candidates`
+- `totalBytes`
+- `projectBytes`
+- `artifactPercent`
+
 Candidate objects include:
 
 - `path`
