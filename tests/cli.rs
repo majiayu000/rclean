@@ -131,6 +131,8 @@ fn clean_interactive_selection_accepts_number() {
     .assert()
     .success()
     .stdout(predicate::str::contains("Select candidates"))
+    .stdout(predicate::str::contains("Project:"))
+    .stdout(predicate::str::contains("package.json marker found"))
     .stdout(predicate::str::contains("Plan: 1 candidates"));
 
     assert!(temp.path().join("node_modules").exists());

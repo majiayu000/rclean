@@ -23,6 +23,22 @@ This is a from-scratch MVP. It already supports:
 - symlink blocking
 - dirty git worktree caution
 
+## Install
+
+From this checkout during development:
+
+```bash
+cargo install --path .
+```
+
+After public release, the intended install path is:
+
+```bash
+cargo install rclean-cli
+```
+
+The Cargo package is `rclean-cli`; the installed command is `rclean`.
+
 ## Usage
 
 ```bash

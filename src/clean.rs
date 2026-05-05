@@ -4,6 +4,12 @@ use std::path::PathBuf;
 use crate::cli::CleanArgs;
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
 
+#[derive(Debug, Clone, Copy)]
+struct SelectableCandidate<'a> {
+    project_path: &'a str,
+    candidate: &'a Candidate,
+}
+
 #[derive(Debug, Clone)]
 pub struct SelectedCandidate {
     pub path: PathBuf,
@@ -28,22 +34,25 @@ pub fn select_candidates(
     }
 
     let mut selected = Vec::new();
-    for candidate in candidates {
-        if candidate.safety == Safety::Safe
-            || (candidate.safety == Safety::Caution && args.common.include_caution)
+    for item in candidates {
+        if item.candidate.safety == Safety::Safe
+            || (item.candidate.safety == Safety::Caution && args.common.include_caution)
         {
-            selected.push(to_selected(candidate));
+            selected.push(to_selected(item.candidate));
         }
     }
     Ok(selected)
 }
 
-fn selectable_candidates(report: &ScanReport) -> Vec<&Candidate> {
+fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
     let mut candidates = Vec::new();
     for project in &report.projects {
         for candidate in &project.candidates {
             if candidate.safety != Safety::Blocked {
-                candidates.push(candidate);
+                candidates.push(SelectableCandidate {
+                    project_path: &project.path,
+                    candidate,
+                });
             }
         }
     }
@@ -51,7 +60,7 @@ fn selectable_candidates(report: &ScanReport) -> Vec<&Candidate> {
 }
 
 fn select_interactively(
-    candidates: &[&Candidate],
+    candidates: &[SelectableCandidate<'_>],
     include_caution: bool,
 ) -> Result<Vec<SelectedCandidate>, String> {
     if candidates.is_empty() {
@@ -60,15 +69,28 @@ fn select_interactively(
 
     println!();
     println!("Select candidates to clean:");
-    for (index, candidate) in candidates.iter().enumerate() {
+    let mut current_project = "";
+    for (index, item) in candidates.iter().enumerate() {
+        let candidate = item.candidate;
+        if item.project_path != current_project {
+            current_project = item.project_path;
+            println!();
+            println!("Project: {current_project}");
+        }
+        let reason = candidate
+            .reasons
+            .first()
+            .or_else(|| candidate.warnings.first())
+            .map(String::as_str)
+            .unwrap_or("-");
         println!(
-            "  {:>2}. {:<8} {:<8} {:>10} {} ({})",
+            "  {:>2}. {:<8} {:<8} {:>10} {:<24} {}",
             index + 1,
             candidate.safety,
             candidate.category,
             format_bytes(candidate.bytes),
-            candidate.path,
-            candidate.rule_id
+            candidate.name,
+            reason
         );
     }
     println!("Enter numbers/ranges like 1,3,5 or 2-4. Use 'a' for all safe. Empty selects none.");
@@ -82,10 +104,19 @@ fn select_interactively(
         .read_line(&mut input)
         .map_err(|err| format!("failed to read selection: {err}"))?;
 
-    let selected_indices = parse_selection(input.trim(), candidates.len())?;
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("a") {
+        return Ok(candidates
+            .iter()
+            .filter(|item| item.candidate.safety == Safety::Safe)
+            .map(|item| to_selected(item.candidate))
+            .collect());
+    }
+
+    let selected_indices = parse_selection(input, candidates.len())?;
     let mut selected = Vec::new();
     for index in selected_indices {
-        let candidate = candidates[index];
+        let candidate = candidates[index].candidate;
         if candidate.safety == Safety::Safe
             || (candidate.safety == Safety::Caution && include_caution)
         {

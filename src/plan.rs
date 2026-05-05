@@ -211,4 +211,42 @@ mod tests {
         assert_eq!(selected.len(), 1);
         revalidate_selected(&plan, &selected).unwrap();
     }
+
+    #[test]
+    fn revalidation_rejects_stale_plan_path() {
+        let temp = TempDir::new().unwrap();
+        let candidate = temp.path().join("node_modules");
+        fs::create_dir(&candidate).unwrap();
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        fs::remove_dir_all(&candidate).unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+        let selected = selected_from_action_plan(&plan).unwrap();
+
+        assert!(revalidate_selected(&plan, &selected).is_err());
+    }
+
+    #[test]
+    fn revalidation_rejects_symlinked_plan_path() {
+        let temp = TempDir::new().unwrap();
+        let candidate = temp.path().join("node_modules");
+        let real = temp.path().join("real_modules");
+        fs::create_dir(&candidate).unwrap();
+        fs::create_dir(&real).unwrap();
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        fs::remove_dir_all(&candidate).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &candidate).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&real, &candidate).unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+        let selected = selected_from_action_plan(&plan).unwrap();
+
+        assert!(revalidate_selected(&plan, &selected).is_err());
+    }
 }
