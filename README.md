@@ -7,9 +7,21 @@ that can be recreated from source, lockfiles, package managers, or build tools:
 `node_modules`, `.next`, `.venv`, `target`, Python caches, Turborepo/Vite caches,
 and similar directories.
 
+The trust model is the product: scan first, explain every candidate, write an
+ActionPlan when you want a reviewable cleanup, and never select blocked paths.
+
+Real local benchmark:
+
+```text
+50 projects scanned
+51 candidates
+445 GB reclaimable above 100 MB
+largest candidate: harness-workflow-runtime-phase2/target at 101 GB
+```
+
 ## Current Status
 
-This is a from-scratch MVP. It already supports:
+This is a from-scratch Rust CLI. It already supports:
 
 - `scan` with human table output
 - `scan --json`
@@ -22,6 +34,20 @@ This is a from-scratch MVP. It already supports:
 - root-project scanning
 - symlink blocking
 - dirty git worktree caution
+- ActionPlan write/read
+- numbered interactive selection
+- Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
+
+## Why rclean
+
+Existing tools already clean `node_modules`, `target`, and other artifacts.
+`rclean` focuses on the part that makes people hesitate before deleting:
+
+- clear safety states: `safe`, `caution`, `blocked`
+- reviewable ActionPlan JSON
+- symlink and root-boundary revalidation before plan-based cleanup
+- dirty git worktrees marked as caution
+- package name `rclean-cli`, installed command `rclean`
 
 ## Install
 

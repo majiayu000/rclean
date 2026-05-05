@@ -2,6 +2,11 @@
 name = "rclean-cli"
 version = "0.1.0"
 edition = "2024"
+description = "Find and safely clean rebuildable developer artifacts across local workspaces"
+readme = "README.md"
+license = "MIT"
+keywords = ["cleanup", "disk", "cli", "developer-tools", "rust"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "rclean"
