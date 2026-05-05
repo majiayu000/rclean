@@ -41,6 +41,13 @@ rclean scan ~/code
 rclean clean ~/code --all --dry-run
 ```
 
+Write and review an ActionPlan:
+
+```bash
+rclean scan ~/code --write-plan rclean-plan.json
+rclean clean --plan rclean-plan.json --dry-run
+```
+
 ## Safety Model
 
 - `scan` never deletes files.
@@ -53,6 +60,20 @@ rclean clean ~/code --all --dry-run
 - `--all` selects only `safe` candidates unless `--include-caution` is passed.
 - default clean mode moves to Trash when available.
 - `--permanent` is required for permanent deletion.
+
+## Supported Ecosystems
+
+| Ecosystem | Examples |
+| --- | --- |
+| Node/JS | `node_modules`, `.next`, `.turbo`, `.vite`, `.parcel-cache`, `dist`, `build`, `out` |
+| Python | `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox` |
+| Rust | `target` |
+| Go | `vendor` |
+| iOS | `Pods` |
+| Java/Gradle | `target`, `build`, `.gradle` |
+| Flutter/Dart | `build`, `.dart_tool` |
+| .NET | `bin`, `obj` |
+| Ruby | `.bundle`, `vendor/bundle` |
 
 ## Examples
 
@@ -92,5 +113,5 @@ rclean clean ~/code --all --permanent --yes
 cargo fmt
 cargo clippy --all-targets --all-features
 cargo test
-cargo run -- scan . --json
+cargo run --bin rclean -- scan . --json
 ```
