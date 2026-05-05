@@ -1,0 +1,21 @@
+[package]
+name = "rclean-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "rclean"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+trash = "5.2"
+walkdir = "2.5"
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tempfile = "3.14"

@@ -1,0 +1,138 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+use crate::model::Category;
+use crate::parse::{parse_duration, parse_size};
+use crate::scan::ScanOptions;
+
+#[derive(Debug, Parser)]
+#[command(name = "rclean")]
+#[command(about = "Find and clean rebuildable developer artifacts")]
+#[command(version)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Scan for cleanable development artifacts. This never deletes files.
+    Scan(CommonScanArgs),
+    /// Clean selected artifacts after scanning.
+    Clean(CleanArgs),
+    /// Explain whether a single path is cleanable and why.
+    Explain(ExplainArgs),
+    /// Print the built-in cleanup rule catalog.
+    Rules,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct CommonScanArgs {
+    /// Roots to scan. Defaults to the current directory.
+    pub paths: Vec<PathBuf>,
+
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Show skipped paths and policy reasons.
+    #[arg(long)]
+    pub verbose: bool,
+
+    /// Max traversal depth from each root.
+    #[arg(long, default_value_t = 6)]
+    pub depth: usize,
+
+    /// Minimum candidate size. Examples: 0, 100mb, 1g.
+    #[arg(long, default_value = "1mb")]
+    pub min_size: String,
+
+    /// Only include projects whose activity is older than this duration.
+    #[arg(long)]
+    pub older_than: Option<String>,
+
+    /// Include only these categories: deps,build,cache,test,ide.
+    #[arg(long, value_delimiter = ',')]
+    pub category: Vec<String>,
+
+    /// Include only these rule ids.
+    #[arg(long, value_delimiter = ',')]
+    pub rule: Vec<String>,
+
+    /// Also scan IDE cache/config candidates.
+    #[arg(long)]
+    pub include_ide: bool,
+
+    /// Include caution candidates in bulk selection.
+    #[arg(long)]
+    pub include_caution: bool,
+
+    /// Include blocked candidates in reports.
+    #[arg(long)]
+    pub include_blocked: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CleanArgs {
+    #[command(flatten)]
+    pub common: CommonScanArgs,
+
+    /// Select all safe candidates after filters.
+    #[arg(long)]
+    pub all: bool,
+
+    /// Show deletion plan without deleting.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Permanently delete selected candidates.
+    #[arg(long)]
+    pub permanent: bool,
+
+    /// Skip confirmation prompts where allowed.
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ExplainArgs {
+    pub path: PathBuf,
+}
+
+impl CommonScanArgs {
+    pub fn paths_or_current_dir(&self) -> Vec<PathBuf> {
+        if self.paths.is_empty() {
+            vec![PathBuf::from(".")]
+        } else {
+            self.paths.clone()
+        }
+    }
+
+    pub fn to_scan_options(&self) -> Result<ScanOptions, String> {
+        let categories = if self.category.is_empty() {
+            None
+        } else {
+            let mut parsed = Vec::new();
+            for raw in &self.category {
+                parsed.push(raw.parse::<Category>()?);
+            }
+            Some(parsed)
+        };
+
+        Ok(ScanOptions {
+            max_depth: self.depth,
+            min_size: parse_size(&self.min_size)?,
+            older_than: self.older_than.as_deref().map(parse_duration).transpose()?,
+            categories,
+            rule_ids: if self.rule.is_empty() {
+                None
+            } else {
+                Some(self.rule.clone())
+            },
+            include_ide: self.include_ide,
+            include_blocked: self.include_blocked,
+            verbose: self.verbose,
+        })
+    }
+}
