@@ -19,6 +19,8 @@ Real local benchmark:
 largest candidate: harness-workflow-runtime-phase2/target at 101 GB
 ```
 
+![rclean scan demo](docs/assets/rclean-demo.svg)
+
 ## Current Status
 
 This is a from-scratch Rust CLI. It already supports:

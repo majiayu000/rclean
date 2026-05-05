@@ -44,3 +44,5 @@ Binary name: `rclean`
 - [ ] README has `scan`, `clean --dry-run`, ActionPlan, and safety examples.
 - [ ] Post includes real benchmark numbers.
 - [ ] Post states the trust model: scan first, explain every candidate, blocked symlinks.
+
+Current README demo asset: `docs/assets/rclean-demo.svg`.

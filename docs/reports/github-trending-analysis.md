@@ -3,7 +3,9 @@
 Date: 2026-05-06
 
 Note: the requested `githubtrending` skill is not available in this Codex
-environment. This report uses live web/GitHub-adjacent search results instead.
+environment's advertised skill list. A local `github-trending` skill file was
+found and used as the analysis framework, with live web/GitHub-adjacent search
+results as data sources.
 
 ## Findings
 
@@ -60,13 +62,17 @@ path because `rclean` is already occupied on crates.io.
 - Strengthened README positioning around trust and ActionPlan review.
 - Added "Biggest wins" above the full scan table.
 - Added per-project total bytes and artifact percentage to reports.
+- Added a README demo asset for first-run sharing.
+- Added an initial changelog for release packaging.
 - Kept `rclean-cli` as package name and `rclean` as binary name.
 - Documented release and packaging flow.
 
-## Next Trending-Informed Work
+## Release-Blocked Work
 
-1. Generate a terminal GIF from the real 445 GB benchmark.
-2. Add Homebrew formula after GitHub repository URL is known.
+These should wait until the repository is public and the release URL is known:
+
+1. Record a terminal GIF from the real 445 GB benchmark.
+2. Add a real Homebrew formula with final GitHub Release URLs and checksums.
 3. Consider Ratatui TUI after the non-TUI workflow is complete.
 
 ## Sources

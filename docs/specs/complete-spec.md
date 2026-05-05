@@ -278,6 +278,8 @@ Before public release:
 - GitHub Actions CI for fmt, clippy, test, and release build
 - README install instructions
 - release checklist
+- changelog
+- README first-run demo asset
 - crates.io package naming note: package is `rclean-cli`, binary is `rclean`
 - GitHub Release binary instructions
 - Homebrew formula plan
@@ -297,6 +299,7 @@ This phase is complete when:
 - tests cover ActionPlan, selection parser, and new rules
 - benchmark report exists
 - release docs and CI workflow exist
+- changelog and README demo asset exist
 - `cargo fmt -- --check` passes
 - `cargo clippy --all-targets --all-features -- -D warnings` passes
 - `cargo test` passes

@@ -17,6 +17,8 @@ cargo install rclean-cli
 rclean --help
 ```
 
+Crate docs will publish to `https://docs.rs/rclean-cli`.
+
 Before publishing:
 
 ```bash
@@ -68,6 +70,7 @@ end
 
 README must show:
 
+- first-run demo asset
 - one-command scan
 - dry-run clean
 - ActionPlan workflow

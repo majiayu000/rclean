@@ -5,6 +5,7 @@ edition = "2024"
 description = "Find and safely clean rebuildable developer artifacts across local workspaces"
 readme = "README.md"
 license = "MIT"
+documentation = "https://docs.rs/rclean-cli"
 keywords = ["cleanup", "disk", "cli", "developer-tools", "rust"]
 categories = ["command-line-utilities", "development-tools"]
 
