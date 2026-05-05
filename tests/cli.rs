@@ -79,3 +79,35 @@ fn clean_permanent_yes_deletes_safe_candidate() {
 
     assert!(!temp.path().join("node_modules").exists());
 }
+
+#[test]
+fn scan_write_plan_then_clean_plan_dry_run() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+    let plan = temp.path().join("plan.json");
+
+    let mut scan = Command::cargo_bin("rclean").unwrap();
+    scan.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--write-plan",
+        plan.to_str().unwrap(),
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success();
+
+    assert!(plan.exists());
+
+    let mut clean = Command::cargo_bin("rclean").unwrap();
+    clean
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(temp.path().join("node_modules").exists());
+}

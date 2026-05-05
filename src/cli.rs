@@ -71,6 +71,10 @@ pub struct CommonScanArgs {
     /// Include blocked candidates in reports.
     #[arg(long)]
     pub include_blocked: bool,
+
+    /// Write scan results as an auditable action plan.
+    #[arg(long)]
+    pub write_plan: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -93,6 +97,10 @@ pub struct CleanArgs {
     /// Skip confirmation prompts where allowed.
     #[arg(long)]
     pub yes: bool,
+
+    /// Read selected candidates from a previously written action plan.
+    #[arg(long)]
+    pub plan: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

@@ -3,6 +3,7 @@ mod cli;
 mod model;
 mod output;
 mod parse;
+mod plan;
 mod rules;
 mod scan;
 
@@ -29,6 +30,10 @@ fn run() -> Result<ExitCode, String> {
         Commands::Scan(args) => {
             let options = args.to_scan_options()?;
             let report = scan::scan(&args.paths_or_current_dir(), &options)?;
+            if let Some(plan_path) = &args.write_plan {
+                plan::write_action_plan(&report, plan_path, args.include_caution, false, "trash")?;
+                eprintln!("wrote action plan: {}", plan_path.display());
+            }
             if args.json {
                 output::print_json(&report)?;
             } else {
@@ -41,14 +46,36 @@ fn run() -> Result<ExitCode, String> {
             }
         }
         Commands::Clean(args) => {
-            let options = args.common.to_scan_options()?;
-            let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
-            let selected = clean::select_candidates(&report, &args)?;
-
-            if args.common.json {
-                output::print_json(&report)?;
+            let (selected, report) = if let Some(plan_path) = &args.plan {
+                let action_plan = plan::read_action_plan(plan_path)?;
+                let selected = plan::selected_from_action_plan(&action_plan)?;
+                plan::revalidate_selected(&action_plan, &selected)?;
+                (selected, None)
             } else {
-                output::print_table(&report);
+                let options = args.common.to_scan_options()?;
+                let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
+                if let Some(plan_path) = &args.common.write_plan {
+                    plan::write_action_plan(
+                        &report,
+                        plan_path,
+                        args.common.include_caution,
+                        args.permanent,
+                        if args.permanent { "permanent" } else { "trash" },
+                    )?;
+                    eprintln!("wrote action plan: {}", plan_path.display());
+                }
+                let selected = clean::select_candidates(&report, &args)?;
+                (selected, Some(report))
+            };
+
+            if let Some(report) = &report {
+                if args.common.json {
+                    output::print_json(report)?;
+                } else {
+                    output::print_table(report);
+                }
+            }
+            if !args.common.json {
                 clean::print_plan(&selected, args.permanent, args.dry_run);
             }
 
