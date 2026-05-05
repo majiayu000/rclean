@@ -527,6 +527,43 @@ mod tests {
     }
 
     #[test]
+    fn detects_gradle_dart_dotnet_and_ruby_rules() {
+        let temp = TempDir::new().unwrap();
+
+        let gradle = temp.path().join("gradle");
+        fs::create_dir(&gradle).unwrap();
+        fs::write(gradle.join("build.gradle"), "plugins {}\n").unwrap();
+        fs::create_dir(gradle.join("build")).unwrap();
+
+        let dart = temp.path().join("dart");
+        fs::create_dir(&dart).unwrap();
+        fs::write(dart.join("pubspec.yaml"), "name: app\n").unwrap();
+        fs::create_dir(dart.join(".dart_tool")).unwrap();
+
+        let dotnet = temp.path().join("dotnet");
+        fs::create_dir(&dotnet).unwrap();
+        fs::write(dotnet.join("app.csproj"), "<Project />\n").unwrap();
+        fs::create_dir(dotnet.join("bin")).unwrap();
+
+        let ruby = temp.path().join("ruby");
+        fs::create_dir_all(ruby.join("vendor").join("bundle")).unwrap();
+        fs::write(ruby.join("Gemfile"), "source 'https://rubygems.org'\n").unwrap();
+
+        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
+        let rule_ids = report
+            .projects
+            .iter()
+            .flat_map(|project| project.candidates.iter())
+            .map(|candidate| candidate.rule_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(rule_ids.contains(&"java.gradle_build"));
+        assert!(rule_ids.contains(&"dart.tool"));
+        assert!(rule_ids.contains(&"dotnet.bin"));
+        assert!(rule_ids.contains(&"ruby.vendor_bundle"));
+    }
+
+    #[test]
     fn dirty_git_marks_candidate_caution() {
         let temp = TempDir::new().unwrap();
         Command::new("git")

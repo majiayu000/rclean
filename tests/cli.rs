@@ -111,3 +111,27 @@ fn scan_write_plan_then_clean_plan_dry_run() {
 
     assert!(temp.path().join("node_modules").exists());
 }
+
+#[test]
+fn clean_interactive_selection_accepts_number() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        temp.path().to_str().unwrap(),
+        "--dry-run",
+        "--min-size",
+        "0",
+    ])
+    .write_stdin("1\n")
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Select candidates"))
+    .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(temp.path().join("node_modules").exists());
+}

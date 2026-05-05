@@ -38,6 +38,12 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
             restore_hint: "Rebuilt by Vite",
         },
         RuleInfo {
+            rule_id: "node.parcel",
+            category: Category::Cache,
+            candidate: ".parcel-cache",
+            restore_hint: "Rebuilt by Parcel",
+        },
+        RuleInfo {
             rule_id: "python.venv_dot",
             category: Category::Deps,
             candidate: ".venv",
@@ -74,6 +80,12 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
             restore_hint: "Recreated by ruff",
         },
         RuleInfo {
+            rule_id: "python.tox",
+            category: Category::Cache,
+            candidate: ".tox",
+            restore_hint: "Recreated by tox",
+        },
+        RuleInfo {
             rule_id: "rust.target",
             category: Category::Build,
             candidate: "target",
@@ -90,6 +102,60 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
             category: Category::Deps,
             candidate: "Pods",
             restore_hint: "Run pod install",
+        },
+        RuleInfo {
+            rule_id: "java.maven_target",
+            category: Category::Build,
+            candidate: "target",
+            restore_hint: "Run Maven build",
+        },
+        RuleInfo {
+            rule_id: "java.gradle_build",
+            category: Category::Build,
+            candidate: "build",
+            restore_hint: "Run Gradle build",
+        },
+        RuleInfo {
+            rule_id: "java.gradle_cache_local",
+            category: Category::Cache,
+            candidate: ".gradle",
+            restore_hint: "Rebuilt by Gradle",
+        },
+        RuleInfo {
+            rule_id: "dart.build",
+            category: Category::Build,
+            candidate: "build",
+            restore_hint: "Run flutter build or dart build",
+        },
+        RuleInfo {
+            rule_id: "dart.tool",
+            category: Category::Cache,
+            candidate: ".dart_tool",
+            restore_hint: "Run flutter pub get or dart pub get",
+        },
+        RuleInfo {
+            rule_id: "dotnet.bin",
+            category: Category::Build,
+            candidate: "bin",
+            restore_hint: "Run dotnet build",
+        },
+        RuleInfo {
+            rule_id: "dotnet.obj",
+            category: Category::Build,
+            candidate: "obj",
+            restore_hint: "Run dotnet build",
+        },
+        RuleInfo {
+            rule_id: "ruby.bundle",
+            category: Category::Cache,
+            candidate: ".bundle",
+            restore_hint: "Run bundle install",
+        },
+        RuleInfo {
+            rule_id: "ruby.vendor_bundle",
+            category: Category::Deps,
+            candidate: "vendor/bundle",
+            restore_hint: "Run bundle install",
         },
         RuleInfo {
             rule_id: "generic.coverage",
@@ -158,6 +224,19 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
                 restore_hint: "Rebuilt by Vite".to_string(),
             }
         }
+        ".parcel-cache" if is_node_project(project_dir) => {
+            reasons.push("Node project marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "node.parcel".to_string(),
+                category: Category::Cache,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Rebuilt by Parcel".to_string(),
+            }
+        }
         ".venv" if is_python_project(project_dir) && is_virtualenv(&path) => {
             reasons.push("Python marker and virtualenv marker found".to_string());
             CandidateDraft {
@@ -212,19 +291,25 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
                 restore_hint: "Recreated by Python".to_string(),
             }
         }
-        ".pytest_cache" | ".mypy_cache" | ".ruff_cache" if is_python_project(project_dir) => {
+        ".pytest_cache" | ".mypy_cache" | ".ruff_cache" | ".tox"
+            if is_python_project(project_dir) =>
+        {
             reasons.push("Python project marker found".to_string());
-            let (rule_id, hint) = match name {
-                ".pytest_cache" => ("python.pytest", "Recreated by pytest"),
-                ".mypy_cache" => ("python.mypy", "Recreated by mypy"),
-                _ => ("python.ruff", "Recreated by ruff"),
+            let (rule_id, hint, safety) = match name {
+                ".pytest_cache" => ("python.pytest", "Recreated by pytest", Safety::Safe),
+                ".mypy_cache" => ("python.mypy", "Recreated by mypy", Safety::Safe),
+                ".ruff_cache" => ("python.ruff", "Recreated by ruff", Safety::Safe),
+                _ => {
+                    warnings.push(".tox may contain expensive local test environments".to_string());
+                    ("python.tox", "Recreated by tox", Safety::Caution)
+                }
             };
             CandidateDraft {
                 path,
                 name: name.to_string(),
                 rule_id: rule_id.to_string(),
                 category: Category::Cache,
-                safety: Safety::Safe,
+                safety,
                 reasons,
                 warnings,
                 restore_hint: hint.to_string(),
@@ -241,6 +326,19 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
                 reasons,
                 warnings,
                 restore_hint: "Run cargo build or cargo test".to_string(),
+            }
+        }
+        "target" if has_marker(project_dir, "pom.xml") => {
+            reasons.push("pom.xml marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "java.maven_target".to_string(),
+                category: Category::Build,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Run Maven build".to_string(),
             }
         }
         "vendor" if has_marker(project_dir, "go.mod") => {
@@ -270,6 +368,74 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
                 restore_hint: "Run pod install".to_string(),
             }
         }
+        ".gradle" if is_gradle_project(project_dir) => {
+            reasons.push("Gradle marker found".to_string());
+            warnings.push(".gradle may contain useful local Gradle state".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "java.gradle_cache_local".to_string(),
+                category: Category::Cache,
+                safety: Safety::Caution,
+                reasons,
+                warnings,
+                restore_hint: "Rebuilt by Gradle".to_string(),
+            }
+        }
+        ".dart_tool" if has_marker(project_dir, "pubspec.yaml") => {
+            reasons.push("pubspec.yaml marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "dart.tool".to_string(),
+                category: Category::Cache,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Run flutter pub get or dart pub get".to_string(),
+            }
+        }
+        "bin" | "obj" if is_dotnet_project(project_dir) => {
+            reasons.push(".NET project marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: format!("dotnet.{name}"),
+                category: Category::Build,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Run dotnet build".to_string(),
+            }
+        }
+        ".bundle" if is_ruby_project(project_dir) => {
+            reasons.push("Ruby project marker found".to_string());
+            warnings.push(".bundle can contain local Bundler configuration".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "ruby.bundle".to_string(),
+                category: Category::Cache,
+                safety: Safety::Caution,
+                reasons,
+                warnings,
+                restore_hint: "Run bundle install".to_string(),
+            }
+        }
+        "vendor" if is_ruby_project(project_dir) && path.join("bundle").is_dir() => {
+            reasons.push("Ruby project marker and vendor/bundle found".to_string());
+            warnings.push("vendor/bundle may contain intentionally vendored gems".to_string());
+            CandidateDraft {
+                path: path.join("bundle"),
+                name: "vendor/bundle".to_string(),
+                rule_id: "ruby.vendor_bundle".to_string(),
+                category: Category::Deps,
+                safety: Safety::Caution,
+                reasons,
+                warnings,
+                restore_hint: "Run bundle install".to_string(),
+            }
+        }
         "coverage" if has_any_project_marker(project_dir) => {
             reasons.push("project marker found".to_string());
             CandidateDraft {
@@ -281,6 +447,32 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
                 reasons,
                 warnings,
                 restore_hint: "Re-run the test suite".to_string(),
+            }
+        }
+        "build" if is_gradle_project(project_dir) => {
+            reasons.push("Gradle marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "java.gradle_build".to_string(),
+                category: Category::Build,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Run Gradle build".to_string(),
+            }
+        }
+        "build" if has_marker(project_dir, "pubspec.yaml") => {
+            reasons.push("pubspec.yaml marker found".to_string());
+            CandidateDraft {
+                path,
+                name: name.to_string(),
+                rule_id: "dart.build".to_string(),
+                category: Category::Build,
+                safety: Safety::Safe,
+                reasons,
+                warnings,
+                restore_hint: "Run flutter build or dart build".to_string(),
             }
         }
         "build" | "dist" | "out" if is_node_project(project_dir) => {
@@ -317,16 +509,23 @@ pub fn is_candidate_name(name: &str) -> bool {
             | ".next"
             | ".turbo"
             | ".vite"
+            | ".parcel-cache"
             | ".venv"
             | "venv"
             | "__pycache__"
             | ".pytest_cache"
             | ".mypy_cache"
             | ".ruff_cache"
+            | ".tox"
             | "target"
             | "vendor"
             | "Pods"
             | "coverage"
+            | ".gradle"
+            | ".dart_tool"
+            | "bin"
+            | "obj"
+            | ".bundle"
             | "build"
             | "dist"
             | "out"
@@ -344,10 +543,12 @@ pub fn is_project_marker_name(name: &str) -> bool {
             | "requirements.txt"
             | "setup.py"
             | "Pipfile"
+            | "Gemfile"
             | "pom.xml"
             | "build.gradle"
             | "build.gradle.kts"
             | "pubspec.yaml"
+            | "composer.json"
     )
 }
 
@@ -363,10 +564,12 @@ pub fn detect_project_kind(dir: &Path) -> (String, Vec<String>) {
         "requirements.txt",
         "setup.py",
         "Pipfile",
+        "Gemfile",
         "pom.xml",
         "build.gradle",
         "build.gradle.kts",
         "pubspec.yaml",
+        "composer.json",
     ] {
         if has_marker(dir, marker) {
             markers.push(marker.to_string());
@@ -393,6 +596,12 @@ pub fn detect_project_kind(dir: &Path) -> (String, Vec<String>) {
     }
     if has_marker(dir, "Podfile") {
         return ("iOS".to_string(), markers);
+    }
+    if is_dotnet_project(dir) {
+        return (".NET".to_string(), markers);
+    }
+    if is_ruby_project(dir) {
+        return ("Ruby".to_string(), markers);
     }
     if has_marker(dir, "pom.xml") {
         return ("Java (Maven)".to_string(), markers);
@@ -442,6 +651,33 @@ fn is_python_project(dir: &Path) -> bool {
     ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"]
         .iter()
         .any(|marker| has_marker(dir, marker))
+}
+
+fn is_gradle_project(dir: &Path) -> bool {
+    has_marker(dir, "build.gradle") || has_marker(dir, "build.gradle.kts")
+}
+
+fn is_ruby_project(dir: &Path) -> bool {
+    has_marker(dir, "Gemfile")
+}
+
+fn is_dotnet_project(dir: &Path) -> bool {
+    has_marker_with_extension(dir, "sln")
+        || has_marker_with_extension(dir, "csproj")
+        || has_marker_with_extension(dir, "fsproj")
+}
+
+fn has_marker_with_extension(dir: &Path, extension: &str) -> bool {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        entry
+            .path()
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+    })
 }
 
 fn package_mentions(dir: &Path, dep: &str) -> bool {
