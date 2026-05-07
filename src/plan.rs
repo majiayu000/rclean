@@ -39,6 +39,7 @@ pub fn write_action_plan(
     delete_mode: &str,
 ) -> Result<(), String> {
     let selected = collect_selected(report, include_caution);
+    let summary = summarize_selected(&selected, &report.summary);
     let plan = ActionPlan {
         schema_version: 1,
         tool_version: report.tool_version.clone(),
@@ -49,7 +50,7 @@ pub fn write_action_plan(
             delete_mode.to_string()
         },
         roots: report.roots.clone(),
-        summary: report.summary.clone(),
+        summary,
         selected,
         projects: report.projects.clone(),
     };
@@ -173,6 +174,30 @@ pub fn revalidate_selected(
     }
 
     Ok(())
+}
+
+/// Build a `Summary` that reflects what is actually in `selected`, while
+/// preserving the scan-wide accounting (`projects_scanned`,
+/// `projects_with_candidates`) from the original report. Without this,
+/// `ActionPlan.summary` would describe the entire scan instead of the
+/// chosen-for-deletion subset, misleading downstream consumers.
+fn summarize_selected(selected: &[PlanCandidate], scan_summary: &Summary) -> Summary {
+    let mut summary = Summary {
+        projects_scanned: scan_summary.projects_scanned,
+        projects_with_candidates: scan_summary.projects_with_candidates,
+        ..Summary::default()
+    };
+    for candidate in selected {
+        summary.candidates += 1;
+        summary.total_bytes = summary.total_bytes.saturating_add(candidate.bytes);
+        match candidate.safety {
+            Safety::Safe => summary.safe_candidates += 1,
+            Safety::Caution => summary.caution_candidates += 1,
+            Safety::Blocked => summary.blocked_candidates += 1,
+            Safety::Unknown => {}
+        }
+    }
+    summary
 }
 
 fn collect_selected(report: &ScanReport, include_caution: bool) -> Vec<PlanCandidate> {
@@ -349,6 +374,31 @@ mod tests {
             err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn summary_reflects_selected_not_full_scan() {
+        let temp = TempDir::new().unwrap();
+        let candidate = create_node_project(temp.path());
+        let plan_path = temp.path().join("plan.json");
+        // Scan summary claims 5 candidates / 1000 bytes; selected has 1 / 3 bytes.
+        let mut report = report(temp.path(), &candidate);
+        report.summary.candidates = 5;
+        report.summary.safe_candidates = 4;
+        report.summary.caution_candidates = 1;
+        report.summary.total_bytes = 1000;
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+
+        assert_eq!(plan.selected.len(), 1);
+        assert_eq!(plan.summary.candidates, 1);
+        assert_eq!(plan.summary.safe_candidates, 1);
+        assert_eq!(plan.summary.caution_candidates, 0);
+        assert_eq!(plan.summary.total_bytes, 3);
+        // Scan-wide accounting still preserved.
+        assert_eq!(plan.summary.projects_scanned, 1);
+        assert_eq!(plan.summary.projects_with_candidates, 1);
     }
 
     #[test]
