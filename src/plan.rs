@@ -84,12 +84,9 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             ));
         }
 
-        let parent = path.parent().ok_or_else(|| {
-            format!(
-                "plan candidate has no parent directory: {}",
-                candidate.path
-            )
-        })?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("plan candidate has no parent directory: {}", candidate.path))?;
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
