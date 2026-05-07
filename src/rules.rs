@@ -163,6 +163,24 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
             candidate: "coverage",
             restore_hint: "Re-run the test suite",
         },
+        RuleInfo {
+            rule_id: "node.build",
+            category: Category::Build,
+            candidate: "build",
+            restore_hint: "Re-run the project build",
+        },
+        RuleInfo {
+            rule_id: "node.dist",
+            category: Category::Build,
+            candidate: "dist",
+            restore_hint: "Re-run the project build",
+        },
+        RuleInfo {
+            rule_id: "node.out",
+            category: Category::Build,
+            candidate: "out",
+            restore_hint: "Re-run the project build",
+        },
     ]
 }
 

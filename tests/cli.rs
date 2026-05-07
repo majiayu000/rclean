@@ -131,6 +131,55 @@ fn scan_write_plan_then_clean_plan_dry_run() {
 }
 
 #[test]
+fn rules_lists_every_classifier_emitted_id() {
+    // Guards against the catalog/classifier drift where rule_ids like
+    // node.build / node.dist / node.out were emitted by classify_candidate
+    // but missing from `rclean rules` output.
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let output = cmd.arg("rules").assert().success();
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+
+    let expected = [
+        "node.node_modules",
+        "node.next",
+        "node.turbo",
+        "node.vite",
+        "node.parcel",
+        "node.build",
+        "node.dist",
+        "node.out",
+        "python.venv_dot",
+        "python.venv_plain",
+        "python.pycache",
+        "python.pytest",
+        "python.mypy",
+        "python.ruff",
+        "python.tox",
+        "rust.target",
+        "go.vendor",
+        "ios.pods",
+        "java.maven_target",
+        "java.gradle_build",
+        "java.gradle_cache_local",
+        "dart.build",
+        "dart.tool",
+        "dotnet.bin",
+        "dotnet.obj",
+        "ruby.bundle",
+        "ruby.vendor_bundle",
+        "generic.coverage",
+    ];
+    let missing: Vec<&&str> = expected
+        .iter()
+        .filter(|id| !stdout.contains(**id))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "rule_ids emitted by classifier but missing from `rclean rules` output: {missing:?}"
+    );
+}
+
+#[test]
 fn clean_interactive_selection_accepts_number() {
     let temp = TempDir::new().unwrap();
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();
