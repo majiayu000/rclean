@@ -55,7 +55,26 @@ pub fn write_action_plan(
     };
     let json = serde_json::to_string_pretty(&plan)
         .map_err(|err| format!("failed to serialize action plan: {err}"))?;
-    fs::write(path, json).map_err(|err| format!("failed to write {}: {err}", path.display()))
+    write_atomically(path, json.as_bytes())
+}
+
+fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    let mut tmp = match parent {
+        Some(dir) => tempfile::NamedTempFile::new_in(dir),
+        None => tempfile::NamedTempFile::new_in("."),
+    }
+    .map_err(|err| format!("failed to create temp file near {}: {err}", path.display()))?;
+
+    use std::io::Write as _;
+    tmp.write_all(contents)
+        .map_err(|err| format!("failed to write temp file: {err}"))?;
+    tmp.as_file()
+        .sync_all()
+        .map_err(|err| format!("failed to fsync temp file: {err}"))?;
+    tmp.persist(path)
+        .map_err(|err| format!("failed to rename into {}: {}", path.display(), err.error))?;
+    Ok(())
 }
 
 pub fn read_action_plan(path: &Path) -> Result<ActionPlan, String> {
@@ -329,6 +348,36 @@ mod tests {
         assert!(
             err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
             "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn write_is_atomic_against_existing_file() {
+        let temp = TempDir::new().unwrap();
+        let candidate = create_node_project(temp.path());
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        // Pre-existing valid plan.
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        let original = fs::read_to_string(&plan_path).unwrap();
+
+        // A second write must replace atomically; no .tmp leftover under the parent.
+        write_action_plan(&report, &plan_path, true, true, "permanent").unwrap();
+        let after = fs::read_to_string(&plan_path).unwrap();
+        assert_ne!(original, after, "second write should change content");
+
+        let leftovers: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_name().to_string_lossy().starts_with(".tmp")
+                    || e.file_name().to_string_lossy().ends_with(".tmp")
+            })
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "no temp files should remain: {leftovers:?}"
         );
     }
 
