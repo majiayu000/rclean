@@ -46,6 +46,19 @@ fn run() -> Result<ExitCode, String> {
             }
         }
         Commands::Clean(args) => {
+            if !args.allow_broad_root {
+                if let Some(plan_path) = &args.plan {
+                    let action_plan = plan::read_action_plan(plan_path)?;
+                    let plan_roots: Vec<std::path::PathBuf> = action_plan
+                        .roots
+                        .iter()
+                        .map(std::path::PathBuf::from)
+                        .collect();
+                    clean::check_broad_roots(&plan_roots)?;
+                } else {
+                    clean::check_broad_roots(&args.common.paths_or_current_dir())?;
+                }
+            }
             let (selected, report) = if let Some(plan_path) = &args.plan {
                 let action_plan = plan::read_action_plan(plan_path)?;
                 let selected = plan::selected_from_action_plan(&action_plan)?;

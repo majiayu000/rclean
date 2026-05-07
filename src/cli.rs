@@ -101,6 +101,11 @@ pub struct CleanArgs {
     /// Read selected candidates from a previously written action plan.
     #[arg(long)]
     pub plan: Option<PathBuf>,
+
+    /// Allow cleaning when a scan root resolves to a broad system or user root
+    /// (for example /, $HOME, /etc, /usr). Off by default.
+    #[arg(long)]
+    pub allow_broad_root: bool,
 }
 
 #[derive(Debug, Args)]
