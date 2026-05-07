@@ -5,6 +5,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
+use rayon::prelude::*;
 
 use crate::model::{
     ActivityInfo, Candidate, CandidateDraft, Category, Explanation, GitInfo, ProjectReport, Safety,
@@ -369,6 +370,52 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
 }
 
 fn dir_size(path: &Path, verbose: bool) -> u64 {
+    // First, account for the root entry itself (file or dir metadata).
+    let mut root_total: u64 = 0;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_file() {
+                return metadata.len();
+            }
+            if !metadata.is_dir() {
+                return 0;
+            }
+        }
+        Err(err) => {
+            if verbose {
+                eprintln!(
+                    "dir_size symlink_metadata error at {}: {err}",
+                    path.display()
+                );
+            }
+            return 0;
+        }
+    }
+
+    // Split work at the top level. Each top-level child runs an independent
+    // sequential WalkDir on a rayon worker, which bounds concurrency to the
+    // candidate fanout (e.g. node_modules has hundreds of package directories).
+    let children = match fs::read_dir(path) {
+        Ok(iter) => iter
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .collect::<Vec<_>>(),
+        Err(err) => {
+            if verbose {
+                eprintln!("dir_size read_dir error at {}: {err}", path.display());
+            }
+            return root_total;
+        }
+    };
+
+    let parallel: u64 = children
+        .par_iter()
+        .map(|child| sequential_dir_size(child, verbose))
+        .sum();
+    root_total = root_total.saturating_add(parallel);
+    root_total
+}
+
+fn sequential_dir_size(path: &Path, verbose: bool) -> u64 {
     let mut total: u64 = 0;
     for result in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = match result {
@@ -404,10 +451,78 @@ fn project_source_size(
     max_depth: usize,
     verbose: bool,
 ) -> u64 {
-    let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
-    let mut total: u64 = 0;
+    let candidate_paths: HashSet<PathBuf> = candidate_paths.iter().cloned().collect();
 
-    for result in walkdir::WalkDir::new(project_dir)
+    // Account for files directly inside project_dir before descending.
+    let mut top_total: u64 = 0;
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+
+    let entries = match fs::read_dir(project_dir) {
+        Ok(iter) => iter,
+        Err(err) => {
+            if verbose {
+                eprintln!(
+                    "project_source_size read_dir error at {}: {err}",
+                    project_dir.display()
+                );
+            }
+            return 0;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if candidate_paths.contains(&path) {
+            continue;
+        }
+        let name_owned = entry.file_name();
+        let Some(name) = name_owned.to_str() else {
+            continue;
+        };
+        if is_skip_name(name) || rules::is_candidate_name(name) {
+            continue;
+        }
+
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                if verbose {
+                    eprintln!(
+                        "project_source_size metadata error at {}: {err}",
+                        path.display()
+                    );
+                }
+                continue;
+            }
+        };
+        if metadata.is_file() {
+            top_total = top_total.saturating_add(metadata.len());
+        } else if metadata.is_dir() {
+            subdirs.push(path);
+        }
+    }
+
+    // max_depth applies to the WalkDir from project_dir; subdir walks should
+    // stop one level shallower. saturating_sub keeps depth=0 well-behaved.
+    let child_depth = max_depth.saturating_sub(1);
+    let parallel: u64 = subdirs
+        .par_iter()
+        .map(|subdir| {
+            sequential_source_size(subdir, &candidate_paths, child_depth, verbose, project_dir)
+        })
+        .sum();
+    top_total.saturating_add(parallel)
+}
+
+fn sequential_source_size(
+    subdir: &Path,
+    candidate_paths: &HashSet<PathBuf>,
+    max_depth: usize,
+    verbose: bool,
+    project_dir: &Path,
+) -> u64 {
+    let mut total: u64 = 0;
+    for result in walkdir::WalkDir::new(subdir)
         .max_depth(max_depth)
         .follow_links(false)
         .into_iter()
@@ -449,7 +564,6 @@ fn project_source_size(
             }
         }
     }
-
     total
 }
 

@@ -204,3 +204,51 @@ fn clean_interactive_selection_accepts_number() {
 
     assert!(temp.path().join("node_modules").exists());
 }
+
+/// Lock in the parallel `dir_size` and `project_source_size` byte totals.
+///
+/// This test exercises the rayon-driven sizing paths added in
+/// `src/scan.rs`: both functions split work at the top-level children of
+/// the directory they walk, then sum subtrees on a worker pool. The byte
+/// totals must match what a single-threaded walk would produce.
+#[test]
+fn parallel_sizing_byte_totals_are_stable() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+
+    // 5 source subdirs * 4 files * 5 bytes = 100 source bytes
+    for src_idx in 0..5 {
+        let src_dir = temp.path().join(format!("src{src_idx}"));
+        std::fs::create_dir(&src_dir).unwrap();
+        for file_idx in 0..4 {
+            std::fs::write(src_dir.join(format!("f{file_idx}.rs")), b"hello").unwrap();
+        }
+    }
+
+    // 8 package subdirs * 3 files * 10 bytes = 240 candidate bytes
+    let modules = temp.path().join("node_modules");
+    std::fs::create_dir(&modules).unwrap();
+    for pkg_idx in 0..8 {
+        let pkg = modules.join(format!("pkg{pkg_idx}"));
+        std::fs::create_dir(&pkg).unwrap();
+        for file_idx in 0..3 {
+            std::fs::write(pkg.join(format!("f{file_idx}.js")), b"0123456789").unwrap();
+        }
+    }
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    // candidate side must come from parallel `dir_size`
+    .stdout(predicate::str::contains("\"bytes\": 240"))
+    // project side must come from parallel `project_source_size`
+    // (240 candidate + 100 source + 2 package.json = 342)
+    .stdout(predicate::str::contains("\"projectBytes\": 342"));
+}
