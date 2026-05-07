@@ -193,7 +193,7 @@ fn build_project_report(
         let bytes = if draft.safety == Safety::Blocked {
             0
         } else {
-            dir_size(&draft.path)
+            dir_size(&draft.path, options.verbose)
         };
         if bytes < options.min_size && draft.safety != Safety::Blocked {
             continue;
@@ -221,7 +221,8 @@ fn build_project_report(
         .iter()
         .map(|candidate| PathBuf::from(&candidate.path))
         .collect::<Vec<_>>();
-    let source_bytes = project_source_size(dir, &candidate_paths, options.max_depth);
+    let source_bytes =
+        project_source_size(dir, &candidate_paths, options.max_depth, options.verbose);
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -367,28 +368,46 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
     newest
 }
 
-fn dir_size(path: &Path) -> u64 {
-    let mut total = 0;
-    for entry in walkdir::WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .flatten()
-    {
-        let Ok(metadata) = entry.metadata() else {
-            continue;
+fn dir_size(path: &Path, verbose: bool) -> u64 {
+    let mut total: u64 = 0;
+    for result in walkdir::WalkDir::new(path).follow_links(false) {
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(err) => {
+                if verbose {
+                    eprintln!("dir_size walk error under {}: {err}", path.display());
+                }
+                continue;
+            }
         };
-        if metadata.is_file() {
-            total += metadata.len();
+        match entry.metadata() {
+            Ok(metadata) if metadata.is_file() => {
+                total = total.saturating_add(metadata.len());
+            }
+            Ok(_) => {}
+            Err(err) => {
+                if verbose {
+                    eprintln!(
+                        "dir_size metadata error at {}: {err}",
+                        entry.path().display()
+                    );
+                }
+            }
         }
     }
     total
 }
 
-fn project_source_size(project_dir: &Path, candidate_paths: &[PathBuf], max_depth: usize) -> u64 {
+fn project_source_size(
+    project_dir: &Path,
+    candidate_paths: &[PathBuf],
+    max_depth: usize,
+    verbose: bool,
+) -> u64 {
     let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
-    let mut total = 0;
+    let mut total: u64 = 0;
 
-    for entry in walkdir::WalkDir::new(project_dir)
+    for result in walkdir::WalkDir::new(project_dir)
         .max_depth(max_depth)
         .follow_links(false)
         .into_iter()
@@ -402,13 +421,32 @@ fn project_source_size(project_dir: &Path, candidate_paths: &[PathBuf], max_dept
                 .to_str()
                 .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
         })
-        .flatten()
     {
-        let Ok(metadata) = entry.metadata() else {
-            continue;
+        let entry = match result {
+            Ok(entry) => entry,
+            Err(err) => {
+                if verbose {
+                    eprintln!(
+                        "project_source_size walk error under {}: {err}",
+                        project_dir.display()
+                    );
+                }
+                continue;
+            }
         };
-        if metadata.is_file() {
-            total += metadata.len();
+        match entry.metadata() {
+            Ok(metadata) if metadata.is_file() => {
+                total = total.saturating_add(metadata.len());
+            }
+            Ok(_) => {}
+            Err(err) => {
+                if verbose {
+                    eprintln!(
+                        "project_source_size metadata error at {}: {err}",
+                        entry.path().display()
+                    );
+                }
+            }
         }
     }
 
