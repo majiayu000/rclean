@@ -142,7 +142,7 @@ fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
         })
         .collect::<Vec<_>>();
 
-    wins.sort_by(|(_, left), (_, right)| right.bytes.cmp(&left.bytes));
+    wins.sort_by_key(|(_, candidate)| std::cmp::Reverse(candidate.bytes));
     wins.truncate(5);
     wins
 }
