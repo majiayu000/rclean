@@ -1,8 +1,10 @@
+use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::cli::CleanArgs;
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
+use crate::scan::is_runtime_or_system_path;
 
 #[derive(Debug, Clone, Copy)]
 struct SelectableCandidate<'a> {
@@ -191,8 +193,13 @@ pub fn delete_selected(
     let mut result = CleanResult::default();
 
     for candidate in selected {
+        if let Err(err) = validate_for_deletion(&candidate.path) {
+            result.failed.push((candidate.clone(), err));
+            continue;
+        }
+
         let outcome = if permanent {
-            std::fs::remove_dir_all(&candidate.path).map_err(|err| err.to_string())
+            fs::remove_dir_all(&candidate.path).map_err(|err| err.to_string())
         } else {
             trash::delete(&candidate.path).map_err(|err| err.to_string())
         };
@@ -204,6 +211,39 @@ pub fn delete_selected(
     }
 
     Ok(result)
+}
+
+pub(crate) fn validate_for_deletion(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|err| {
+        format!(
+            "{} no longer exists or cannot be read: {err}",
+            path.display()
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "refusing to delete {}: path is now a symlink",
+            path.display()
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(format!(
+            "refusing to delete {}: path is no longer a directory",
+            path.display()
+        ));
+    }
+
+    let canonical = path
+        .canonicalize()
+        .map_err(|err| format!("failed to canonicalize {}: {err}", path.display()))?;
+    if is_runtime_or_system_path(&canonical) {
+        return Err(format!(
+            "refusing to delete {}: resolves to a protected runtime or system path",
+            path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn print_clean_result(result: &CleanResult) {
@@ -280,6 +320,7 @@ fn to_selected(candidate: &Candidate) -> SelectedCandidate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn parses_interactive_selection() {
@@ -289,5 +330,77 @@ mod tests {
         assert!(parse_selection("0", 3).is_err());
         assert!(parse_selection("4", 3).is_err());
         assert!(parse_selection("3-1", 3).is_err());
+    }
+
+    #[test]
+    fn validate_accepts_real_directory() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("artifact");
+        fs::create_dir(&dir).unwrap();
+        validate_for_deletion(&dir).expect("real directory must validate");
+    }
+
+    #[test]
+    fn validate_rejects_symlink() {
+        let temp = TempDir::new().unwrap();
+        let real = temp.path().join("real");
+        let link = temp.path().join("link");
+        fs::create_dir(&real).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
+        let err = validate_for_deletion(&link).expect_err("symlink must be rejected");
+        assert!(err.contains("symlink"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn validate_rejects_missing_path() {
+        let temp = TempDir::new().unwrap();
+        let missing = temp.path().join("missing");
+        let err = validate_for_deletion(&missing).expect_err("missing path must be rejected");
+        assert!(
+            err.contains("no longer exists") || err.contains("cannot be read"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_file() {
+        let temp = TempDir::new().unwrap();
+        let file = temp.path().join("file");
+        fs::write(&file, b"x").unwrap();
+        let err = validate_for_deletion(&file).expect_err("file must be rejected");
+        assert!(
+            err.contains("no longer a directory"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn delete_selected_skips_swapped_symlink_target() {
+        let temp = TempDir::new().unwrap();
+        let real = temp.path().join("real");
+        let candidate_path = temp.path().join("artifact");
+        fs::create_dir(&real).unwrap();
+        fs::create_dir(&candidate_path).unwrap();
+
+        let selected = vec![SelectedCandidate {
+            path: candidate_path.clone(),
+            bytes: 0,
+            rule_id: "test".to_string(),
+        }];
+
+        // TOCTOU: replace the candidate directory with a symlink between scan and delete.
+        fs::remove_dir(&candidate_path).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &candidate_path).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&real, &candidate_path).unwrap();
+
+        let result = delete_selected(&selected, true).unwrap();
+        assert!(result.cleaned.is_empty());
+        assert_eq!(result.failed.len(), 1);
+        assert!(real.is_dir(), "symlink target must not be deleted");
     }
 }
