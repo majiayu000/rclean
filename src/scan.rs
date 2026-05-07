@@ -36,7 +36,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Stri
         scan_dir(&root, &root, 0, options, &mut projects)?;
     }
 
-    projects.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
+    projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
     let summary = build_summary(&projects);
 
     Ok(ScanReport {
@@ -472,7 +472,7 @@ fn is_skip_name(name: &str) -> bool {
     )
 }
 
-fn is_runtime_or_system_path(path: &Path) -> bool {
+pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
     let protected: HashSet<&str> = [
         ".cargo",
         ".rustup",
