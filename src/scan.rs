@@ -472,7 +472,7 @@ fn is_skip_name(name: &str) -> bool {
     )
 }
 
-fn is_runtime_or_system_path(path: &Path) -> bool {
+pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
     let protected: HashSet<&str> = [
         ".cargo",
         ".rustup",

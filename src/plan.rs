@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::clean::SelectedCandidate;
 use crate::model::{Candidate, ProjectReport, Safety, ScanReport, Summary};
+use crate::rules;
+use crate::scan::is_runtime_or_system_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ActionPlan {
     pub schema_version: u32,
     pub tool_version: String,
@@ -21,7 +23,7 @@ pub struct ActionPlan {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanCandidate {
     pub path: String,
     pub rule_id: String,
@@ -71,16 +73,48 @@ pub fn read_action_plan(path: &Path) -> Result<ActionPlan, String> {
 }
 
 pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandidate>, String> {
-    let selected = plan
-        .selected
-        .iter()
-        .filter(|candidate| candidate.safety != Safety::Blocked)
-        .map(|candidate| SelectedCandidate {
-            path: PathBuf::from(&candidate.path),
+    let mut selected = Vec::with_capacity(plan.selected.len());
+    for candidate in &plan.selected {
+        let path = PathBuf::from(&candidate.path);
+
+        if is_runtime_or_system_path(&path) {
+            return Err(format!(
+                "{} is inside a protected runtime or system path; refusing to clean",
+                candidate.path
+            ));
+        }
+
+        let parent = path.parent().ok_or_else(|| {
+            format!(
+                "plan candidate has no parent directory: {}",
+                candidate.path
+            )
+        })?;
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("plan candidate has invalid file name: {}", candidate.path))?;
+
+        let draft = rules::classify_candidate(parent, name, path.clone()).ok_or_else(|| {
+            format!(
+                "{} is not recognized by any current rule (plan may be stale or tampered)",
+                candidate.path
+            )
+        })?;
+
+        if draft.safety == Safety::Blocked || draft.safety == Safety::Unknown {
+            return Err(format!(
+                "{} is now classified as {:?} by rule {}; refusing to clean",
+                candidate.path, draft.safety, draft.rule_id
+            ));
+        }
+
+        selected.push(SelectedCandidate {
+            path,
             bytes: candidate.bytes,
-            rule_id: candidate.rule_id.clone(),
-        })
-        .collect::<Vec<_>>();
+            rule_id: draft.rule_id,
+        });
+    }
     Ok(selected)
 }
 
@@ -198,11 +232,17 @@ mod tests {
         }
     }
 
+    fn create_node_project(root: &Path) -> PathBuf {
+        let candidate = root.join("node_modules");
+        fs::create_dir(&candidate).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        candidate
+    }
+
     #[test]
     fn writes_and_revalidates_plan() {
         let temp = TempDir::new().unwrap();
-        let candidate = temp.path().join("node_modules");
-        fs::create_dir(&candidate).unwrap();
+        let candidate = create_node_project(temp.path());
         let plan_path = temp.path().join("plan.json");
         let report = report(temp.path(), &candidate);
 
@@ -217,15 +257,14 @@ mod tests {
     #[test]
     fn revalidation_rejects_stale_plan_path() {
         let temp = TempDir::new().unwrap();
-        let candidate = temp.path().join("node_modules");
-        fs::create_dir(&candidate).unwrap();
+        let candidate = create_node_project(temp.path());
         let plan_path = temp.path().join("plan.json");
         let report = report(temp.path(), &candidate);
 
         write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
-        fs::remove_dir_all(&candidate).unwrap();
         let plan = read_action_plan(&plan_path).unwrap();
         let selected = selected_from_action_plan(&plan).unwrap();
+        fs::remove_dir_all(&candidate).unwrap();
 
         assert!(revalidate_selected(&plan, &selected).is_err());
     }
@@ -233,22 +272,98 @@ mod tests {
     #[test]
     fn revalidation_rejects_symlinked_plan_path() {
         let temp = TempDir::new().unwrap();
-        let candidate = temp.path().join("node_modules");
+        let candidate = create_node_project(temp.path());
         let real = temp.path().join("real_modules");
-        fs::create_dir(&candidate).unwrap();
         fs::create_dir(&real).unwrap();
         let plan_path = temp.path().join("plan.json");
         let report = report(temp.path(), &candidate);
 
         write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+        let selected = selected_from_action_plan(&plan).unwrap();
         fs::remove_dir_all(&candidate).unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(&real, &candidate).unwrap();
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&real, &candidate).unwrap();
-        let plan = read_action_plan(&plan_path).unwrap();
-        let selected = selected_from_action_plan(&plan).unwrap();
 
         assert!(revalidate_selected(&plan, &selected).is_err());
+    }
+
+    #[test]
+    fn tampered_plan_with_unrecognized_path_is_rejected() {
+        let temp = TempDir::new().unwrap();
+        let candidate = temp.path().join("not_a_real_artifact");
+        fs::create_dir(&candidate).unwrap();
+        let plan_path = temp.path().join("plan.json");
+        let mut report = report(temp.path(), &candidate);
+        report.projects[0].candidates[0].name = "not_a_real_artifact".to_string();
+        report.projects[0].candidates[0].rule_id = "fake.rule".to_string();
+        report.projects[0].candidates[0].path = candidate.display().to_string();
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+        let err = selected_from_action_plan(&plan).expect_err("should reject unrecognized paths");
+        assert!(
+            err.contains("not recognized") || err.contains("rule"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn tampered_plan_promoting_blocked_to_safe_is_rejected() {
+        let temp = TempDir::new().unwrap();
+        let candidate = create_node_project(temp.path());
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+
+        let raw = fs::read_to_string(&plan_path).unwrap();
+        let mut plan: ActionPlan = serde_json::from_str(&raw).unwrap();
+        plan.selected[0].path = "/usr/local/lib/node_modules".to_string();
+        plan.selected[0].safety = Safety::Safe;
+        let tampered_json = serde_json::to_string_pretty(&plan).unwrap();
+        fs::write(&plan_path, tampered_json).unwrap();
+
+        let plan = read_action_plan(&plan_path).unwrap();
+        let err = selected_from_action_plan(&plan)
+            .expect_err("should reject a tampered plan that injects a system path");
+        assert!(
+            err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_plans_with_unknown_fields() {
+        let temp = TempDir::new().unwrap();
+        let plan_path = temp.path().join("plan.json");
+        fs::write(
+            &plan_path,
+            r#"{
+                "schemaVersion": 1,
+                "toolVersion": "0.1.0",
+                "generatedAt": "2026-05-06T00:00:00Z",
+                "deleteMode": "trash",
+                "roots": [],
+                "summary": {
+                    "projectsScanned": 0,
+                    "projectsWithCandidates": 0,
+                    "candidates": 0,
+                    "safeCandidates": 0,
+                    "cautionCandidates": 0,
+                    "blockedCandidates": 0,
+                    "totalBytes": 0
+                },
+                "selected": [],
+                "projects": [],
+                "extraField": "should reject"
+            }"#,
+        )
+        .unwrap();
+
+        let err = read_action_plan(&plan_path).expect_err("should reject unknown fields");
+        assert!(err.contains("unknown field"), "unexpected error: {err}");
     }
 }
