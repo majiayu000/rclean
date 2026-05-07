@@ -19,7 +19,6 @@ pub struct ScanOptions {
     pub older_than: Option<Duration>,
     pub categories: Option<Vec<Category>>,
     pub rule_ids: Option<Vec<String>>,
-    pub include_ide: bool,
     pub include_blocked: bool,
     pub verbose: bool,
 }
@@ -244,9 +243,6 @@ fn build_project_report(
 }
 
 fn should_include(draft: &CandidateDraft, options: &ScanOptions) -> bool {
-    if draft.category == Category::Ide && !options.include_ide {
-        return false;
-    }
     if let Some(categories) = &options.categories
         && !categories.contains(&draft.category)
     {
@@ -512,7 +508,6 @@ mod tests {
             older_than: None,
             categories: None,
             rule_ids: None,
-            include_ide: false,
             include_blocked: true,
             verbose: false,
         }

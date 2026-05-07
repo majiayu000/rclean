@@ -11,7 +11,6 @@ pub enum Category {
     Build,
     Cache,
     Test,
-    Ide,
 }
 
 impl fmt::Display for Category {
@@ -21,7 +20,6 @@ impl fmt::Display for Category {
             Category::Build => "build",
             Category::Cache => "cache",
             Category::Test => "test",
-            Category::Ide => "ide",
         })
     }
 }
@@ -35,9 +33,8 @@ impl FromStr for Category {
             "build" => Ok(Category::Build),
             "cache" => Ok(Category::Cache),
             "test" => Ok(Category::Test),
-            "ide" => Ok(Category::Ide),
             other => Err(format!(
-                "invalid category '{other}'. Use deps, build, cache, test, or ide"
+                "invalid category '{other}'. Use deps, build, cache, or test"
             )),
         }
     }
