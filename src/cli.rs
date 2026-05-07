@@ -52,17 +52,13 @@ pub struct CommonScanArgs {
     #[arg(long)]
     pub older_than: Option<String>,
 
-    /// Include only these categories: deps,build,cache,test,ide.
+    /// Include only these categories: deps,build,cache,test.
     #[arg(long, value_delimiter = ',')]
     pub category: Vec<String>,
 
     /// Include only these rule ids.
     #[arg(long, value_delimiter = ',')]
     pub rule: Vec<String>,
-
-    /// Also scan IDE cache/config candidates.
-    #[arg(long)]
-    pub include_ide: bool,
 
     /// Include caution candidates in bulk selection.
     #[arg(long)]
@@ -143,7 +139,6 @@ impl CommonScanArgs {
             } else {
                 Some(self.rule.clone())
             },
-            include_ide: self.include_ide,
             include_blocked: self.include_blocked,
             verbose: self.verbose,
         })
