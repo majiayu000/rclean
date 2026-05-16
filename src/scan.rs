@@ -11,6 +11,7 @@ use crate::model::{
     ScanReport, Summary,
 };
 use crate::rules;
+use crate::user_rules::UserRuleSet;
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -32,7 +33,8 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Stri
             .canonicalize()
             .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        let user_rules = UserRuleSet::load_from_root(&root);
+        scan_dir(&root, &root, 0, options, &user_rules, &mut projects)?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -87,6 +89,7 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    user_rules: &UserRuleSet,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), String> {
     if depth > options.max_depth || is_skip_dir(dir) {
@@ -130,6 +133,19 @@ fn scan_dir(
             continue;
         }
 
+        // Builtin classifier missed. Give user rules from `.rclean.toml`
+        // a chance — they can match arbitrary directory names like
+        // `my_build_*` under user-declared `parent_markers`.
+        if !user_rules.is_empty()
+            && let Some(mut draft) = user_rules.classify(&name, dir)
+        {
+            apply_path_safety(root, &mut draft);
+            if should_include(&draft, options) {
+                drafts.push(draft);
+            }
+            continue;
+        }
+
         if metadata.is_dir() && !is_symlink && !is_skip_name(&name) {
             child_dirs.push(path);
         }
@@ -143,7 +159,7 @@ fn scan_dir(
     }
 
     for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
+        scan_dir(&child, root, depth + 1, options, user_rules, projects)?;
     }
 
     Ok(())
