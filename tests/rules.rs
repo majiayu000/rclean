@@ -132,3 +132,54 @@ fn node_build_is_classified_with_caution_warning() {
     .stdout(predicate::str::contains("\"ruleId\": \"node.build\""))
     .stdout(predicate::str::contains("\"safety\": \"caution\""));
 }
+
+#[test]
+fn gradle_build_wins_over_node_build_in_mixed_project() {
+    // Regression for the dispatch-order bug found in PR #28 review:
+    // a project that has BOTH `package.json` and `build.gradle` should
+    // classify `build/` as `java.gradle_build` (Safe), not as
+    // `node.build` (Caution). The match-arm order in v0.1.0 put Gradle
+    // first; the dispatch chain must replay that priority.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    fs::write(temp.path().join("build.gradle"), "// gradle\n").unwrap();
+    make_dir(temp.path(), "build");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"java.gradle_build\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn flutter_build_wins_over_node_build_in_mixed_project() {
+    // Same regression in the Flutter+Node combo. v0.1.0 priority:
+    // Gradle > Flutter > Node for the ambiguous `build/` name.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    fs::write(temp.path().join("pubspec.yaml"), "name: x\n").unwrap();
+    make_dir(temp.path(), "build");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"dart.build\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
