@@ -635,4 +635,66 @@ mod tests {
 
         assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
     }
+
+    #[test]
+    fn sibling_projects_source_bytes_do_not_cross_contaminate() {
+        // Regression for the single-pass refactor: sum_subtree_bytes filters
+        // by `starts_with(project_dir)`. Two sibling projects under one root
+        // must each see only their own non-candidate files in source_bytes.
+        // Pre-fix, a buggy fold that swept the whole sizes map without the
+        // starts_with guard would inflate each sibling with the other's bytes.
+        let temp = TempDir::new().unwrap();
+
+        let frontend = temp.path().join("frontend");
+        let backend = temp.path().join("backend");
+        fs::create_dir(&frontend).unwrap();
+        fs::create_dir(&backend).unwrap();
+
+        // Use fixed-length payloads so the expected source_bytes are
+        // recomputable from the literals below, not guessed.
+        let frontend_marker = b"{}"; // 2 bytes
+        let frontend_readme = b"hi\n"; // 3 bytes
+        fs::write(frontend.join("package.json"), frontend_marker).unwrap();
+        fs::write(frontend.join("README.md"), frontend_readme).unwrap();
+        fs::create_dir(frontend.join("node_modules")).unwrap();
+        fs::write(frontend.join("node_modules").join("a"), b"xyz").unwrap();
+        let frontend_source_expected = (frontend_marker.len() + frontend_readme.len()) as u64;
+
+        let backend_marker = b"[package]\nname=\"b\"\n"; // 19 bytes
+        let backend_readme = b"hello\n"; // 6 bytes
+        fs::write(backend.join("Cargo.toml"), backend_marker).unwrap();
+        fs::write(backend.join("README.md"), backend_readme).unwrap();
+        fs::create_dir(backend.join("target")).unwrap();
+        fs::write(backend.join("target").join("a"), b"build-output").unwrap();
+        let backend_source_expected = (backend_marker.len() + backend_readme.len()) as u64;
+
+        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
+
+        let projects: std::collections::HashMap<&str, &ProjectReport> = report
+            .projects
+            .iter()
+            .map(|p| {
+                let name = std::path::Path::new(&p.path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap();
+                (name, p)
+            })
+            .collect();
+
+        let front = projects.get("frontend").expect("frontend project missing");
+        let back = projects.get("backend").expect("backend project missing");
+
+        let front_source = front.project_bytes - front.total_bytes;
+        let back_source = back.project_bytes - back.total_bytes;
+
+        assert_eq!(
+            front_source, frontend_source_expected,
+            "frontend should only count its own files"
+        );
+        assert_eq!(
+            back_source, backend_source_expected,
+            "backend should only count its own files"
+        );
+    }
 }
