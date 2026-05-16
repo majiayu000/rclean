@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +12,75 @@ use crate::model::{
     ScanReport, Summary,
 };
 use crate::rules;
+
+#[derive(Default)]
+pub(crate) struct GitCache {
+    by_dir: RefCell<HashMap<PathBuf, Option<GitInfo>>>,
+}
+
+impl GitCache {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
+        let cached_for_dir = self.by_dir.borrow().get(dir).cloned();
+        if let Some(cached) = cached_for_dir {
+            return cached;
+        }
+
+        let repo_root = match run_git_rev_parse(dir) {
+            Some(root) => root,
+            None => {
+                self.by_dir.borrow_mut().insert(dir.to_path_buf(), None);
+                return None;
+            }
+        };
+
+        let root_path = PathBuf::from(&repo_root);
+        let cached_for_root = self.by_dir.borrow().get(&root_path).cloned();
+        if let Some(Some(info)) = cached_for_root {
+            self.by_dir
+                .borrow_mut()
+                .insert(dir.to_path_buf(), Some(info.clone()));
+            return Some(info);
+        }
+
+        let dirty = run_git_dirty(&root_path);
+        let info = GitInfo { repo_root, dirty };
+        let mut map = self.by_dir.borrow_mut();
+        map.insert(root_path, Some(info.clone()));
+        map.insert(dir.to_path_buf(), Some(info.clone()));
+        Some(info)
+    }
+}
+
+fn run_git_rev_parse(dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let repo_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if repo_root.is_empty() {
+        None
+    } else {
+        Some(repo_root)
+    }
+}
+
+fn run_git_dirty(repo_root: &Path) -> bool {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["status", "--porcelain"])
+        .output();
+    matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
+}
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -26,13 +96,14 @@ pub struct ScanOptions {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, String> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
+    let git_cache = GitCache::new();
 
     for path in paths {
         let root = path
             .canonicalize()
             .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        scan_dir(&root, &root, 0, options, &git_cache, &mut projects)?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -87,6 +158,7 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    git_cache: &GitCache,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), String> {
     if depth > options.max_depth || is_skip_dir(dir) {
@@ -136,14 +208,14 @@ fn scan_dir(
     }
 
     if !drafts.is_empty() {
-        let project = build_project_report(dir, root, drafts, options)?;
+        let project = build_project_report(dir, root, drafts, options, git_cache)?;
         if !project.candidates.is_empty() {
             projects.push(project);
         }
     }
 
     for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
+        scan_dir(&child, root, depth + 1, options, git_cache, projects)?;
     }
 
     Ok(())
@@ -154,9 +226,10 @@ fn build_project_report(
     _root: &Path,
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
+    git_cache: &GitCache,
 ) -> Result<ProjectReport, String> {
     let (kind, markers) = rules::detect_project_kind(dir);
-    let git = git_info(dir);
+    let git = git_cache.info_for(dir);
     let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
 
     if let Some(age) = options.older_than
@@ -453,32 +526,6 @@ fn project_source_size(
     total
 }
 
-fn git_info(dir: &Path) -> Option<GitInfo> {
-    let root = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !root.status.success() {
-        return None;
-    }
-    let repo_root = String::from_utf8_lossy(&root.stdout).trim().to_string();
-    if repo_root.is_empty() {
-        return None;
-    }
-
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()?;
-    let dirty = status.status.success() && !status.stdout.is_empty();
-
-    Some(GitInfo { repo_root, dirty })
-}
-
 fn is_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -662,5 +709,38 @@ mod tests {
         let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
 
         assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
+    }
+
+    #[test]
+    fn git_cache_returns_none_for_non_repo() {
+        let temp = TempDir::new().unwrap();
+        let cache = GitCache::new();
+
+        assert!(cache.info_for(temp.path()).is_none());
+        // second call should hit the cached None without spawning git
+        assert!(cache.info_for(temp.path()).is_none());
+    }
+
+    #[test]
+    fn git_cache_shares_dirty_flag_across_sibling_projects() {
+        let temp = TempDir::new().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(temp.path())
+            .arg("init")
+            .output()
+            .unwrap();
+        fs::create_dir(temp.path().join("a")).unwrap();
+        fs::create_dir(temp.path().join("b")).unwrap();
+        // create an uncommitted file so the repo is dirty
+        fs::write(temp.path().join("dirty.txt"), "x").unwrap();
+
+        let cache = GitCache::new();
+        let a = cache.info_for(&temp.path().join("a")).unwrap();
+        let b = cache.info_for(&temp.path().join("b")).unwrap();
+
+        assert_eq!(a.repo_root, b.repo_root);
+        assert!(a.dirty);
+        assert!(b.dirty);
     }
 }
