@@ -1,0 +1,39 @@
+name: Audit
+
+on:
+  # Weekly canary, Monday 14:00 UTC.
+  schedule:
+    - cron: "0 14 * * 1"
+  # Re-run whenever dependency files change.
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/audit.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+  # Manual trigger so maintainers can re-run after CVE disclosures
+  # without waiting for the weekly slot.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run rustsec/audit-check
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
