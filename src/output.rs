@@ -1,9 +1,8 @@
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
 
-pub fn print_json(report: &ScanReport) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|err| format!("failed to serialize JSON report: {err}"))?;
+pub fn print_json(report: &ScanReport) -> Result<(), serde_json::Error> {
+    let json = serde_json::to_string_pretty(report)?;
     println!("{json}");
     Ok(())
 }
@@ -49,10 +48,10 @@ pub fn print_table(report: &ScanReport) {
 
     println!();
     println!(
-        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} Reason",
-        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety"
+        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} Reason",
+        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety", "Risk"
     );
-    println!("{}", "-".repeat(118));
+    println!("{}", "-".repeat(124));
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
@@ -64,7 +63,7 @@ pub fn print_table(report: &ScanReport) {
                 .cloned()
                 .unwrap_or_default();
             println!(
-                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {}",
+                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {}",
                 truncate(&project_name, 30),
                 truncate(&project.kind, 13),
                 truncate(&candidate.name, 18),
@@ -72,10 +71,15 @@ pub fn print_table(report: &ScanReport) {
                 format_bytes(candidate.bytes),
                 format_percent(project.artifact_percent),
                 candidate.safety,
+                format_risk(candidate.risk_score),
                 reason
             );
         }
     }
+}
+
+fn format_risk(score: f32) -> String {
+    format!("{score:.2}")
 }
 
 pub fn print_explanation(explanation: &Explanation) {
@@ -101,6 +105,9 @@ pub fn print_explanation(explanation: &Explanation) {
     }
     if let Some(hint) = &explanation.restore_hint {
         println!("Restore: {hint}");
+    }
+    if let Some(score) = explanation.risk_score {
+        println!("Risk: {}", format_risk(score));
     }
     if explanation.safety == Safety::Unknown {
         println!("No built-in cleanup rule matched this path.");

@@ -1,9 +1,11 @@
 use std::time::Duration;
 
-pub fn parse_size(raw: &str) -> Result<u64, String> {
+use crate::error::ParseError;
+
+pub fn parse_size(raw: &str) -> Result<u64, ParseError> {
     let value = raw.trim().to_ascii_lowercase();
     if value.is_empty() {
-        return Err("size cannot be empty".to_string());
+        return Err(ParseError::InvalidSize("size cannot be empty".to_string()));
     }
 
     let split_at = value
@@ -13,14 +15,14 @@ pub fn parse_size(raw: &str) -> Result<u64, String> {
     let unit = &value[split_at..];
 
     if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!(
+        return Err(ParseError::InvalidSize(format!(
             "invalid size '{raw}'. Use values like 0, 100mb, or 1g"
-        ));
+        )));
     }
 
-    let amount: u64 = number
-        .parse()
-        .map_err(|_| format!("invalid size '{raw}'. Number is too large"))?;
+    let amount: u64 = number.parse().map_err(|_| {
+        ParseError::InvalidSize(format!("invalid size '{raw}'. Number is too large"))
+    })?;
 
     let multiplier = match unit {
         "" | "b" => 1,
@@ -29,35 +31,35 @@ pub fn parse_size(raw: &str) -> Result<u64, String> {
         "g" | "gb" => 1024_u64.pow(3),
         "t" | "tb" => 1024_u64.pow(4),
         _ => {
-            return Err(format!(
+            return Err(ParseError::InvalidSize(format!(
                 "invalid size unit '{unit}'. Use b, kb, mb, gb, or tb"
-            ));
+            )));
         }
     };
 
     amount
         .checked_mul(multiplier)
-        .ok_or_else(|| format!("invalid size '{raw}'. Value is too large"))
+        .ok_or_else(|| ParseError::InvalidSize(format!("invalid size '{raw}'. Value is too large")))
 }
 
-pub fn parse_duration(raw: &str) -> Result<Duration, String> {
+pub fn parse_duration(raw: &str) -> Result<Duration, ParseError> {
     let value = raw.trim().to_ascii_lowercase();
     if value.len() < 2 {
-        return Err(format!(
+        return Err(ParseError::InvalidDuration(format!(
             "invalid duration '{raw}'. Use values like 30d, 6m, or 1y"
-        ));
+        )));
     }
 
     let (number, unit) = value.split_at(value.len() - 1);
     if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!(
+        return Err(ParseError::InvalidDuration(format!(
             "invalid duration '{raw}'. Use values like 30d, 6m, or 1y"
-        ));
+        )));
     }
 
-    let amount: u64 = number
-        .parse()
-        .map_err(|_| format!("invalid duration '{raw}'. Number is too large"))?;
+    let amount: u64 = number.parse().map_err(|_| {
+        ParseError::InvalidDuration(format!("invalid duration '{raw}'. Number is too large"))
+    })?;
     let seconds = match unit {
         "h" => 60 * 60,
         "d" => 24 * 60 * 60,
@@ -65,16 +67,18 @@ pub fn parse_duration(raw: &str) -> Result<Duration, String> {
         "m" => 30 * 24 * 60 * 60,
         "y" => 365 * 24 * 60 * 60,
         _ => {
-            return Err(format!(
+            return Err(ParseError::InvalidDuration(format!(
                 "invalid duration unit '{unit}'. Use h, d, w, m, or y"
-            ));
+            )));
         }
     };
 
     amount
         .checked_mul(seconds)
         .map(Duration::from_secs)
-        .ok_or_else(|| format!("invalid duration '{raw}'. Value is too large"))
+        .ok_or_else(|| {
+            ParseError::InvalidDuration(format!("invalid duration '{raw}'. Value is too large"))
+        })
 }
 
 #[cfg(test)]

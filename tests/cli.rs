@@ -204,3 +204,41 @@ fn clean_interactive_selection_accepts_number() {
 
     assert!(temp.path().join("node_modules").exists());
 }
+
+#[test]
+fn explain_emits_risk_score_for_matched_candidate() {
+    // A node_modules under a real package.json project should match
+    // node.node_modules. explain_path now computes the same risk_score
+    // the scan path emits per candidate, so the output should include
+    // a `Risk: 0.??` line.
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+
+    let candidate = temp.path().join("node_modules");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["explain", candidate.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Rule: node.node_modules"))
+        .stdout(predicate::str::contains("Risk: 0."));
+}
+
+#[test]
+fn explain_skips_risk_score_for_unmatched_path() {
+    // A path that doesn't match any built-in rule should report
+    // Safety::Unknown and omit the Risk line — risk_score is None
+    // when there's no project context to score against.
+    let temp = TempDir::new().unwrap();
+    let stray = temp.path().join("not_a_candidate_name");
+    std::fs::create_dir(&stray).unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["explain", stray.to_str().unwrap()])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("Safety: unknown"))
+        .stdout(predicate::str::contains("Risk:").not());
+}
