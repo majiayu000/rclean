@@ -110,6 +110,9 @@ rclean clean --plan rclean-plan.json --dry-run
 - default clean mode moves to Trash when available.
 - `--permanent` is required for permanent deletion.
 
+See [`SECURITY.md`](SECURITY.md) for the threat model, in-scope issues,
+and how to report a vulnerability privately.
+
 ## Supported Ecosystems
 
 | Ecosystem | Examples |
