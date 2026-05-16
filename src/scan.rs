@@ -303,6 +303,8 @@ fn build_project_report(
             continue;
         }
 
+        let risk_score = compute_risk_score(git.as_ref(), activity_time, dir);
+
         candidates.push(Candidate {
             path: draft.path.display().to_string(),
             name: draft.name,
@@ -313,6 +315,7 @@ fn build_project_report(
             reasons: draft.reasons,
             warnings: draft.warnings,
             restore_hint: draft.restore_hint,
+            risk_score,
         });
     }
 
@@ -505,6 +508,67 @@ fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     total
 }
 
+/// Composite risk-score signal for a candidate inside `project_dir`.
+///
+/// Range in the **final** formula is `[0.0, 1.0]`. The current
+/// implementation reaches a maximum of **0.85** because the
+/// `root_boundary` axis (weight 0.15) is deferred to a follow-up PR
+/// that wires up cross-filesystem + cwd-ancestor detection. Until then,
+/// consumers should treat 0.85 as "every implemented axis tripped" and
+/// not assume 0.85 means "every conceivable risk axis tripped".
+///
+/// First-cut weights match `docs/specs/v0.1.x-roadmap.md` §4.6:
+///   - dirty git worktree         -> 0.40
+///   - project activity < 7 days  -> 0.25
+///   - no lockfile present        -> 0.20
+///   - root-boundary signal       -> 0.15  (deferred — always 0.0 here)
+///
+/// The weight slot stays in the formula so safe/caution thresholds in
+/// downstream consumers (TUI coloring, agent plan scoring) don't have to
+/// shift when the boundary axis lights up.
+///
+/// Note: this signal is independent of `safety` tier promotion. A dirty
+/// git worktree both (a) demotes Safe → Caution in `build_project_report`
+/// and (b) contributes 0.40 to `risk_score` here. The two are intentional
+/// duplicates: safety is an operational gate (controls auto-selection),
+/// risk_score is an advisory analytical signal (controls coloring /
+/// scoring). Don't collapse them into one.
+fn compute_risk_score(git: Option<&GitInfo>, activity_time: SystemTime, project_dir: &Path) -> f32 {
+    let dirty_git: f32 = match git {
+        Some(info) if info.dirty => 1.0,
+        _ => 0.0,
+    };
+    let recent_mtime: f32 = match SystemTime::now().duration_since(activity_time) {
+        Ok(age) if age < Duration::from_secs(7 * 24 * 60 * 60) => 1.0,
+        _ => 0.0,
+    };
+    let no_lockfile: f32 = if has_lockfile(project_dir) { 0.0 } else { 1.0 };
+    let root_boundary: f32 = 0.0;
+
+    let score = dirty_git * 0.40 + recent_mtime * 0.25 + no_lockfile * 0.20 + root_boundary * 0.15;
+    score.clamp(0.0, 1.0)
+}
+
+fn has_lockfile(project_dir: &Path) -> bool {
+    const LOCKFILES: &[&str] = &[
+        "Cargo.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "Pipfile.lock",
+        "poetry.lock",
+        "uv.lock",
+        "go.sum",
+        "Gemfile.lock",
+        "composer.lock",
+        "pubspec.lock",
+    ];
+    LOCKFILES
+        .iter()
+        .any(|name| project_dir.join(name).is_file())
+}
+
 fn is_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -558,230 +622,5 @@ pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::Write;
-
-    use tempfile::TempDir;
-
-    use super::*;
-
-    fn options() -> ScanOptions {
-        ScanOptions {
-            max_depth: 6,
-            min_size: 0,
-            older_than: None,
-            categories: None,
-            rule_ids: None,
-            include_blocked: true,
-            verbose: false,
-        }
-    }
-
-    #[test]
-    fn detects_root_node_project() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        fs::create_dir(temp.path().join("node_modules")).unwrap();
-        fs::write(temp.path().join("node_modules").join("x"), "abc").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.summary.candidates, 1);
-        assert_eq!(
-            report.projects[0].candidates[0].rule_id,
-            "node.node_modules"
-        );
-        assert_eq!(report.projects[0].total_bytes, 3);
-        assert_eq!(report.projects[0].project_bytes, 5);
-        assert_eq!(report.projects[0].artifact_percent, 60.0);
-    }
-
-    #[test]
-    fn blocks_plain_python_venv_without_marker() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("pyproject.toml"), "[project]\n").unwrap();
-        fs::create_dir(temp.path().join("venv")).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Blocked);
-    }
-
-    #[test]
-    fn generic_build_without_marker_is_ignored() {
-        let temp = TempDir::new().unwrap();
-        fs::create_dir(temp.path().join("build")).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.summary.candidates, 0);
-    }
-
-    #[test]
-    fn symlink_candidate_is_blocked() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        let real = temp.path().join("real_modules");
-        fs::create_dir(&real).unwrap();
-        let link = temp.path().join("node_modules");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Blocked);
-    }
-
-    #[test]
-    fn detects_gradle_dart_dotnet_and_ruby_rules() {
-        let temp = TempDir::new().unwrap();
-
-        let gradle = temp.path().join("gradle");
-        fs::create_dir(&gradle).unwrap();
-        fs::write(gradle.join("build.gradle"), "plugins {}\n").unwrap();
-        fs::create_dir(gradle.join("build")).unwrap();
-
-        let dart = temp.path().join("dart");
-        fs::create_dir(&dart).unwrap();
-        fs::write(dart.join("pubspec.yaml"), "name: app\n").unwrap();
-        fs::create_dir(dart.join(".dart_tool")).unwrap();
-
-        let dotnet = temp.path().join("dotnet");
-        fs::create_dir(&dotnet).unwrap();
-        fs::write(dotnet.join("app.csproj"), "<Project />\n").unwrap();
-        fs::create_dir(dotnet.join("bin")).unwrap();
-
-        let ruby = temp.path().join("ruby");
-        fs::create_dir_all(ruby.join("vendor").join("bundle")).unwrap();
-        fs::write(ruby.join("Gemfile"), "source 'https://rubygems.org'\n").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-        let rule_ids = report
-            .projects
-            .iter()
-            .flat_map(|project| project.candidates.iter())
-            .map(|candidate| candidate.rule_id.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(rule_ids.contains(&"java.gradle_build"));
-        assert!(rule_ids.contains(&"dart.tool"));
-        assert!(rule_ids.contains(&"dotnet.bin"));
-        assert!(rule_ids.contains(&"ruby.vendor_bundle"));
-    }
-
-    #[test]
-    fn dirty_git_marks_candidate_caution() {
-        let temp = TempDir::new().unwrap();
-        Command::new("git")
-            .arg("-C")
-            .arg(temp.path())
-            .arg("init")
-            .output()
-            .unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        fs::create_dir(temp.path().join("node_modules")).unwrap();
-        let mut file = fs::File::create(temp.path().join("node_modules").join("x")).unwrap();
-        writeln!(file, "abc").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
-    }
-
-    #[test]
-    fn sibling_projects_source_bytes_do_not_cross_contaminate() {
-        // Regression for the single-pass refactor: sum_subtree_bytes filters
-        // by `starts_with(project_dir)`. Two sibling projects under one root
-        // must each see only their own non-candidate files in source_bytes.
-        // Pre-fix, a buggy fold that swept the whole sizes map without the
-        // starts_with guard would inflate each sibling with the other's bytes.
-        let temp = TempDir::new().unwrap();
-
-        let frontend = temp.path().join("frontend");
-        let backend = temp.path().join("backend");
-        fs::create_dir(&frontend).unwrap();
-        fs::create_dir(&backend).unwrap();
-
-        // Use fixed-length payloads so the expected source_bytes are
-        // recomputable from the literals below, not guessed.
-        let frontend_marker = b"{}"; // 2 bytes
-        let frontend_readme = b"hi\n"; // 3 bytes
-        fs::write(frontend.join("package.json"), frontend_marker).unwrap();
-        fs::write(frontend.join("README.md"), frontend_readme).unwrap();
-        fs::create_dir(frontend.join("node_modules")).unwrap();
-        fs::write(frontend.join("node_modules").join("a"), b"xyz").unwrap();
-        let frontend_source_expected = (frontend_marker.len() + frontend_readme.len()) as u64;
-
-        let backend_marker = b"[package]\nname=\"b\"\n"; // 19 bytes
-        let backend_readme = b"hello\n"; // 6 bytes
-        fs::write(backend.join("Cargo.toml"), backend_marker).unwrap();
-        fs::write(backend.join("README.md"), backend_readme).unwrap();
-        fs::create_dir(backend.join("target")).unwrap();
-        fs::write(backend.join("target").join("a"), b"build-output").unwrap();
-        let backend_source_expected = (backend_marker.len() + backend_readme.len()) as u64;
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        let projects: std::collections::HashMap<&str, &ProjectReport> = report
-            .projects
-            .iter()
-            .map(|p| {
-                let name = std::path::Path::new(&p.path)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap();
-                (name, p)
-            })
-            .collect();
-
-        let front = projects.get("frontend").expect("frontend project missing");
-        let back = projects.get("backend").expect("backend project missing");
-
-        let front_source = front.project_bytes - front.total_bytes;
-        let back_source = back.project_bytes - back.total_bytes;
-
-        assert_eq!(
-            front_source, frontend_source_expected,
-            "frontend should only count its own files"
-        );
-        assert_eq!(
-            back_source, backend_source_expected,
-            "backend should only count its own files"
-        );
-    }
-
-    #[test]
-    fn git_cache_returns_none_for_non_repo() {
-        let temp = TempDir::new().unwrap();
-        let cache = GitCache::new();
-
-        assert!(cache.info_for(temp.path()).is_none());
-        // second call should hit the cached None without spawning git
-        assert!(cache.info_for(temp.path()).is_none());
-    }
-
-    #[test]
-    fn git_cache_shares_dirty_flag_across_sibling_projects() {
-        let temp = TempDir::new().unwrap();
-        Command::new("git")
-            .arg("-C")
-            .arg(temp.path())
-            .arg("init")
-            .output()
-            .unwrap();
-        fs::create_dir(temp.path().join("a")).unwrap();
-        fs::create_dir(temp.path().join("b")).unwrap();
-        // create an uncommitted file so the repo is dirty
-        fs::write(temp.path().join("dirty.txt"), "x").unwrap();
-
-        let cache = GitCache::new();
-        let a = cache.info_for(&temp.path().join("a")).unwrap();
-        let b = cache.info_for(&temp.path().join("b")).unwrap();
-
-        assert_eq!(a.repo_root, b.repo_root);
-        assert!(a.dirty);
-        assert!(b.dirty);
-    }
-}
+#[path = "scan_tests.rs"]
+mod tests;
