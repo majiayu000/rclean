@@ -71,10 +71,22 @@ impl UserRuleSet {
                 return Self::default();
             }
         };
-        let mut rules = Vec::new();
+        let mut rules: Vec<UserRule> = Vec::new();
         for raw in parsed.rule {
             match validate(raw) {
-                Ok(rule) => rules.push(rule),
+                Ok(rule) => {
+                    if rules.iter().any(|existing| existing.id == rule.id) {
+                        // First-match wins (declaration order). Warn so
+                        // the user knows the duplicate later rule will
+                        // never fire.
+                        eprintln!(
+                            "warning: .rclean.toml duplicate rule id '{}' — keeping the first, ignoring the rest",
+                            rule.id
+                        );
+                        continue;
+                    }
+                    rules.push(rule);
+                }
                 Err(err) => eprintln!("warning: .rclean.toml rule rejected: {err}"),
             }
         }
@@ -88,6 +100,11 @@ impl UserRuleSet {
     /// Try every user rule in declaration order. Returns the first match.
     /// `project_dir` is the directory containing the candidate (used to
     /// resolve `parent_markers`).
+    ///
+    /// `parent_markers` entries are matched with `Path::exists()`, so
+    /// both file markers (e.g. `Makefile`) and directory markers
+    /// (e.g. `.git`, `vendor/`) are honored. Multiple markers behave
+    /// as OR — any one existing is enough.
     pub fn classify(&self, dir_name: &str, project_dir: &Path) -> Option<CandidateDraft> {
         for rule in &self.rules {
             if !rule.matcher.is_match(dir_name) {
@@ -97,7 +114,7 @@ impl UserRuleSet {
                 && !rule
                     .parent_markers
                     .iter()
-                    .any(|marker| project_dir.join(marker).is_file())
+                    .any(|marker| project_dir.join(marker).exists())
             {
                 continue;
             }
@@ -258,5 +275,105 @@ safety = "caution"
 
         let set = UserRuleSet::load_from_root(temp.path());
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn parent_marker_accepts_directory_marker() {
+        // Review on #36 flagged that `parent_markers` previously only
+        // accepted file markers (`is_file()`). Directory markers like
+        // `.git/` or `vendor/` are equally valid project signals and
+        // should not silently mismatch.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join(".rclean.toml"),
+            r#"
+[[rule]]
+id = "user.git_repo_target"
+name_glob = "my_build_*"
+parent_markers = [".git"]
+category = "build"
+safety = "safe"
+"#,
+        )
+        .unwrap();
+        // .git as a DIRECTORY (the normal case).
+        std::fs::create_dir(temp.path().join(".git")).unwrap();
+
+        let set = UserRuleSet::load_from_root(temp.path());
+        let draft = set
+            .classify("my_build_x86", temp.path())
+            .expect(".git directory marker should satisfy parent_markers");
+        assert_eq!(draft.rule_id, "user.git_repo_target");
+    }
+
+    #[test]
+    fn mixed_blocked_and_valid_rules_drop_only_the_blocked_one() {
+        // Review on #36 flagged that the original blocked-rejection
+        // test had only one rule in the TOML — there was no regression
+        // protection against a future change that drops the entire
+        // file when any rule is bad. This test puts a valid `safe` rule
+        // *after* a blocked rule and asserts the valid one still loads.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join(".rclean.toml"),
+            r#"
+[[rule]]
+id = "user.evil"
+name_glob = "*"
+parent_markers = ["Makefile"]
+category = "build"
+safety = "blocked"
+
+[[rule]]
+id = "user.good"
+name_glob = "my_build_*"
+parent_markers = ["Makefile"]
+category = "build"
+safety = "safe"
+"#,
+        )
+        .unwrap();
+        std::fs::write(temp.path().join("Makefile"), "all:\n").unwrap();
+
+        let set = UserRuleSet::load_from_root(temp.path());
+        // The blocked rule was rejected but `user.good` survived.
+        let draft = set
+            .classify("my_build_x86", temp.path())
+            .expect("valid rule following a blocked rule should still load");
+        assert_eq!(draft.rule_id, "user.good");
+    }
+
+    #[test]
+    fn duplicate_rule_id_keeps_first_and_warns() {
+        // Review on #36 flagged that two rules with the same `id`
+        // silently coexisted and the second one was unreachable due to
+        // first-match dispatch. We now warn at load time and drop the
+        // duplicate. Only the first declaration's settings remain.
+        let temp = TempDir::new().unwrap();
+        std::fs::write(
+            temp.path().join(".rclean.toml"),
+            r#"
+[[rule]]
+id = "user.shared"
+name_glob = "first_*"
+parent_markers = ["Makefile"]
+category = "build"
+safety = "safe"
+
+[[rule]]
+id = "user.shared"
+name_glob = "second_*"
+parent_markers = ["Makefile"]
+category = "cache"
+safety = "safe"
+"#,
+        )
+        .unwrap();
+        std::fs::write(temp.path().join("Makefile"), "all:\n").unwrap();
+
+        let set = UserRuleSet::load_from_root(temp.path());
+        assert!(set.classify("first_x", temp.path()).is_some());
+        // Second declaration was dropped — its name_glob never matches.
+        assert!(set.classify("second_x", temp.path()).is_none());
     }
 }
