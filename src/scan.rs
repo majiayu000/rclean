@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,6 +15,80 @@ use crate::model::{
 };
 use crate::rules;
 
+/// Per-directory immediate file-byte tally collected during `scan_dir`.
+/// A project's source size is the fold of every entry under its `project_dir`,
+/// which lets us drop the dedicated `project_source_size` walkdir pass.
+type DirSizes = HashMap<PathBuf, u64>;
+
+#[derive(Default)]
+pub(crate) struct GitCache {
+    by_dir: RefCell<HashMap<PathBuf, Option<GitInfo>>>,
+}
+
+impl GitCache {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
+        let cached_for_dir = self.by_dir.borrow().get(dir).cloned();
+        if let Some(cached) = cached_for_dir {
+            return cached;
+        }
+
+        let repo_root = match run_git_rev_parse(dir) {
+            Some(root) => root,
+            None => {
+                self.by_dir.borrow_mut().insert(dir.to_path_buf(), None);
+                return None;
+            }
+        };
+
+        let root_path = PathBuf::from(&repo_root);
+        let cached_for_root = self.by_dir.borrow().get(&root_path).cloned();
+        if let Some(Some(info)) = cached_for_root {
+            self.by_dir
+                .borrow_mut()
+                .insert(dir.to_path_buf(), Some(info.clone()));
+            return Some(info);
+        }
+
+        let dirty = run_git_dirty(&root_path);
+        let info = GitInfo { repo_root, dirty };
+        let mut map = self.by_dir.borrow_mut();
+        map.insert(root_path, Some(info.clone()));
+        map.insert(dir.to_path_buf(), Some(info.clone()));
+        Some(info)
+    }
+}
+
+fn run_git_rev_parse(dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let repo_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if repo_root.is_empty() {
+        None
+    } else {
+        Some(repo_root)
+    }
+}
+
+fn run_git_dirty(repo_root: &Path) -> bool {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["status", "--porcelain"])
+        .output();
+    matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
+}
+
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub max_depth: usize,
@@ -28,6 +103,8 @@ pub struct ScanOptions {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
+    let git_cache = GitCache::new();
+    let mut sizes: DirSizes = HashMap::new();
 
     for path in paths {
         let root = path
@@ -37,7 +114,15 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 source,
             })?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        scan_dir(
+            &root,
+            &root,
+            0,
+            options,
+            &git_cache,
+            &mut sizes,
+            &mut projects,
+        )?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -92,6 +177,8 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    git_cache: &GitCache,
+    sizes: &mut DirSizes,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), ScanError> {
     if depth > options.max_depth || is_skip_dir(dir) {
@@ -111,6 +198,7 @@ fn scan_dir(
 
     let mut drafts = Vec::new();
     let mut child_dirs = Vec::new();
+    let mut file_bytes: u64 = 0;
 
     for entry in entries {
         let path = entry.path();
@@ -118,6 +206,12 @@ fn scan_dir(
             continue;
         };
         let is_symlink = metadata.file_type().is_symlink();
+
+        if metadata.is_file() && !is_symlink {
+            file_bytes = file_bytes.saturating_add(metadata.len());
+            continue;
+        }
+
         if !metadata.is_dir() && !is_symlink {
             continue;
         }
@@ -141,15 +235,17 @@ fn scan_dir(
         }
     }
 
+    sizes.insert(dir.to_path_buf(), file_bytes);
+
+    for child in &child_dirs {
+        scan_dir(child, root, depth + 1, options, git_cache, sizes, projects)?;
+    }
+
     if !drafts.is_empty() {
-        let project = build_project_report(dir, root, drafts, options)?;
+        let project = build_project_report(dir, root, drafts, options, git_cache, sizes)?;
         if !project.candidates.is_empty() {
             projects.push(project);
         }
-    }
-
-    for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
     }
 
     Ok(())
@@ -160,9 +256,11 @@ fn build_project_report(
     _root: &Path,
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
+    git_cache: &GitCache,
+    sizes: &DirSizes,
 ) -> Result<ProjectReport, ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
-    let git = git_info(dir);
+    let git = git_cache.info_for(dir);
     let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
 
     if let Some(age) = options.older_than
@@ -223,12 +321,7 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let candidate_paths = candidates
-        .iter()
-        .map(|candidate| PathBuf::from(&candidate.path))
-        .collect::<Vec<_>>();
-    let source_bytes =
-        project_source_size(dir, &candidate_paths, options.max_depth, options.verbose);
+    let source_bytes = sum_subtree_bytes(dir, sizes);
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -397,83 +490,19 @@ fn dir_size(path: &Path, _verbose: bool) -> u64 {
     total
 }
 
-fn project_source_size(
-    project_dir: &Path,
-    candidate_paths: &[PathBuf],
-    max_depth: usize,
-    _verbose: bool,
-) -> u64 {
-    let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
+/// Folds every per-directory `file_bytes` tally that `scan_dir` already
+/// collected for paths under `project_dir`. Candidate subtrees are absent
+/// from the map (scan_dir doesn't recurse into them — `dir_size` handles
+/// those separately, unbounded), and skipped/excluded names never make it
+/// into the map either.
+fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     let mut total: u64 = 0;
-
-    for result in walkdir::WalkDir::new(project_dir)
-        .max_depth(max_depth)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            let path = entry.path();
-            if candidate_paths.contains(path) {
-                return false;
-            }
-            entry
-                .file_name()
-                .to_str()
-                .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
-        })
-    {
-        let entry = match result {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!(
-                    path = %project_dir.display(),
-                    error = %err,
-                    "project_source_size walk error"
-                );
-                continue;
-            }
-        };
-        match entry.metadata() {
-            Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
-            }
-            Ok(_) => {}
-            Err(err) => {
-                debug!(
-                    path = %entry.path().display(),
-                    error = %err,
-                    "project_source_size metadata error"
-                );
-            }
+    for (path, bytes) in sizes {
+        if path == project_dir || path.starts_with(project_dir) {
+            total = total.saturating_add(*bytes);
         }
     }
-
     total
-}
-
-fn git_info(dir: &Path) -> Option<GitInfo> {
-    let root = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !root.status.success() {
-        return None;
-    }
-    let repo_root = String::from_utf8_lossy(&root.stdout).trim().to_string();
-    if repo_root.is_empty() {
-        return None;
-    }
-
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()?;
-    let dirty = status.status.success() && !status.stdout.is_empty();
-
-    Some(GitInfo { repo_root, dirty })
 }
 
 fn is_skip_dir(path: &Path) -> bool {
@@ -659,5 +688,100 @@ mod tests {
         let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
 
         assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
+    }
+
+    #[test]
+    fn sibling_projects_source_bytes_do_not_cross_contaminate() {
+        // Regression for the single-pass refactor: sum_subtree_bytes filters
+        // by `starts_with(project_dir)`. Two sibling projects under one root
+        // must each see only their own non-candidate files in source_bytes.
+        // Pre-fix, a buggy fold that swept the whole sizes map without the
+        // starts_with guard would inflate each sibling with the other's bytes.
+        let temp = TempDir::new().unwrap();
+
+        let frontend = temp.path().join("frontend");
+        let backend = temp.path().join("backend");
+        fs::create_dir(&frontend).unwrap();
+        fs::create_dir(&backend).unwrap();
+
+        // Use fixed-length payloads so the expected source_bytes are
+        // recomputable from the literals below, not guessed.
+        let frontend_marker = b"{}"; // 2 bytes
+        let frontend_readme = b"hi\n"; // 3 bytes
+        fs::write(frontend.join("package.json"), frontend_marker).unwrap();
+        fs::write(frontend.join("README.md"), frontend_readme).unwrap();
+        fs::create_dir(frontend.join("node_modules")).unwrap();
+        fs::write(frontend.join("node_modules").join("a"), b"xyz").unwrap();
+        let frontend_source_expected = (frontend_marker.len() + frontend_readme.len()) as u64;
+
+        let backend_marker = b"[package]\nname=\"b\"\n"; // 19 bytes
+        let backend_readme = b"hello\n"; // 6 bytes
+        fs::write(backend.join("Cargo.toml"), backend_marker).unwrap();
+        fs::write(backend.join("README.md"), backend_readme).unwrap();
+        fs::create_dir(backend.join("target")).unwrap();
+        fs::write(backend.join("target").join("a"), b"build-output").unwrap();
+        let backend_source_expected = (backend_marker.len() + backend_readme.len()) as u64;
+
+        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
+
+        let projects: std::collections::HashMap<&str, &ProjectReport> = report
+            .projects
+            .iter()
+            .map(|p| {
+                let name = std::path::Path::new(&p.path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap();
+                (name, p)
+            })
+            .collect();
+
+        let front = projects.get("frontend").expect("frontend project missing");
+        let back = projects.get("backend").expect("backend project missing");
+
+        let front_source = front.project_bytes - front.total_bytes;
+        let back_source = back.project_bytes - back.total_bytes;
+
+        assert_eq!(
+            front_source, frontend_source_expected,
+            "frontend should only count its own files"
+        );
+        assert_eq!(
+            back_source, backend_source_expected,
+            "backend should only count its own files"
+        );
+    }
+
+    #[test]
+    fn git_cache_returns_none_for_non_repo() {
+        let temp = TempDir::new().unwrap();
+        let cache = GitCache::new();
+
+        assert!(cache.info_for(temp.path()).is_none());
+        // second call should hit the cached None without spawning git
+        assert!(cache.info_for(temp.path()).is_none());
+    }
+
+    #[test]
+    fn git_cache_shares_dirty_flag_across_sibling_projects() {
+        let temp = TempDir::new().unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(temp.path())
+            .arg("init")
+            .output()
+            .unwrap();
+        fs::create_dir(temp.path().join("a")).unwrap();
+        fs::create_dir(temp.path().join("b")).unwrap();
+        // create an uncommitted file so the repo is dirty
+        fs::write(temp.path().join("dirty.txt"), "x").unwrap();
+
+        let cache = GitCache::new();
+        let a = cache.info_for(&temp.path().join("a")).unwrap();
+        let b = cache.info_for(&temp.path().join("b")).unwrap();
+
+        assert_eq!(a.repo_root, b.repo_root);
+        assert!(a.dirty);
+        assert!(b.dirty);
     }
 }
