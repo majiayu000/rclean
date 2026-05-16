@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::error::ScanError;
 use crate::model::{
@@ -101,7 +101,10 @@ fn scan_dir(
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries.flatten().collect::<Vec<_>>(),
         Err(err) => {
-            warn!(path = %dir.display(), error = %err, "skip directory");
+            // v0.1.0 only emitted this with --verbose. Keep it at debug to
+            // match the existing "noisy IO" level used by dir_size and
+            // project_source_size, so non-verbose runs stay quiet.
+            debug!(path = %dir.display(), error = %err, "skip directory");
             return Ok(());
         }
     };
