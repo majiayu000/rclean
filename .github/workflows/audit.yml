@@ -20,15 +20,23 @@ on:
   # without waiting for the weekly slot.
   workflow_dispatch:
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
+# Workflow-level permissions intentionally omitted. The default
+# GITHUB_TOKEN gets the minimum scope (contents: read). Write scopes
+# that rustsec/audit-check needs to file advisory issues / PR
+# comments are declared per-job below, so only that job's token
+# carries them.
 
 jobs:
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    # rustsec/audit-check opens an issue (and/or leaves a PR comment)
+    # when a CVE is found in Cargo.lock — those two writes are why
+    # this job needs more than the default read.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
