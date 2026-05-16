@@ -118,7 +118,7 @@ impl CommonScanArgs {
         }
     }
 
-    pub fn to_scan_options(&self) -> Result<ScanOptions, String> {
+    pub fn to_scan_options(&self) -> Result<ScanOptions, crate::error::ParseError> {
         let categories = if self.category.is_empty() {
             None
         } else {

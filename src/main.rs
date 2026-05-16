@@ -1,5 +1,6 @@
 mod clean;
 mod cli;
+mod error;
 mod model;
 mod output;
 mod parse;
@@ -11,19 +12,39 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use cli::{Cli, Commands};
+use error::RcleanError;
 use model::Safety;
+use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 fn main() -> ExitCode {
+    init_tracing(verbose_flag());
     match run() {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("error: {err}");
+            error!("{err}");
             ExitCode::from(1)
         }
     }
 }
 
-fn run() -> Result<ExitCode, String> {
+fn verbose_flag() -> bool {
+    std::env::args().any(|a| a == "-v" || a == "--verbose")
+}
+
+fn init_tracing(verbose: bool) {
+    let default_filter = if verbose { "debug" } else { "warn" };
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .without_time()
+        .with_writer(std::io::stderr)
+        .try_init();
+}
+
+fn run() -> Result<ExitCode, RcleanError> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -32,7 +53,7 @@ fn run() -> Result<ExitCode, String> {
             let report = scan::scan(&args.paths_or_current_dir(), &options)?;
             if let Some(plan_path) = &args.write_plan {
                 plan::write_action_plan(&report, plan_path, args.include_caution, false, "trash")?;
-                eprintln!("wrote action plan: {}", plan_path.display());
+                info!(path = %plan_path.display(), "wrote action plan");
             }
             if args.json {
                 output::print_json(&report)?;
@@ -75,7 +96,7 @@ fn run() -> Result<ExitCode, String> {
                         args.permanent,
                         if args.permanent { "permanent" } else { "trash" },
                     )?;
-                    eprintln!("wrote action plan: {}", plan_path.display());
+                    info!(path = %plan_path.display(), "wrote action plan");
                 }
                 let selected = clean::select_candidates(&report, &args)?;
                 (selected, Some(report))

@@ -1,9 +1,8 @@
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
 
-pub fn print_json(report: &ScanReport) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|err| format!("failed to serialize JSON report: {err}"))?;
+pub fn print_json(report: &ScanReport) -> Result<(), serde_json::Error> {
+    let json = serde_json::to_string_pretty(report)?;
     println!("{json}");
     Ok(())
 }

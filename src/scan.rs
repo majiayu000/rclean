@@ -5,7 +5,9 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
+use tracing::{debug, warn};
 
+use crate::error::ScanError;
 use crate::model::{
     ActivityInfo, Candidate, CandidateDraft, Category, Explanation, GitInfo, ProjectReport, Safety,
     ScanReport, Summary,
@@ -23,14 +25,17 @@ pub struct ScanOptions {
     pub verbose: bool,
 }
 
-pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, String> {
+pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
 
     for path in paths {
         let root = path
             .canonicalize()
-            .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
+            .map_err(|source| ScanError::CanonicalizeRoot {
+                path: path.clone(),
+                source,
+            })?;
         roots.push(root.display().to_string());
         scan_dir(&root, &root, 0, options, &mut projects)?;
     }
@@ -48,14 +53,14 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Stri
     })
 }
 
-pub fn explain_path(path: &Path) -> Result<Explanation, String> {
+pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
     let parent = path
         .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+        .ok_or_else(|| ScanError::Generic(format!("{} has no parent directory", path.display())))?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("{} has no valid file name", path.display()))?;
+        .ok_or_else(|| ScanError::Generic(format!("{} has no valid file name", path.display())))?;
 
     let Some(mut draft) = rules::classify_candidate(parent, name, path.to_path_buf()) else {
         return Ok(Explanation {
@@ -88,7 +93,7 @@ fn scan_dir(
     depth: usize,
     options: &ScanOptions,
     projects: &mut Vec<ProjectReport>,
-) -> Result<(), String> {
+) -> Result<(), ScanError> {
     if depth > options.max_depth || is_skip_dir(dir) {
         return Ok(());
     }
@@ -96,9 +101,7 @@ fn scan_dir(
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries.flatten().collect::<Vec<_>>(),
         Err(err) => {
-            if options.verbose {
-                eprintln!("skip {}: {err}", dir.display());
-            }
+            warn!(path = %dir.display(), error = %err, "skip directory");
             return Ok(());
         }
     };
@@ -154,7 +157,7 @@ fn build_project_report(
     _root: &Path,
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
-) -> Result<ProjectReport, String> {
+) -> Result<ProjectReport, ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_info(dir);
     let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
@@ -368,15 +371,13 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
     newest
 }
 
-fn dir_size(path: &Path, verbose: bool) -> u64 {
+fn dir_size(path: &Path, _verbose: bool) -> u64 {
     let mut total: u64 = 0;
     for result in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = match result {
             Ok(entry) => entry,
             Err(err) => {
-                if verbose {
-                    eprintln!("dir_size walk error under {}: {err}", path.display());
-                }
+                debug!(path = %path.display(), error = %err, "dir_size walk error");
                 continue;
             }
         };
@@ -386,12 +387,7 @@ fn dir_size(path: &Path, verbose: bool) -> u64 {
             }
             Ok(_) => {}
             Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "dir_size metadata error at {}: {err}",
-                        entry.path().display()
-                    );
-                }
+                debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
             }
         }
     }
@@ -402,7 +398,7 @@ fn project_source_size(
     project_dir: &Path,
     candidate_paths: &[PathBuf],
     max_depth: usize,
-    verbose: bool,
+    _verbose: bool,
 ) -> u64 {
     let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
     let mut total: u64 = 0;
@@ -425,12 +421,11 @@ fn project_source_size(
         let entry = match result {
             Ok(entry) => entry,
             Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size walk error under {}: {err}",
-                        project_dir.display()
-                    );
-                }
+                debug!(
+                    path = %project_dir.display(),
+                    error = %err,
+                    "project_source_size walk error"
+                );
                 continue;
             }
         };
@@ -440,12 +435,11 @@ fn project_source_size(
             }
             Ok(_) => {}
             Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size metadata error at {}: {err}",
-                        entry.path().display()
-                    );
-                }
+                debug!(
+                    path = %entry.path().display(),
+                    error = %err,
+                    "project_source_size metadata error"
+                );
             }
         }
     }
