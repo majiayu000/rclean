@@ -72,11 +72,12 @@ pub fn explain_path(path: &Path) -> Result<Explanation, String> {
 
     apply_path_safety(Path::new("."), &mut draft);
 
-    // Build the same risk signal the scan path emits per candidate.
-    // `parent` is the project directory. We use the default max_depth
-    // of 6 here because explain has no ScanOptions; matches v0.1.0's
-    // default. git_info shells out once — explain is a single-shot
-    // command, not a scan loop, so caching isn't worth threading.
+    // Same risk signal the scan path emits. `parent` is the project
+    // dir; max_depth 6 matches v0.1.0's default `--depth`. git_info
+    // shells out once — explain is single-shot, not a scan loop, so
+    // GitCache threading isn't worth it. `project_activity` fallback
+    // to `now()` conservatively trips the recent-mtime axis (+0.25);
+    // scan path uses the same fallback for the same reason.
     let git = git_info(parent);
     let activity_time = project_activity(parent, 6).unwrap_or_else(SystemTime::now);
     let risk_score = compute_risk_score(git.as_ref(), activity_time, parent);
