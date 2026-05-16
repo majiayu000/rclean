@@ -5,6 +5,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::clean::SelectedCandidate;
+use crate::error::PlanError;
 use crate::model::{Candidate, ProjectReport, Safety, ScanReport, Summary};
 use crate::rules;
 use crate::scan::is_runtime_or_system_path;
@@ -37,7 +38,7 @@ pub fn write_action_plan(
     include_caution: bool,
     include_permanent: bool,
     delete_mode: &str,
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     let selected = collect_selected(report, include_caution);
     let summary = summarize_selected(&selected, &report.summary);
     let plan = ActionPlan {
@@ -54,76 +55,89 @@ pub fn write_action_plan(
         selected,
         projects: report.projects.clone(),
     };
-    let json = serde_json::to_string_pretty(&plan)
-        .map_err(|err| format!("failed to serialize action plan: {err}"))?;
+    let json = serde_json::to_string_pretty(&plan)?;
     write_atomically(path, json.as_bytes())
 }
 
-fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
+fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), PlanError> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
     let mut tmp = match parent {
         Some(dir) => tempfile::NamedTempFile::new_in(dir),
         None => tempfile::NamedTempFile::new_in("."),
     }
-    .map_err(|err| format!("failed to create temp file near {}: {err}", path.display()))?;
+    .map_err(|source| PlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
     use std::io::Write as _;
-    tmp.write_all(contents)
-        .map_err(|err| format!("failed to write temp file: {err}"))?;
-    tmp.as_file()
-        .sync_all()
-        .map_err(|err| format!("failed to fsync temp file: {err}"))?;
-    tmp.persist(path)
-        .map_err(|err| format!("failed to rename into {}: {}", path.display(), err.error))?;
+    tmp.write_all(contents).map_err(|source| PlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    tmp.as_file().sync_all().map_err(|source| PlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    tmp.persist(path).map_err(|err| PlanError::Io {
+        path: path.to_path_buf(),
+        source: err.error,
+    })?;
     Ok(())
 }
 
-pub fn read_action_plan(path: &Path) -> Result<ActionPlan, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let plan: ActionPlan =
-        serde_json::from_str(&raw).map_err(|err| format!("invalid action plan: {err}"))?;
+pub fn read_action_plan(path: &Path) -> Result<ActionPlan, PlanError> {
+    let raw = fs::read_to_string(path).map_err(|source| PlanError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let plan: ActionPlan = serde_json::from_str(&raw)?;
     if plan.schema_version != 1 {
-        return Err(format!(
+        return Err(PlanError::Generic(format!(
             "unsupported action plan schema version {}",
             plan.schema_version
-        ));
+        )));
     }
     Ok(plan)
 }
 
-pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandidate>, String> {
+pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandidate>, PlanError> {
     let mut selected = Vec::with_capacity(plan.selected.len());
     for candidate in &plan.selected {
         let path = PathBuf::from(&candidate.path);
 
         if is_runtime_or_system_path(&path) {
-            return Err(format!(
+            return Err(PlanError::Generic(format!(
                 "{} is inside a protected runtime or system path; refusing to clean",
                 candidate.path
-            ));
+            )));
         }
 
-        let parent = path
-            .parent()
-            .ok_or_else(|| format!("plan candidate has no parent directory: {}", candidate.path))?;
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| format!("plan candidate has invalid file name: {}", candidate.path))?;
+        let parent = path.parent().ok_or_else(|| {
+            PlanError::Generic(format!(
+                "plan candidate has no parent directory: {}",
+                candidate.path
+            ))
+        })?;
+        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
+            PlanError::Generic(format!(
+                "plan candidate has invalid file name: {}",
+                candidate.path
+            ))
+        })?;
 
         let draft = rules::classify_candidate(parent, name, path.clone()).ok_or_else(|| {
-            format!(
+            PlanError::Generic(format!(
                 "{} is not recognized by any current rule (plan may be stale or tampered)",
                 candidate.path
-            )
+            ))
         })?;
 
         if draft.safety == Safety::Blocked || draft.safety == Safety::Unknown {
-            return Err(format!(
+            return Err(PlanError::Generic(format!(
                 "{} is now classified as {:?} by rule {}; refusing to clean",
                 candidate.path, draft.safety, draft.rule_id
-            ));
+            )));
         }
 
         selected.push(SelectedCandidate {
@@ -138,38 +152,47 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
 pub fn revalidate_selected(
     plan: &ActionPlan,
     selected: &[SelectedCandidate],
-) -> Result<(), String> {
+) -> Result<(), PlanError> {
     let roots = plan
         .roots
         .iter()
         .filter_map(|root| PathBuf::from(root).canonicalize().ok())
         .collect::<Vec<_>>();
     if roots.is_empty() {
-        return Err("action plan has no valid canonical roots".to_string());
+        return Err(PlanError::Generic(
+            "action plan has no valid canonical roots".to_string(),
+        ));
     }
 
     for candidate in selected {
-        let metadata = fs::symlink_metadata(&candidate.path).map_err(|err| {
-            format!(
-                "{} no longer exists or cannot be read: {err}",
-                candidate.path.display()
-            )
+        let metadata = fs::symlink_metadata(&candidate.path).map_err(|source| PlanError::Io {
+            path: candidate.path.clone(),
+            source,
         })?;
         if metadata.file_type().is_symlink() {
-            return Err(format!("{} is now a symlink", candidate.path.display()));
+            return Err(PlanError::Generic(format!(
+                "{} is now a symlink",
+                candidate.path.display()
+            )));
         }
         if !metadata.is_dir() {
-            return Err(format!("{} is not a directory", candidate.path.display()));
+            return Err(PlanError::Generic(format!(
+                "{} is not a directory",
+                candidate.path.display()
+            )));
         }
         let canonical = candidate
             .path
             .canonicalize()
-            .map_err(|err| format!("failed to canonicalize {}: {err}", candidate.path.display()))?;
+            .map_err(|source| PlanError::Io {
+                path: candidate.path.clone(),
+                source,
+            })?;
         if !roots.iter().any(|root| canonical.starts_with(root)) {
-            return Err(format!(
+            return Err(PlanError::Generic(format!(
                 "{} resolves outside the action plan roots",
                 candidate.path.display()
-            ));
+            )));
         }
     }
 
@@ -345,7 +368,9 @@ mod tests {
 
         write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
         let plan = read_action_plan(&plan_path).unwrap();
-        let err = selected_from_action_plan(&plan).expect_err("should reject unrecognized paths");
+        let err = selected_from_action_plan(&plan)
+            .expect_err("should reject unrecognized paths")
+            .to_string();
         assert!(
             err.contains("not recognized") || err.contains("rule"),
             "unexpected error: {err}"
@@ -370,7 +395,8 @@ mod tests {
 
         let plan = read_action_plan(&plan_path).unwrap();
         let err = selected_from_action_plan(&plan)
-            .expect_err("should reject a tampered plan that injects a system path");
+            .expect_err("should reject a tampered plan that injects a system path")
+            .to_string();
         assert!(
             err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
             "unexpected error: {err}"
@@ -460,7 +486,9 @@ mod tests {
         )
         .unwrap();
 
-        let err = read_action_plan(&plan_path).expect_err("should reject unknown fields");
+        let err = read_action_plan(&plan_path)
+            .expect_err("should reject unknown fields")
+            .to_string();
         assert!(err.contains("unknown field"), "unexpected error: {err}");
     }
 }
