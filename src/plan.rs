@@ -265,6 +265,7 @@ mod tests {
                     reasons: vec!["test".to_string()],
                     warnings: Vec::new(),
                     restore_hint: "install".to_string(),
+                    risk_score: 0.0,
                 }],
                 total_bytes: 3,
                 project_bytes: 5,

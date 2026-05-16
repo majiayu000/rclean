@@ -49,10 +49,10 @@ pub fn print_table(report: &ScanReport) {
 
     println!();
     println!(
-        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} Reason",
-        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety"
+        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} Reason",
+        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety", "Risk"
     );
-    println!("{}", "-".repeat(118));
+    println!("{}", "-".repeat(124));
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
@@ -64,7 +64,7 @@ pub fn print_table(report: &ScanReport) {
                 .cloned()
                 .unwrap_or_default();
             println!(
-                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {}",
+                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {}",
                 truncate(&project_name, 30),
                 truncate(&project.kind, 13),
                 truncate(&candidate.name, 18),
@@ -72,10 +72,15 @@ pub fn print_table(report: &ScanReport) {
                 format_bytes(candidate.bytes),
                 format_percent(project.artifact_percent),
                 candidate.safety,
+                format_risk(candidate.risk_score),
                 reason
             );
         }
     }
+}
+
+fn format_risk(score: f32) -> String {
+    format!("{score:.2}")
 }
 
 pub fn print_explanation(explanation: &Explanation) {

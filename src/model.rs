@@ -123,6 +123,13 @@ pub struct Candidate {
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub restore_hint: String,
+    /// Composite risk signal in [0.0, 1.0]. 0 = no risk markers, 1 = every
+    /// risk marker tripped. Independent of the safe/caution/blocked tier —
+    /// the safety tier still controls auto-selection; risk_score is an
+    /// advisory signal for downstream consumers (TUI coloring, AI agents
+    /// scoring a plan, etc).
+    #[serde(default)]
+    pub risk_score: f32,
 }
 
 #[derive(Debug, Clone)]

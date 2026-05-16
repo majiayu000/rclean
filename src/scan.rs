@@ -199,6 +199,8 @@ fn build_project_report(
             continue;
         }
 
+        let risk_score = compute_risk_score(git.as_ref(), activity_time, dir);
+
         candidates.push(Candidate {
             path: draft.path.display().to_string(),
             name: draft.name,
@@ -209,6 +211,7 @@ fn build_project_report(
             reasons: draft.reasons,
             warnings: draft.warnings,
             restore_hint: draft.restore_hint,
+            risk_score,
         });
     }
 
@@ -453,6 +456,54 @@ fn project_source_size(
     total
 }
 
+/// Composite risk-score signal in [0.0, 1.0] for a candidate inside `project_dir`.
+///
+/// First-cut weights match `docs/specs/v0.1.x-roadmap.md` §4.6:
+///   - dirty git worktree         -> 0.40
+///   - project activity < 7 days  -> 0.25
+///   - no lockfile present        -> 0.20
+///   - root-boundary signal       -> 0.15  (deferred — always 0.0 for now)
+///
+/// The root-boundary axis lives in a follow-up PR because it requires
+/// cross-filesystem detection and cwd-ancestor logic that's out of scope
+/// here. The weight slot stays in the formula so the existing safe/caution
+/// thresholds don't shift when that axis later turns on.
+fn compute_risk_score(git: Option<&GitInfo>, activity_time: SystemTime, project_dir: &Path) -> f32 {
+    let dirty_git: f32 = match git {
+        Some(info) if info.dirty => 1.0,
+        _ => 0.0,
+    };
+    let recent_mtime: f32 = match SystemTime::now().duration_since(activity_time) {
+        Ok(age) if age < Duration::from_secs(7 * 24 * 60 * 60) => 1.0,
+        _ => 0.0,
+    };
+    let no_lockfile: f32 = if has_lockfile(project_dir) { 0.0 } else { 1.0 };
+    let root_boundary: f32 = 0.0;
+
+    let score = dirty_git * 0.40 + recent_mtime * 0.25 + no_lockfile * 0.20 + root_boundary * 0.15;
+    score.clamp(0.0, 1.0)
+}
+
+fn has_lockfile(project_dir: &Path) -> bool {
+    const LOCKFILES: &[&str] = &[
+        "Cargo.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "bun.lockb",
+        "Pipfile.lock",
+        "poetry.lock",
+        "uv.lock",
+        "go.sum",
+        "Gemfile.lock",
+        "composer.lock",
+        "pubspec.lock",
+    ];
+    LOCKFILES
+        .iter()
+        .any(|name| project_dir.join(name).is_file())
+}
+
 fn git_info(dir: &Path) -> Option<GitInfo> {
     let root = Command::new("git")
         .arg("-C")
@@ -662,5 +713,49 @@ mod tests {
         let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
 
         assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
+    }
+
+    #[test]
+    fn risk_score_is_zero_when_no_markers_trip() {
+        let temp = TempDir::new().unwrap();
+        // Has lockfile, no git, fake old activity → no axis trips.
+        fs::write(temp.path().join("Cargo.lock"), "[]").unwrap();
+        let old = SystemTime::now() - Duration::from_secs(30 * 24 * 60 * 60);
+        assert_eq!(compute_risk_score(None, old, temp.path()), 0.0);
+    }
+
+    #[test]
+    fn risk_score_weights_match_spec() {
+        let temp = TempDir::new().unwrap();
+        // No lockfile → no_lockfile axis = 1.0, weight 0.20.
+        let old = SystemTime::now() - Duration::from_secs(30 * 24 * 60 * 60);
+        assert!((compute_risk_score(None, old, temp.path()) - 0.20).abs() < 1e-6);
+
+        // Add a lockfile, use recent activity → recent_mtime axis = 1.0, weight 0.25.
+        fs::write(temp.path().join("Cargo.lock"), "[]").unwrap();
+        let recent = SystemTime::now();
+        assert!((compute_risk_score(None, recent, temp.path()) - 0.25).abs() < 1e-6);
+
+        // Add dirty git → dirty_git axis = 1.0, weight 0.40, total 0.65.
+        let dirty = GitInfo {
+            repo_root: temp.path().display().to_string(),
+            dirty: true,
+        };
+        let score = compute_risk_score(Some(&dirty), recent, temp.path());
+        assert!((score - 0.65).abs() < 1e-6, "expected 0.65, got {score}");
+    }
+
+    #[test]
+    fn risk_score_caps_at_one() {
+        let temp = TempDir::new().unwrap();
+        // No lockfile, recent, dirty git → 0.40 + 0.25 + 0.20 = 0.85 (boundary axis still 0 in this PR).
+        let recent = SystemTime::now();
+        let dirty = GitInfo {
+            repo_root: temp.path().display().to_string(),
+            dirty: true,
+        };
+        let score = compute_risk_score(Some(&dirty), recent, temp.path());
+        assert!(score <= 1.0);
+        assert!((score - 0.85).abs() < 1e-6);
     }
 }
