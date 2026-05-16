@@ -123,6 +123,17 @@ pub struct Candidate {
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub restore_hint: String,
+    /// Composite risk signal in `[0.0, 1.0]` (final). Today the
+    /// implementation reaches at most **0.85** because the root_boundary
+    /// axis (weight 0.15) is deferred — see `compute_risk_score` for
+    /// the full formula and rationale.
+    ///
+    /// Independent of the safe/caution/blocked tier: the safety tier
+    /// still controls auto-selection; risk_score is an advisory signal
+    /// for downstream consumers (TUI coloring, AI agents scoring a
+    /// plan, etc).
+    #[serde(default)]
+    pub risk_score: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +157,11 @@ pub struct Explanation {
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub restore_hint: Option<String>,
+    /// Composite risk signal for the candidate, computed against its
+    /// project directory. `None` when no built-in rule matched (the
+    /// path is `Safety::Unknown` and risk is undefined). See
+    /// `Candidate.risk_score` for the formula and current 0.85 cap.
+    pub risk_score: Option<f32>,
 }
 
 pub fn format_bytes(bytes: u64) -> String {
