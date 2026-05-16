@@ -456,18 +456,31 @@ fn project_source_size(
     total
 }
 
-/// Composite risk-score signal in [0.0, 1.0] for a candidate inside `project_dir`.
+/// Composite risk-score signal for a candidate inside `project_dir`.
+///
+/// Range in the **final** formula is `[0.0, 1.0]`. The current
+/// implementation reaches a maximum of **0.85** because the
+/// `root_boundary` axis (weight 0.15) is deferred to a follow-up PR
+/// that wires up cross-filesystem + cwd-ancestor detection. Until then,
+/// consumers should treat 0.85 as "every implemented axis tripped" and
+/// not assume 0.85 means "every conceivable risk axis tripped".
 ///
 /// First-cut weights match `docs/specs/v0.1.x-roadmap.md` §4.6:
 ///   - dirty git worktree         -> 0.40
 ///   - project activity < 7 days  -> 0.25
 ///   - no lockfile present        -> 0.20
-///   - root-boundary signal       -> 0.15  (deferred — always 0.0 for now)
+///   - root-boundary signal       -> 0.15  (deferred — always 0.0 here)
 ///
-/// The root-boundary axis lives in a follow-up PR because it requires
-/// cross-filesystem detection and cwd-ancestor logic that's out of scope
-/// here. The weight slot stays in the formula so the existing safe/caution
-/// thresholds don't shift when that axis later turns on.
+/// The weight slot stays in the formula so safe/caution thresholds in
+/// downstream consumers (TUI coloring, agent plan scoring) don't have to
+/// shift when the boundary axis lights up.
+///
+/// Note: this signal is independent of `safety` tier promotion. A dirty
+/// git worktree both (a) demotes Safe → Caution in `build_project_report`
+/// and (b) contributes 0.40 to `risk_score` here. The two are intentional
+/// duplicates: safety is an operational gate (controls auto-selection),
+/// risk_score is an advisory analytical signal (controls coloring /
+/// scoring). Don't collapse them into one.
 fn compute_risk_score(git: Option<&GitInfo>, activity_time: SystemTime, project_dir: &Path) -> f32 {
     let dirty_git: f32 = match git {
         Some(info) if info.dirty => 1.0,
@@ -746,16 +759,22 @@ mod tests {
     }
 
     #[test]
-    fn risk_score_caps_at_one() {
+    fn risk_score_max_is_0_85_until_root_boundary_axis_lands() {
+        // No lockfile + recent activity + dirty git = 0.20 + 0.25 + 0.40 = 0.85.
+        // The remaining 0.15 weight slot belongs to the deferred
+        // root_boundary axis. When that axis lands (its own PR), this
+        // test should flip to assert 1.0.
         let temp = TempDir::new().unwrap();
-        // No lockfile, recent, dirty git → 0.40 + 0.25 + 0.20 = 0.85 (boundary axis still 0 in this PR).
         let recent = SystemTime::now();
         let dirty = GitInfo {
             repo_root: temp.path().display().to_string(),
             dirty: true,
         };
         let score = compute_risk_score(Some(&dirty), recent, temp.path());
-        assert!(score <= 1.0);
-        assert!((score - 0.85).abs() < 1e-6);
+        assert!(score <= 1.0, "clamp invariant: score never exceeds 1.0");
+        assert!(
+            (score - 0.85).abs() < 1e-6,
+            "current max is 0.85 (root_boundary deferred); got {score}"
+        );
     }
 }
