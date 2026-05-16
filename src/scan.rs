@@ -1,16 +1,93 @@
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
+use tracing::debug;
 
+use crate::error::ScanError;
 use crate::model::{
     ActivityInfo, Candidate, CandidateDraft, Category, Explanation, GitInfo, ProjectReport, Safety,
     ScanReport, Summary,
 };
 use crate::rules;
+
+/// Per-directory immediate file-byte tally collected during `scan_dir`.
+/// A project's source size is the fold of every entry under its `project_dir`,
+/// which lets us drop the dedicated `project_source_size` walkdir pass.
+type DirSizes = HashMap<PathBuf, u64>;
+
+#[derive(Default)]
+pub(crate) struct GitCache {
+    by_dir: RefCell<HashMap<PathBuf, Option<GitInfo>>>,
+}
+
+impl GitCache {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
+        let cached_for_dir = self.by_dir.borrow().get(dir).cloned();
+        if let Some(cached) = cached_for_dir {
+            return cached;
+        }
+
+        let repo_root = match run_git_rev_parse(dir) {
+            Some(root) => root,
+            None => {
+                self.by_dir.borrow_mut().insert(dir.to_path_buf(), None);
+                return None;
+            }
+        };
+
+        let root_path = PathBuf::from(&repo_root);
+        let cached_for_root = self.by_dir.borrow().get(&root_path).cloned();
+        if let Some(Some(info)) = cached_for_root {
+            self.by_dir
+                .borrow_mut()
+                .insert(dir.to_path_buf(), Some(info.clone()));
+            return Some(info);
+        }
+
+        let dirty = run_git_dirty(&root_path);
+        let info = GitInfo { repo_root, dirty };
+        let mut map = self.by_dir.borrow_mut();
+        map.insert(root_path, Some(info.clone()));
+        map.insert(dir.to_path_buf(), Some(info.clone()));
+        Some(info)
+    }
+}
+
+fn run_git_rev_parse(dir: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let repo_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if repo_root.is_empty() {
+        None
+    } else {
+        Some(repo_root)
+    }
+}
+
+fn run_git_dirty(repo_root: &Path) -> bool {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["status", "--porcelain"])
+        .output();
+    matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
+}
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -23,16 +100,29 @@ pub struct ScanOptions {
     pub verbose: bool,
 }
 
-pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, String> {
+pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
+    let git_cache = GitCache::new();
+    let mut sizes: DirSizes = HashMap::new();
 
     for path in paths {
         let root = path
             .canonicalize()
-            .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
+            .map_err(|source| ScanError::CanonicalizeRoot {
+                path: path.clone(),
+                source,
+            })?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        scan_dir(
+            &root,
+            &root,
+            0,
+            options,
+            &git_cache,
+            &mut sizes,
+            &mut projects,
+        )?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -48,14 +138,14 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Stri
     })
 }
 
-pub fn explain_path(path: &Path) -> Result<Explanation, String> {
+pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
     let parent = path
         .parent()
-        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+        .ok_or_else(|| ScanError::Generic(format!("{} has no parent directory", path.display())))?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| format!("{} has no valid file name", path.display()))?;
+        .ok_or_else(|| ScanError::Generic(format!("{} has no valid file name", path.display())))?;
 
     let Some(mut draft) = rules::classify_candidate(parent, name, path.to_path_buf()) else {
         return Ok(Explanation {
@@ -99,8 +189,10 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    git_cache: &GitCache,
+    sizes: &mut DirSizes,
     projects: &mut Vec<ProjectReport>,
-) -> Result<(), String> {
+) -> Result<(), ScanError> {
     if depth > options.max_depth || is_skip_dir(dir) {
         return Ok(());
     }
@@ -108,15 +200,17 @@ fn scan_dir(
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries.flatten().collect::<Vec<_>>(),
         Err(err) => {
-            if options.verbose {
-                eprintln!("skip {}: {err}", dir.display());
-            }
+            // v0.1.0 only emitted this with --verbose. Keep it at debug to
+            // match the existing "noisy IO" level used by dir_size and
+            // project_source_size, so non-verbose runs stay quiet.
+            debug!(path = %dir.display(), error = %err, "skip directory");
             return Ok(());
         }
     };
 
     let mut drafts = Vec::new();
     let mut child_dirs = Vec::new();
+    let mut file_bytes: u64 = 0;
 
     for entry in entries {
         let path = entry.path();
@@ -124,6 +218,12 @@ fn scan_dir(
             continue;
         };
         let is_symlink = metadata.file_type().is_symlink();
+
+        if metadata.is_file() && !is_symlink {
+            file_bytes = file_bytes.saturating_add(metadata.len());
+            continue;
+        }
+
         if !metadata.is_dir() && !is_symlink {
             continue;
         }
@@ -147,15 +247,17 @@ fn scan_dir(
         }
     }
 
+    sizes.insert(dir.to_path_buf(), file_bytes);
+
+    for child in &child_dirs {
+        scan_dir(child, root, depth + 1, options, git_cache, sizes, projects)?;
+    }
+
     if !drafts.is_empty() {
-        let project = build_project_report(dir, root, drafts, options)?;
+        let project = build_project_report(dir, root, drafts, options, git_cache, sizes)?;
         if !project.candidates.is_empty() {
             projects.push(project);
         }
-    }
-
-    for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
     }
 
     Ok(())
@@ -166,9 +268,11 @@ fn build_project_report(
     _root: &Path,
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
-) -> Result<ProjectReport, String> {
+    git_cache: &GitCache,
+    sizes: &DirSizes,
+) -> Result<ProjectReport, ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
-    let git = git_info(dir);
+    let git = git_cache.info_for(dir);
     let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
 
     if let Some(age) = options.older_than
@@ -232,12 +336,7 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let candidate_paths = candidates
-        .iter()
-        .map(|candidate| PathBuf::from(&candidate.path))
-        .collect::<Vec<_>>();
-    let source_bytes =
-        project_source_size(dir, &candidate_paths, options.max_depth, options.verbose);
+    let source_bytes = sum_subtree_bytes(dir, sizes);
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -383,15 +482,13 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
     newest
 }
 
-fn dir_size(path: &Path, verbose: bool) -> u64 {
+fn dir_size(path: &Path, _verbose: bool) -> u64 {
     let mut total: u64 = 0;
     for result in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = match result {
             Ok(entry) => entry,
             Err(err) => {
-                if verbose {
-                    eprintln!("dir_size walk error under {}: {err}", path.display());
-                }
+                debug!(path = %path.display(), error = %err, "dir_size walk error");
                 continue;
             }
         };
@@ -401,70 +498,25 @@ fn dir_size(path: &Path, verbose: bool) -> u64 {
             }
             Ok(_) => {}
             Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "dir_size metadata error at {}: {err}",
-                        entry.path().display()
-                    );
-                }
+                debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
             }
         }
     }
     total
 }
 
-fn project_source_size(
-    project_dir: &Path,
-    candidate_paths: &[PathBuf],
-    max_depth: usize,
-    verbose: bool,
-) -> u64 {
-    let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
+/// Folds every per-directory `file_bytes` tally that `scan_dir` already
+/// collected for paths under `project_dir`. Candidate subtrees are absent
+/// from the map (scan_dir doesn't recurse into them — `dir_size` handles
+/// those separately, unbounded), and skipped/excluded names never make it
+/// into the map either.
+fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     let mut total: u64 = 0;
-
-    for result in walkdir::WalkDir::new(project_dir)
-        .max_depth(max_depth)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            let path = entry.path();
-            if candidate_paths.contains(path) {
-                return false;
-            }
-            entry
-                .file_name()
-                .to_str()
-                .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
-        })
-    {
-        let entry = match result {
-            Ok(entry) => entry,
-            Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size walk error under {}: {err}",
-                        project_dir.display()
-                    );
-                }
-                continue;
-            }
-        };
-        match entry.metadata() {
-            Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
-            }
-            Ok(_) => {}
-            Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size metadata error at {}: {err}",
-                        entry.path().display()
-                    );
-                }
-            }
+    for (path, bytes) in sizes {
+        if path == project_dir || path.starts_with(project_dir) {
+            total = total.saturating_add(*bytes);
         }
     }
-
     total
 }
 
@@ -529,32 +581,6 @@ fn has_lockfile(project_dir: &Path) -> bool {
         .any(|name| project_dir.join(name).is_file())
 }
 
-fn git_info(dir: &Path) -> Option<GitInfo> {
-    let root = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !root.status.success() {
-        return None;
-    }
-    let repo_root = String::from_utf8_lossy(&root.stdout).trim().to_string();
-    if repo_root.is_empty() {
-        return None;
-    }
-
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()?;
-    let dirty = status.status.success() && !status.stdout.is_empty();
-
-    Some(GitInfo { repo_root, dirty })
-}
-
 fn is_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -608,185 +634,5 @@ pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::Write;
-
-    use tempfile::TempDir;
-
-    use super::*;
-
-    fn options() -> ScanOptions {
-        ScanOptions {
-            max_depth: 6,
-            min_size: 0,
-            older_than: None,
-            categories: None,
-            rule_ids: None,
-            include_blocked: true,
-            verbose: false,
-        }
-    }
-
-    #[test]
-    fn detects_root_node_project() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        fs::create_dir(temp.path().join("node_modules")).unwrap();
-        fs::write(temp.path().join("node_modules").join("x"), "abc").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.summary.candidates, 1);
-        assert_eq!(
-            report.projects[0].candidates[0].rule_id,
-            "node.node_modules"
-        );
-        assert_eq!(report.projects[0].total_bytes, 3);
-        assert_eq!(report.projects[0].project_bytes, 5);
-        assert_eq!(report.projects[0].artifact_percent, 60.0);
-    }
-
-    #[test]
-    fn blocks_plain_python_venv_without_marker() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("pyproject.toml"), "[project]\n").unwrap();
-        fs::create_dir(temp.path().join("venv")).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Blocked);
-    }
-
-    #[test]
-    fn generic_build_without_marker_is_ignored() {
-        let temp = TempDir::new().unwrap();
-        fs::create_dir(temp.path().join("build")).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.summary.candidates, 0);
-    }
-
-    #[test]
-    fn symlink_candidate_is_blocked() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        let real = temp.path().join("real_modules");
-        fs::create_dir(&real).unwrap();
-        let link = temp.path().join("node_modules");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&real, &link).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Blocked);
-    }
-
-    #[test]
-    fn detects_gradle_dart_dotnet_and_ruby_rules() {
-        let temp = TempDir::new().unwrap();
-
-        let gradle = temp.path().join("gradle");
-        fs::create_dir(&gradle).unwrap();
-        fs::write(gradle.join("build.gradle"), "plugins {}\n").unwrap();
-        fs::create_dir(gradle.join("build")).unwrap();
-
-        let dart = temp.path().join("dart");
-        fs::create_dir(&dart).unwrap();
-        fs::write(dart.join("pubspec.yaml"), "name: app\n").unwrap();
-        fs::create_dir(dart.join(".dart_tool")).unwrap();
-
-        let dotnet = temp.path().join("dotnet");
-        fs::create_dir(&dotnet).unwrap();
-        fs::write(dotnet.join("app.csproj"), "<Project />\n").unwrap();
-        fs::create_dir(dotnet.join("bin")).unwrap();
-
-        let ruby = temp.path().join("ruby");
-        fs::create_dir_all(ruby.join("vendor").join("bundle")).unwrap();
-        fs::write(ruby.join("Gemfile"), "source 'https://rubygems.org'\n").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-        let rule_ids = report
-            .projects
-            .iter()
-            .flat_map(|project| project.candidates.iter())
-            .map(|candidate| candidate.rule_id.as_str())
-            .collect::<Vec<_>>();
-
-        assert!(rule_ids.contains(&"java.gradle_build"));
-        assert!(rule_ids.contains(&"dart.tool"));
-        assert!(rule_ids.contains(&"dotnet.bin"));
-        assert!(rule_ids.contains(&"ruby.vendor_bundle"));
-    }
-
-    #[test]
-    fn dirty_git_marks_candidate_caution() {
-        let temp = TempDir::new().unwrap();
-        Command::new("git")
-            .arg("-C")
-            .arg(temp.path())
-            .arg("init")
-            .output()
-            .unwrap();
-        fs::write(temp.path().join("package.json"), "{}").unwrap();
-        fs::create_dir(temp.path().join("node_modules")).unwrap();
-        let mut file = fs::File::create(temp.path().join("node_modules").join("x")).unwrap();
-        writeln!(file, "abc").unwrap();
-
-        let report = scan(&[temp.path().to_path_buf()], &options()).unwrap();
-
-        assert_eq!(report.projects[0].candidates[0].safety, Safety::Caution);
-    }
-
-    #[test]
-    fn risk_score_is_zero_when_no_markers_trip() {
-        let temp = TempDir::new().unwrap();
-        // Has lockfile, no git, fake old activity → no axis trips.
-        fs::write(temp.path().join("Cargo.lock"), "[]").unwrap();
-        let old = SystemTime::now() - Duration::from_secs(30 * 24 * 60 * 60);
-        assert_eq!(compute_risk_score(None, old, temp.path()), 0.0);
-    }
-
-    #[test]
-    fn risk_score_weights_match_spec() {
-        let temp = TempDir::new().unwrap();
-        // No lockfile → no_lockfile axis = 1.0, weight 0.20.
-        let old = SystemTime::now() - Duration::from_secs(30 * 24 * 60 * 60);
-        assert!((compute_risk_score(None, old, temp.path()) - 0.20).abs() < 1e-6);
-
-        // Add a lockfile, use recent activity → recent_mtime axis = 1.0, weight 0.25.
-        fs::write(temp.path().join("Cargo.lock"), "[]").unwrap();
-        let recent = SystemTime::now();
-        assert!((compute_risk_score(None, recent, temp.path()) - 0.25).abs() < 1e-6);
-
-        // Add dirty git → dirty_git axis = 1.0, weight 0.40, total 0.65.
-        let dirty = GitInfo {
-            repo_root: temp.path().display().to_string(),
-            dirty: true,
-        };
-        let score = compute_risk_score(Some(&dirty), recent, temp.path());
-        assert!((score - 0.65).abs() < 1e-6, "expected 0.65, got {score}");
-    }
-
-    #[test]
-    fn risk_score_max_is_0_85_until_root_boundary_axis_lands() {
-        // No lockfile + recent activity + dirty git = 0.20 + 0.25 + 0.40 = 0.85.
-        // The remaining 0.15 weight slot belongs to the deferred
-        // root_boundary axis. When that axis lands (its own PR), this
-        // test should flip to assert 1.0.
-        let temp = TempDir::new().unwrap();
-        let recent = SystemTime::now();
-        let dirty = GitInfo {
-            repo_root: temp.path().display().to_string(),
-            dirty: true,
-        };
-        let score = compute_risk_score(Some(&dirty), recent, temp.path());
-        assert!(score <= 1.0, "clamp invariant: score never exceeds 1.0");
-        assert!(
-            (score - 0.85).abs() < 1e-6,
-            "current max is 0.85 (root_boundary deferred); got {score}"
-        );
-    }
-}
+#[path = "scan_tests.rs"]
+mod tests;
