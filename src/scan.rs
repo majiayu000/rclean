@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +11,11 @@ use crate::model::{
     ScanReport, Summary,
 };
 use crate::rules;
+
+/// Per-directory immediate file-byte tally collected during `scan_dir`.
+/// A project's source size is the fold of every entry under its `project_dir`,
+/// which lets us drop the dedicated `project_source_size` walkdir pass.
+type DirSizes = HashMap<PathBuf, u64>;
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -26,13 +31,14 @@ pub struct ScanOptions {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, String> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
+    let mut sizes: DirSizes = HashMap::new();
 
     for path in paths {
         let root = path
             .canonicalize()
             .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        scan_dir(&root, &root, 0, options, &mut sizes, &mut projects)?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -87,6 +93,7 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    sizes: &mut DirSizes,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), String> {
     if depth > options.max_depth || is_skip_dir(dir) {
@@ -105,6 +112,7 @@ fn scan_dir(
 
     let mut drafts = Vec::new();
     let mut child_dirs = Vec::new();
+    let mut file_bytes: u64 = 0;
 
     for entry in entries {
         let path = entry.path();
@@ -112,6 +120,12 @@ fn scan_dir(
             continue;
         };
         let is_symlink = metadata.file_type().is_symlink();
+
+        if metadata.is_file() && !is_symlink {
+            file_bytes = file_bytes.saturating_add(metadata.len());
+            continue;
+        }
+
         if !metadata.is_dir() && !is_symlink {
             continue;
         }
@@ -135,15 +149,17 @@ fn scan_dir(
         }
     }
 
+    sizes.insert(dir.to_path_buf(), file_bytes);
+
+    for child in &child_dirs {
+        scan_dir(child, root, depth + 1, options, sizes, projects)?;
+    }
+
     if !drafts.is_empty() {
-        let project = build_project_report(dir, root, drafts, options)?;
+        let project = build_project_report(dir, root, drafts, options, sizes)?;
         if !project.candidates.is_empty() {
             projects.push(project);
         }
-    }
-
-    for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
     }
 
     Ok(())
@@ -154,6 +170,7 @@ fn build_project_report(
     _root: &Path,
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
+    sizes: &DirSizes,
 ) -> Result<ProjectReport, String> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_info(dir);
@@ -217,12 +234,7 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let candidate_paths = candidates
-        .iter()
-        .map(|candidate| PathBuf::from(&candidate.path))
-        .collect::<Vec<_>>();
-    let source_bytes =
-        project_source_size(dir, &candidate_paths, options.max_depth, options.verbose);
+    let source_bytes = sum_subtree_bytes(dir, sizes);
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -398,58 +410,18 @@ fn dir_size(path: &Path, verbose: bool) -> u64 {
     total
 }
 
-fn project_source_size(
-    project_dir: &Path,
-    candidate_paths: &[PathBuf],
-    max_depth: usize,
-    verbose: bool,
-) -> u64 {
-    let candidate_paths = candidate_paths.iter().cloned().collect::<HashSet<_>>();
+/// Folds every per-directory `file_bytes` tally that `scan_dir` already
+/// collected for paths under `project_dir`. Candidate subtrees are absent
+/// from the map (scan_dir doesn't recurse into them — `dir_size` handles
+/// those separately, unbounded), and skipped/excluded names never make it
+/// into the map either.
+fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     let mut total: u64 = 0;
-
-    for result in walkdir::WalkDir::new(project_dir)
-        .max_depth(max_depth)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            let path = entry.path();
-            if candidate_paths.contains(path) {
-                return false;
-            }
-            entry
-                .file_name()
-                .to_str()
-                .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
-        })
-    {
-        let entry = match result {
-            Ok(entry) => entry,
-            Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size walk error under {}: {err}",
-                        project_dir.display()
-                    );
-                }
-                continue;
-            }
-        };
-        match entry.metadata() {
-            Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
-            }
-            Ok(_) => {}
-            Err(err) => {
-                if verbose {
-                    eprintln!(
-                        "project_source_size metadata error at {}: {err}",
-                        entry.path().display()
-                    );
-                }
-            }
+    for (path, bytes) in sizes {
+        if path == project_dir || path.starts_with(project_dir) {
+            total = total.saturating_add(*bytes);
         }
     }
-
     total
 }
 
