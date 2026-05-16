@@ -14,6 +14,7 @@ use crate::model::{
     ScanReport, Summary,
 };
 use crate::rules;
+use crate::user_rules::UserRuleSet;
 
 /// Per-directory immediate file-byte tally collected during `scan_dir`.
 /// A project's source size is the fold of every entry under its `project_dir`,
@@ -144,6 +145,7 @@ struct ScanContext<'a> {
     root: &'a Path,
     options: &'a ScanOptions,
     matcher: &'a IgnoreMatcher,
+    user_rules: &'a UserRuleSet,
     git_cache: &'a GitCache,
     sizes: &'a mut DirSizes,
 }
@@ -162,11 +164,13 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 source,
             })?;
         roots.push(root.display().to_string());
+        let user_rules = UserRuleSet::load_from_root(&root);
         let matcher = IgnoreMatcher::build(&root, &options.ignore_globs);
         let mut context = ScanContext {
             root: &root,
             options,
             matcher: &matcher,
+            user_rules: &user_rules,
             git_cache: &git_cache,
             sizes: &mut sizes,
         };
@@ -278,6 +282,22 @@ fn scan_dir(
 
         if rules::is_candidate_name(&name)
             && let Some(mut draft) = rules::classify_candidate(dir, &name, path.clone())
+        {
+            if context.matcher.is_ignored(&path, true) {
+                continue;
+            }
+            apply_path_safety(context.root, &mut draft);
+            if should_include(&draft, context.options) {
+                drafts.push(draft);
+            }
+            continue;
+        }
+
+        // Builtin classifier missed. Give user rules from `.rclean.toml`
+        // a chance — they can match arbitrary directory names like
+        // `my_build_*` under user-declared `parent_markers`.
+        if !context.user_rules.is_empty()
+            && let Some(mut draft) = context.user_rules.classify(&name, dir)
         {
             if context.matcher.is_ignored(&path, true) {
                 continue;
