@@ -34,11 +34,16 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
 
 pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Option<CandidateDraft> {
     let path_ref = path.as_path();
-    let draft = node::classify(project_dir, name, path_ref)
-        .or_else(|| python::classify(project_dir, name, path_ref))
-        .or_else(|| rust::classify(project_dir, name, path_ref))
+    // Order matches v0.1.0's match-arm priority. The ambiguous `build/`
+    // directory name belongs to jvm (Gradle) and flutter (Dart) before
+    // node — under a mixed Gradle+Node project, `build/` is a Gradle
+    // output (Safety::Safe) and must not be reclassified as a Node
+    // caution candidate. Same logic for `target/`: rust > jvm.
+    let draft = rust::classify(project_dir, name, path_ref)
         .or_else(|| jvm::classify(project_dir, name, path_ref))
         .or_else(|| flutter::classify(project_dir, name, path_ref))
+        .or_else(|| node::classify(project_dir, name, path_ref))
+        .or_else(|| python::classify(project_dir, name, path_ref))
         .or_else(|| dotnet::classify(project_dir, name, path_ref))
         .or_else(|| ruby::classify(project_dir, name, path_ref))
         .or_else(|| go::classify(project_dir, name, path_ref))
