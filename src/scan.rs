@@ -66,10 +66,20 @@ pub fn explain_path(path: &Path) -> Result<Explanation, String> {
             reasons: vec!["no built-in rule matched this path".to_string()],
             warnings: Vec::new(),
             restore_hint: None,
+            risk_score: None,
         });
     };
 
     apply_path_safety(Path::new("."), &mut draft);
+
+    // Build the same risk signal the scan path emits per candidate.
+    // `parent` is the project directory. We use the default max_depth
+    // of 6 here because explain has no ScanOptions; matches v0.1.0's
+    // default. git_info shells out once — explain is a single-shot
+    // command, not a scan loop, so caching isn't worth threading.
+    let git = git_info(parent);
+    let activity_time = project_activity(parent, 6).unwrap_or_else(SystemTime::now);
+    let risk_score = compute_risk_score(git.as_ref(), activity_time, parent);
 
     Ok(Explanation {
         path: path.to_path_buf(),
@@ -79,6 +89,7 @@ pub fn explain_path(path: &Path) -> Result<Explanation, String> {
         reasons: draft.reasons,
         warnings: draft.warnings,
         restore_hint: Some(draft.restore_hint),
+        risk_score: Some(risk_score),
     })
 }
 

@@ -107,6 +107,9 @@ pub fn print_explanation(explanation: &Explanation) {
     if let Some(hint) = &explanation.restore_hint {
         println!("Restore: {hint}");
     }
+    if let Some(score) = explanation.risk_score {
+        println!("Risk: {}", format_risk(score));
+    }
     if explanation.safety == Safety::Unknown {
         println!("No built-in cleanup rule matched this path.");
     }

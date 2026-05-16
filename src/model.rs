@@ -157,6 +157,11 @@ pub struct Explanation {
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub restore_hint: Option<String>,
+    /// Composite risk signal for the candidate, computed against its
+    /// project directory. `None` when no built-in rule matched (the
+    /// path is `Safety::Unknown` and risk is undefined). See
+    /// `Candidate.risk_score` for the formula and current 0.85 cap.
+    pub risk_score: Option<f32>,
 }
 
 pub fn format_bytes(bytes: u64) -> String {
