@@ -12,7 +12,7 @@ use crate::model::{
 };
 use crate::rules;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ScanOptions {
     pub max_depth: usize,
     pub min_size: u64,
@@ -21,6 +21,49 @@ pub struct ScanOptions {
     pub rule_ids: Option<Vec<String>>,
     pub include_blocked: bool,
     pub verbose: bool,
+    /// Extra gitignore-style globs from `--ignore` CLI flags, layered on
+    /// top of any `.rcleanignore` file at the scan root.
+    pub ignore_globs: Vec<String>,
+}
+
+/// Compiled .gitignore-style matcher built from each scan root's
+/// `.rcleanignore` file plus any `--ignore <glob>` flags. Candidates whose
+/// path matches an ignore pattern are dropped before classification —
+/// they never appear in the report, plan, or table.
+pub(crate) struct IgnoreMatcher {
+    matcher: ignore::gitignore::Gitignore,
+}
+
+impl IgnoreMatcher {
+    pub(crate) fn build(root: &Path, extra_globs: &[String]) -> Self {
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
+        let rcleanignore = root.join(".rcleanignore");
+        if rcleanignore.is_file()
+            && let Some(err) = builder.add(&rcleanignore)
+        {
+            eprintln!("warning: failed to load {}: {err}", rcleanignore.display());
+        }
+        for glob in extra_globs {
+            if let Err(err) = builder.add_line(None, glob) {
+                eprintln!("warning: --ignore glob '{glob}': {err}");
+            }
+        }
+        let matcher = match builder.build() {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!(
+                    "warning: failed to build .rcleanignore matcher under {}: {err}",
+                    root.display()
+                );
+                ignore::gitignore::Gitignore::empty()
+            }
+        };
+        Self { matcher }
+    }
+
+    pub(crate) fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
+        self.matcher.matched(path, is_dir).is_ignore()
+    }
 }
 
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, String> {
@@ -32,7 +75,8 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Stri
             .canonicalize()
             .map_err(|err| format!("cannot scan {}: {err}", path.display()))?;
         roots.push(root.display().to_string());
-        scan_dir(&root, &root, 0, options, &mut projects)?;
+        let matcher = IgnoreMatcher::build(&root, &options.ignore_globs);
+        scan_dir(&root, &root, 0, options, &matcher, &mut projects)?;
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -87,6 +131,7 @@ fn scan_dir(
     root: &Path,
     depth: usize,
     options: &ScanOptions,
+    matcher: &IgnoreMatcher,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), String> {
     if depth > options.max_depth || is_skip_dir(dir) {
@@ -123,6 +168,9 @@ fn scan_dir(
         if rules::is_candidate_name(&name)
             && let Some(mut draft) = rules::classify_candidate(dir, &name, path.clone())
         {
+            if matcher.is_ignored(&path, true) {
+                continue;
+            }
             apply_path_safety(root, &mut draft);
             if should_include(&draft, options) {
                 drafts.push(draft);
@@ -131,6 +179,9 @@ fn scan_dir(
         }
 
         if metadata.is_dir() && !is_symlink && !is_skip_name(&name) {
+            if matcher.is_ignored(&path, true) {
+                continue;
+            }
             child_dirs.push(path);
         }
     }
@@ -143,7 +194,7 @@ fn scan_dir(
     }
 
     for child in child_dirs {
-        scan_dir(&child, root, depth + 1, options, projects)?;
+        scan_dir(&child, root, depth + 1, options, matcher, projects)?;
     }
 
     Ok(())
@@ -548,6 +599,7 @@ mod tests {
             rule_ids: None,
             include_blocked: true,
             verbose: false,
+            ignore_globs: Vec::new(),
         }
     }
 
