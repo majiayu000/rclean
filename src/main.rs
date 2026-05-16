@@ -14,7 +14,7 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use error::RcleanError;
 use model::Safety;
-use tracing::{error, info};
+use tracing::error;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> ExitCode {
@@ -53,7 +53,10 @@ fn run() -> Result<ExitCode, RcleanError> {
             let report = scan::scan(&args.paths_or_current_dir(), &options)?;
             if let Some(plan_path) = &args.write_plan {
                 plan::write_action_plan(&report, plan_path, args.include_caution, false, "trash")?;
-                info!(path = %plan_path.display(), "wrote action plan");
+                // User-facing success confirmation. Bypass the tracing
+                // filter (default `warn` would hide info!) so the message
+                // stays visible without --verbose, matching v0.1.0.
+                eprintln!("wrote action plan: {}", plan_path.display());
             }
             if args.json {
                 output::print_json(&report)?;
@@ -96,7 +99,10 @@ fn run() -> Result<ExitCode, RcleanError> {
                         args.permanent,
                         if args.permanent { "permanent" } else { "trash" },
                     )?;
-                    info!(path = %plan_path.display(), "wrote action plan");
+                    // User-facing success confirmation. Bypass the tracing
+                    // filter (default `warn` would hide info!) so the message
+                    // stays visible without --verbose, matching v0.1.0.
+                    eprintln!("wrote action plan: {}", plan_path.display());
                 }
                 let selected = clean::select_candidates(&report, &args)?;
                 (selected, Some(report))
