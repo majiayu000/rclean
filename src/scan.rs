@@ -156,10 +156,20 @@ pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
             reasons: vec!["no built-in rule matched this path".to_string()],
             warnings: Vec::new(),
             restore_hint: None,
+            risk_score: None,
         });
     };
 
     apply_path_safety(Path::new("."), &mut draft);
+
+    // Same risk signal the scan path emits. `parent` is the project
+    // dir; max_depth 6 matches v0.1.0's default `--depth`. The GitCache
+    // lookup shells out once here — explain is single-shot, not a scan
+    // loop. `project_activity` fallback to `now()` conservatively trips
+    // the recent-mtime axis (+0.25); scan path uses the same fallback.
+    let git = GitCache::new().info_for(parent);
+    let activity_time = project_activity(parent, 6).unwrap_or_else(SystemTime::now);
+    let risk_score = compute_risk_score(git.as_ref(), activity_time, parent);
 
     Ok(Explanation {
         path: path.to_path_buf(),
@@ -169,6 +179,7 @@ pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
         reasons: draft.reasons,
         warnings: draft.warnings,
         restore_hint: Some(draft.restore_hint),
+        risk_score: Some(risk_score),
     })
 }
 
