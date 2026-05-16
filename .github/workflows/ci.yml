@@ -8,12 +8,12 @@ on:
 
 jobs:
   test:
-    name: fmt, clippy, test
+    name: fmt, clippy, test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,3 +34,23 @@ jobs:
 
       - name: Release build
         run: cargo build --release
+
+  # Verifies the minimum supported Rust version declared in Cargo.toml
+  # (rust-version = "1.88") still actually builds and tests. Runs on
+  # Ubuntu only — MSRV is a toolchain-version concern, not a
+  # platform-coverage concern, so cross-platform stays in `test` above.
+  msrv:
+    name: MSRV build + test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.88
+
+      - name: Cargo build (MSRV)
+        run: cargo build --all-targets --all-features
+
+      - name: Cargo test (MSRV)
+        run: cargo test

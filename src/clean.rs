@@ -232,6 +232,14 @@ pub fn check_broad_roots(roots: &[PathBuf]) -> Result<(), CleanError> {
 }
 
 fn is_broad_root(path: &Path) -> bool {
+    if path.has_root()
+        && !path
+            .components()
+            .any(|component| matches!(component, std::path::Component::Normal(_)))
+    {
+        return true;
+    }
+
     let broad: &[&str] = &[
         "/",
         "/etc",
