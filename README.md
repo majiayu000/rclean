@@ -1,5 +1,8 @@
 # rclean
 
+[![CI](https://github.com/majiayu000/rclean/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/rclean/actions/workflows/ci.yml)
+[![Audit](https://github.com/majiayu000/rclean/actions/workflows/audit.yml/badge.svg)](https://github.com/majiayu000/rclean/actions/workflows/audit.yml)
+
 Rust-native CLI for finding and cleaning rebuildable developer artifacts.
 
 `rclean` is not a general disk cleaner. It targets project-local artifacts
