@@ -22,8 +22,28 @@ upgrade to the latest patch.
 Preferred channel: GitHub's [private vulnerability reporting](https://github.com/majiayu000/rclean/security/advisories/new).
 This lets us coordinate a fix before details become public.
 
-If that channel is unavailable, you can also reach the maintainer
-through the contact on the maintainer's GitHub profile.
+> **Maintainer setup note (one-time, takes ~30 seconds).** Private
+> vulnerability reporting is opt-in per repository. If the link
+> above returns 404 or "page not found", the feature has not been
+> enabled yet. Maintainer action:
+> *Repository → Settings → Code security → "Private vulnerability
+> reporting" → Enable*.
+
+### Fallback channels
+
+If the private-reporting form is not yet available, in priority order:
+
+1. Open a [GitHub Discussion](https://github.com/majiayu000/rclean/discussions)
+   with the title prefix `[SECURITY — DO NOT REPRODUCE PUBLICLY]`.
+   This is visible but signals intent. The maintainer will move it
+   private on first response.
+2. Reach the maintainer through the contact on the
+   [@majiayu000 GitHub profile](https://github.com/majiayu000).
+
+Filing a regular public GitHub issue is the **last** resort — only
+do this if (1) and (2) have both been tried and failed, and even
+then, **redact the reproduction steps** and request a private
+channel in the issue body.
 
 ### What to include
 
