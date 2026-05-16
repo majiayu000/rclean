@@ -20,7 +20,9 @@ Order below mirrors merge order.
   max is 0.85 (root-boundary axis deferred to a follow-up). [#34]
 - `.rcleanignore` file at the scan root and repeatable `--ignore <GLOB>`
   CLI flag, both using `.gitignore` syntax via the `ignore` crate.
-  Excluded candidates never enter the report, plan, or table. [#35]
+  Negation patterns (`!pattern`), deeply nested matches, and additive
+  `--ignore A --ignore B` layering all work. Excluded candidates never
+  enter the report, plan, or table. [#35]
 - `.rclean.toml` user rules — declare new candidate names with
   `name_glob`, `parent_markers`, `category`, `safety` (`safe` or
   `caution`; `blocked` is rejected at load time). Useful for custom
