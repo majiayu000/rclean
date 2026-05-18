@@ -27,3 +27,47 @@ mod store;
 pub use error::GraveyardError;
 pub use manifest::{GraveId, ManifestReader, ManifestRecord, RecordWriter};
 pub use store::{Grave, GraveInput, Graveyard};
+
+use std::path::PathBuf;
+
+/// Default graveyard root per platform (SPEC §4.7.1).
+///
+///   Linux/macOS: `$XDG_DATA_HOME/rclean/graveyard/` or
+///                `$HOME/.local/share/rclean/graveyard/`
+///   Windows:     `%LOCALAPPDATA%\rclean\graveyard\` or
+///                `%USERPROFILE%\AppData\Local\rclean\graveyard\`
+///
+/// Last-resort fallback to `./.rclean-graveyard` only when none of
+/// the home env vars are set — mainly for CI sandboxes with
+/// stripped environments.
+pub fn default_root() -> PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME")
+        && !xdg.is_empty()
+    {
+        return PathBuf::from(xdg).join("rclean").join("graveyard");
+    }
+    if let Ok(localapp) = std::env::var("LOCALAPPDATA")
+        && !localapp.is_empty()
+    {
+        return PathBuf::from(localapp).join("rclean").join("graveyard");
+    }
+    if let Ok(home) = std::env::var("HOME")
+        && !home.is_empty()
+    {
+        return PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("rclean")
+            .join("graveyard");
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE")
+        && !profile.is_empty()
+    {
+        return PathBuf::from(profile)
+            .join("AppData")
+            .join("Local")
+            .join("rclean")
+            .join("graveyard");
+    }
+    PathBuf::from(".rclean-graveyard")
+}

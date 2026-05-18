@@ -136,6 +136,15 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
 
             clean::confirm_if_needed(&selected, &args)?;
+            #[cfg(feature = "graveyard")]
+            let result = if args.graveyard {
+                // SPEC §4.7.1: lazy create on first bury.
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                clean::delete_selected_into_graveyard(&selected, &yard)?
+            } else {
+                clean::delete_selected(&selected, args.permanent)?
+            };
+            #[cfg(not(feature = "graveyard"))]
             let result = clean::delete_selected(&selected, args.permanent)?;
             clean::print_clean_result(&result);
 

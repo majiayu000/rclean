@@ -217,6 +217,54 @@ pub fn delete_selected(
     Ok(result)
 }
 
+/// `--graveyard` delete path: validate each candidate, then bury it
+/// in the per-user graveyard. Returns the same `CleanResult` shape as
+/// `delete_selected` so callers can print one summary regardless of
+/// delete mode.
+///
+/// Per-grave metadata that `clean.rs` doesn't currently track on
+/// `SelectedCandidate` (category, safety, risk_score) is stored with
+/// conservative defaults: safety="safe" (the candidate passed the
+/// trust gate to be selected at all), category="unknown",
+/// risk_score=0.0. A follow-up PR that lifts those fields onto
+/// `SelectedCandidate` will populate them properly so the manifest
+/// audit trail is complete.
+#[cfg(feature = "graveyard")]
+pub fn delete_selected_into_graveyard(
+    selected: &[SelectedCandidate],
+    graveyard: &crate::graveyard::Graveyard,
+) -> Result<CleanResult, CleanError> {
+    use crate::graveyard::GraveInput;
+
+    let tool_version = env!("CARGO_PKG_VERSION");
+    let mut result = CleanResult::default();
+
+    for candidate in selected {
+        if let Err(err) = validate_for_deletion(&candidate.path) {
+            result.failed.push((candidate.clone(), err.to_string()));
+            continue;
+        }
+
+        let input = GraveInput {
+            original_path: &candidate.path,
+            size_bytes: candidate.bytes,
+            plan_id: None,
+            rule_id: &candidate.rule_id,
+            category: "unknown",
+            safety_at_delete: "safe",
+            risk_score_at_delete: 0.0,
+            tool_version,
+        };
+
+        match graveyard.bury(input) {
+            Ok(_) => result.cleaned.push(candidate.clone()),
+            Err(err) => result.failed.push((candidate.clone(), err.to_string())),
+        }
+    }
+
+    Ok(result)
+}
+
 pub fn check_broad_roots(roots: &[PathBuf]) -> Result<(), CleanError> {
     for root in roots {
         if let Some(canonical) = root.canonicalize().ok().or_else(|| Some(root.clone()))
