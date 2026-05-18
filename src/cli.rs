@@ -25,6 +25,57 @@ pub enum Commands {
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
     Rules,
+    /// Restore a grave from the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Restore(RestoreArgs),
+    /// Inspect or maintain the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Graveyard(GraveyardArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct RestoreArgs {
+    /// id of the grave to restore (from `rclean graveyard list`).
+    #[arg(long = "id", value_name = "ID")]
+    pub id: String,
+
+    /// Restore to this path instead of the original. Useful when the
+    /// original location is now occupied.
+    #[arg(long, value_name = "PATH")]
+    pub to: Option<PathBuf>,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardArgs {
+    #[command(subcommand)]
+    pub command: GraveyardCommands,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Subcommand)]
+pub enum GraveyardCommands {
+    /// List active graves.
+    List(GraveyardListArgs),
+    /// Remove every grave past its expiry.
+    Gc(GraveyardGcArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardListArgs {
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardGcArgs {
+    /// Show what would be removed without actually deleting.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args, Clone)]

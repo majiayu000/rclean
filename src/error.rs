@@ -82,6 +82,9 @@ pub enum RcleanError {
     Parse(#[from] ParseError),
     #[error("output serialization error: {0}")]
     Output(#[from] serde_json::Error),
+    #[cfg(feature = "graveyard")]
+    #[error(transparent)]
+    Graveyard(#[from] crate::graveyard::GraveyardError),
 }
 
 impl From<String> for RcleanError {

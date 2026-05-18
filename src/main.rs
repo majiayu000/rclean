@@ -167,5 +167,45 @@ fn run() -> Result<ExitCode, RcleanError> {
             output::print_rules();
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "graveyard")]
+        Commands::Restore(args) => {
+            let yard = graveyard::Graveyard::open(graveyard::default_root());
+            let record = yard.restore_by_id(&args.id, args.to.as_deref())?;
+            eprintln!(
+                "restored {} -> {}",
+                record.id,
+                record.original_path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "graveyard")]
+        Commands::Graveyard(args) => match args.command {
+            cli::GraveyardCommands::List(list_args) => {
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                let records = yard.list()?;
+                if list_args.json {
+                    let json = serde_json::to_string_pretty(&records)
+                        .map_err(error::RcleanError::Output)?;
+                    println!("{json}");
+                } else {
+                    output::print_graveyard_list(&records);
+                }
+                if records.is_empty() {
+                    Ok(ExitCode::from(3))
+                } else {
+                    Ok(ExitCode::SUCCESS)
+                }
+            }
+            cli::GraveyardCommands::Gc(gc_args) => {
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                let collected = yard.gc(gc_args.dry_run)?;
+                if gc_args.dry_run {
+                    eprintln!("dry-run: would remove {} expired grave(s)", collected.len());
+                } else {
+                    eprintln!("removed {} expired grave(s)", collected.len());
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
     }
 }

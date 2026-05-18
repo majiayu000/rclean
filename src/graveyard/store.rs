@@ -127,6 +127,185 @@ impl Graveyard {
         }
         ManifestReader::open(&manifest_path)?.read_all()
     }
+
+    /// Restore the grave with the given id back to its `original_path`
+    /// (or `override_target` if provided). Returns the record that was
+    /// restored. Enforces SPEC §4.7.5 edge cases:
+    ///
+    ///   1. Target path already exists → `RestoreTargetExists`.
+    ///   2. Target parent is a symlink → `RestoreTargetParentIsSymlink`.
+    ///   3. Target parent missing → re-created with default perms.
+    ///   4. Cross-FS rename → copy + remove fallback.
+    pub fn restore_by_id(
+        &self,
+        id: &str,
+        override_target: Option<&Path>,
+    ) -> Result<ManifestRecord, GraveyardError> {
+        let records = self.list()?;
+        let record = records
+            .iter()
+            .find(|r| r.id == id)
+            .cloned()
+            .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
+
+        let target = override_target
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| record.original_path.clone());
+
+        if target.exists() {
+            return Err(GraveyardError::RestoreTargetExists { path: target });
+        }
+        if let Some(parent) = target.parent()
+            && parent.exists()
+            && parent
+                .symlink_metadata()
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+        {
+            return Err(GraveyardError::RestoreTargetParentIsSymlink {
+                path: parent.to_path_buf(),
+            });
+        }
+        if let Some(parent) = target.parent()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).map_err(|source| GraveyardError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        let payload = self.root.join(&record.grave_path).join("payload");
+        move_into(&payload, &target)?;
+
+        // The grave directory still holds meta.json; drop it now that
+        // the payload is gone. We deliberately don't fail the whole
+        // restore if cleanup hiccups — the user already got their
+        // data back; manifest GC will sweep the empty dir later.
+        let grave_dir = self.root.join(&record.grave_path);
+        if let Err(err) = fs::remove_dir_all(&grave_dir) {
+            tracing::warn!(
+                path = %grave_dir.display(),
+                error = %err,
+                "graveyard: failed to clean up empty grave directory after restore"
+            );
+        }
+
+        rewrite_manifest_without(&self.root, &records, |r| r.id != id)?;
+        Ok(record)
+    }
+
+    /// Remove every grave whose `expires_at` is before `now`. Returns
+    /// the records that were collected (so callers can print a
+    /// summary).
+    pub fn gc(&self, dry_run: bool) -> Result<Vec<ManifestRecord>, GraveyardError> {
+        let records = self.list()?;
+        let now = Utc::now();
+        let (expired, alive): (Vec<_>, Vec<_>) =
+            records.iter().cloned().partition(|r| r.expires_at < now);
+
+        if dry_run {
+            return Ok(expired);
+        }
+
+        for record in &expired {
+            let grave_dir = self.root.join(&record.grave_path);
+            if let Err(err) = fs::remove_dir_all(&grave_dir) {
+                tracing::warn!(
+                    path = %grave_dir.display(),
+                    error = %err,
+                    "graveyard: gc failed to remove expired grave dir"
+                );
+            }
+        }
+
+        rewrite_manifest_atomic(&self.root, &alive)?;
+        Ok(expired)
+    }
+}
+
+/// Atomic-ish manifest rewrite: write to a sibling temp file, then
+/// rename over the real manifest. The lock file protects against a
+/// concurrent `bury()` writer; rewrite holds the same lock for the
+/// full duration.
+fn rewrite_manifest_atomic(root: &Path, kept: &[ManifestRecord]) -> Result<(), GraveyardError> {
+    use std::io::Write;
+
+    let manifest = root.join("manifest.jsonl");
+    let tmp = root.join("manifest.jsonl.tmp");
+    let lock_path = root.join("manifest.jsonl.lock");
+
+    // Acquire the same advisory lock used by RecordWriter::append so a
+    // concurrent bury isn't reading half-written state.
+    let mut attempts: u32 = 0;
+    let _lock = loop {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+        {
+            Ok(file) => break LockGuard::new(file, lock_path.clone()),
+            Err(_) if attempts < 5 => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(_) => return Err(GraveyardError::ManifestLockContention { attempts }),
+        }
+    };
+
+    let mut file = std::fs::File::create(&tmp).map_err(|source| GraveyardError::Io {
+        path: tmp.clone(),
+        source,
+    })?;
+    for record in kept {
+        let line = serde_json::to_string(record)?;
+        writeln!(file, "{line}").map_err(|source| GraveyardError::Io {
+            path: tmp.clone(),
+            source,
+        })?;
+    }
+    file.sync_data().map_err(|source| GraveyardError::Io {
+        path: tmp.clone(),
+        source,
+    })?;
+    drop(file);
+
+    fs::rename(&tmp, &manifest).map_err(|source| GraveyardError::Io {
+        path: manifest,
+        source,
+    })?;
+    Ok(())
+}
+
+fn rewrite_manifest_without<F>(
+    root: &Path,
+    records: &[ManifestRecord],
+    keep: F,
+) -> Result<(), GraveyardError>
+where
+    F: Fn(&ManifestRecord) -> bool,
+{
+    let kept: Vec<ManifestRecord> = records.iter().filter(|r| keep(r)).cloned().collect();
+    rewrite_manifest_atomic(root, &kept)
+}
+
+/// Local copy of the RAII lock guard so we can use it from this file
+/// without exposing the manifest module's internal type.
+struct LockGuard {
+    _file: std::fs::File,
+    path: PathBuf,
+}
+
+impl LockGuard {
+    fn new(file: std::fs::File, path: PathBuf) -> Self {
+        Self { _file: file, path }
+    }
+}
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 /// Move `src` to `dst`. Falls back to copy + remove if rename fails
