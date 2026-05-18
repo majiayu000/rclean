@@ -371,8 +371,30 @@ fn build_project_report(
         });
     }
 
+    // Compute every draft's directory size in parallel. Each
+    // `dir_size` walks an independent candidate subtree (e.g.
+    // `node_modules`, `.next`, `.turbo`), so a project with N
+    // candidates lets rayon split N walkdir traversals across
+    // worker threads instead of running them sequentially.
+    //
+    // Blocked candidates short-circuit to 0 without walking. The
+    // closure captures nothing mutable — `options.verbose` is
+    // Copy and the path comes from each draft. The output
+    // preserves input order so the subsequent zip is correct.
+    use rayon::prelude::*;
+    let draft_sizes: Vec<u64> = drafts
+        .par_iter()
+        .map(|draft| {
+            if draft.safety == Safety::Blocked {
+                0
+            } else {
+                dir_size(&draft.path, options.verbose)
+            }
+        })
+        .collect();
+
     let mut candidates = Vec::new();
-    for mut draft in drafts {
+    for (mut draft, bytes) in drafts.into_iter().zip(draft_sizes) {
         if let Some(git) = &git
             && git.dirty
             && draft.safety == Safety::Safe
@@ -383,11 +405,6 @@ fn build_project_report(
                 .push("project has uncommitted git changes".to_string());
         }
 
-        let bytes = if draft.safety == Safety::Blocked {
-            0
-        } else {
-            dir_size(&draft.path, options.verbose)
-        };
         if bytes < options.min_size && draft.safety != Safety::Blocked {
             continue;
         }
