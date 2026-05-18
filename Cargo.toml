@@ -14,6 +14,10 @@ categories = ["command-line-utilities", "development-tools"]
 name = "rclean"
 path = "src/main.rs"
 
+[features]
+default = ["graveyard"]
+graveyard = []
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }

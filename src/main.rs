@@ -1,6 +1,13 @@
 mod clean;
 mod cli;
 mod error;
+// CLI integration (clean --graveyard, rclean restore, etc.) lands in
+// a follow-up PR per docs/specs/v0.1.x-roadmap.md §4.7. The storage
+// layer is staged ahead so the API surface can be reviewed in
+// isolation; the inner-module `#![allow(dead_code, unused_imports)]`
+// disappears once the CLI wiring uses every public item.
+#[cfg(feature = "graveyard")]
+mod graveyard;
 mod model;
 mod output;
 mod parse;
