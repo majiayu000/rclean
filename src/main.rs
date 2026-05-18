@@ -7,7 +7,6 @@ mod parse;
 mod plan;
 mod rules;
 mod scan;
-mod scan_walker;
 mod user_rules;
 
 use std::process::ExitCode;

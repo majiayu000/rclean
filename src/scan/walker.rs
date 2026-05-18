@@ -31,11 +31,11 @@ use tracing::debug;
 
 use crate::model::CandidateDraft;
 use crate::rules;
-use crate::scan::{
-    DirSizes, IgnoreMatcher, ScanOptions, apply_path_safety, is_skip_dir, is_skip_name,
-    should_include,
-};
 use crate::user_rules::UserRuleSet;
+
+use super::safety::{apply_path_safety, is_skip_dir, is_skip_name};
+use super::sizer::DirSizes;
+use super::{IgnoreMatcher, ScanOptions, should_include};
 
 /// Thread-safe accumulator shared by every WalkParallel worker.
 pub(crate) struct WalkScratch {
