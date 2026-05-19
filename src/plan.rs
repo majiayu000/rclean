@@ -59,6 +59,29 @@ pub fn write_action_plan(
     write_atomically(path, json.as_bytes())
 }
 
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+pub fn write_selected_action_plan(
+    report: &ScanReport,
+    path: &Path,
+    selected: &[SelectedCandidate],
+    delete_mode: &str,
+) -> Result<(), PlanError> {
+    let selected = collect_selected_paths(report, selected);
+    let summary = summarize_selected(&selected, &report.summary);
+    let plan = ActionPlan {
+        schema_version: 1,
+        tool_version: report.tool_version.clone(),
+        generated_at: Utc::now().to_rfc3339(),
+        delete_mode: delete_mode.to_string(),
+        roots: report.roots.clone(),
+        summary,
+        selected,
+        projects: report.projects.clone(),
+    };
+    let json = serde_json::to_string_pretty(&plan)?;
+    write_atomically(path, json.as_bytes())
+}
+
 fn write_atomically(path: &Path, contents: &[u8]) -> Result<(), PlanError> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
     let mut tmp = match parent {
@@ -232,6 +255,25 @@ fn collect_selected(report: &ScanReport, include_caution: bool) -> Vec<PlanCandi
             candidate.safety == Safety::Safe
                 || (include_caution && candidate.safety == Safety::Caution)
         })
+        .map(to_plan_candidate)
+        .collect()
+}
+
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+fn collect_selected_paths(
+    report: &ScanReport,
+    selected: &[SelectedCandidate],
+) -> Vec<PlanCandidate> {
+    let selected_paths = selected
+        .iter()
+        .map(|candidate| candidate.path.display().to_string())
+        .collect::<std::collections::HashSet<_>>();
+
+    report
+        .projects
+        .iter()
+        .flat_map(|project| project.candidates.iter())
+        .filter(|candidate| selected_paths.contains(&candidate.path))
         .map(to_plan_candidate)
         .collect()
 }
