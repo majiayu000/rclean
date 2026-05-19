@@ -12,6 +12,7 @@ mod gradle;
 mod ios;
 mod jvm;
 mod markers;
+mod maven;
 mod node;
 mod node_global;
 mod pip;
@@ -58,6 +59,7 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
         .or_else(|| node_global::classify(project_dir, name, path_ref))
         .or_else(|| pip::classify(project_dir, name, path_ref))
         .or_else(|| gradle::classify(project_dir, name, path_ref))
+        .or_else(|| maven::classify(project_dir, name, path_ref))
         .or_else(|| generic::classify(project_dir, name, path_ref));
 
     draft.map(|mut draft| {
@@ -105,6 +107,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "Yarn"
             | "pip"
             | "caches"
+            | "repository"
     )
 }
 
@@ -123,6 +126,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "node.yarn_cache"
             | "pip.cache"
             | "gradle.caches"
+            | "maven.local_repo"
     )
 }
 

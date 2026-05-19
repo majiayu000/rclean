@@ -219,4 +219,10 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "caches",
         restore_hint: "Gradle will redownload dependencies on the next build",
     },
+    RuleInfo {
+        rule_id: "maven.local_repo",
+        category: Category::Cache,
+        candidate: "repository",
+        restore_hint: "Maven will redownload dependencies on the next build",
+    },
 ];
