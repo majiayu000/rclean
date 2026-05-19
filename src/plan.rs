@@ -1,12 +1,12 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
-use crate::model::{Candidate, ProjectReport, Safety, ScanReport, Summary};
+use crate::model::{Candidate, CandidateDraft, ProjectReport, Safety, ScanReport, Summary};
 use crate::rules;
 use crate::scan::is_runtime_or_system_path;
 
@@ -113,20 +113,7 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
-        let parent = path.parent().ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has no parent directory: {}",
-                candidate.path
-            ))
-        })?;
-        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has invalid file name: {}",
-                candidate.path
-            ))
-        })?;
-
-        let draft = rules::classify_candidate(parent, name, path.clone()).ok_or_else(|| {
+        let draft = classify_plan_candidate(plan, candidate, &path).ok_or_else(|| {
             PlanError::Generic(format!(
                 "{} is not recognized by any current rule (plan may be stale or tampered)",
                 candidate.path
@@ -147,6 +134,42 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
         });
     }
     Ok(selected)
+}
+
+fn classify_plan_candidate(
+    plan: &ActionPlan,
+    candidate: &PlanCandidate,
+    path: &Path,
+) -> Option<CandidateDraft> {
+    plan.projects
+        .iter()
+        .filter(|project| {
+            project
+                .candidates
+                .iter()
+                .any(|project_candidate| project_candidate.path == candidate.path)
+        })
+        .find_map(|project| classify_from_project_context(project, path))
+        .or_else(|| classify_from_path_parent(path))
+}
+
+fn classify_from_project_context(project: &ProjectReport, path: &Path) -> Option<CandidateDraft> {
+    let project_dir = PathBuf::from(&project.path);
+    let relative = path.strip_prefix(&project_dir).ok()?;
+    let first_component = relative.components().next()?;
+    let Component::Normal(name) = first_component else {
+        return None;
+    };
+    let name = name.to_str()?;
+    let classifier_path = project_dir.join(name);
+    let draft = rules::classify_candidate(&project_dir, name, classifier_path)?;
+    (draft.path == path).then_some(draft)
+}
+
+fn classify_from_path_parent(path: &Path) -> Option<CandidateDraft> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_str()?;
+    rules::classify_candidate(parent, name, path.to_path_buf())
 }
 
 pub fn revalidate_selected(
