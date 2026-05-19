@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use crate::cli::CleanArgs;
+use crate::error::CleanError;
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
 use crate::scan::is_runtime_or_system_path;
 
@@ -28,7 +29,7 @@ pub struct CleanResult {
 pub fn select_candidates(
     report: &ScanReport,
     args: &CleanArgs,
-) -> Result<Vec<SelectedCandidate>, String> {
+) -> Result<Vec<SelectedCandidate>, CleanError> {
     let candidates = selectable_candidates(report);
 
     if !args.all {
@@ -64,7 +65,7 @@ fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
 fn select_interactively(
     candidates: &[SelectableCandidate<'_>],
     include_caution: bool,
-) -> Result<Vec<SelectedCandidate>, String> {
+) -> Result<Vec<SelectedCandidate>, CleanError> {
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
@@ -99,12 +100,12 @@ fn select_interactively(
     print!("Selection: ");
     io::stdout()
         .flush()
-        .map_err(|err| format!("failed to flush stdout: {err}"))?;
+        .map_err(|err| CleanError::Generic(format!("failed to flush stdout: {err}")))?;
 
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
-        .map_err(|err| format!("failed to read selection: {err}"))?;
+        .map_err(|err| CleanError::Generic(format!("failed to read selection: {err}")))?;
 
     let input = input.trim();
     if input.eq_ignore_ascii_case("a") {
@@ -154,7 +155,10 @@ pub fn print_plan(selected: &[SelectedCandidate], permanent: bool, dry_run: bool
     }
 }
 
-pub fn confirm_if_needed(selected: &[SelectedCandidate], args: &CleanArgs) -> Result<(), String> {
+pub fn confirm_if_needed(
+    selected: &[SelectedCandidate],
+    args: &CleanArgs,
+) -> Result<(), CleanError> {
     if args.yes {
         return Ok(());
     }
@@ -172,29 +176,29 @@ pub fn confirm_if_needed(selected: &[SelectedCandidate], args: &CleanArgs) -> Re
     );
     io::stdout()
         .flush()
-        .map_err(|err| format!("failed to flush stdout: {err}"))?;
+        .map_err(|err| CleanError::Generic(format!("failed to flush stdout: {err}")))?;
 
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
-        .map_err(|err| format!("failed to read confirmation: {err}"))?;
+        .map_err(|err| CleanError::Generic(format!("failed to read confirmation: {err}")))?;
     let answer = input.trim().to_ascii_lowercase();
     if answer == "y" || answer == "yes" {
         Ok(())
     } else {
-        Err("clean cancelled".to_string())
+        Err(CleanError::Generic("clean cancelled".to_string()))
     }
 }
 
 pub fn delete_selected(
     selected: &[SelectedCandidate],
     permanent: bool,
-) -> Result<CleanResult, String> {
+) -> Result<CleanResult, CleanError> {
     let mut result = CleanResult::default();
 
     for candidate in selected {
         if let Err(err) = validate_for_deletion(&candidate.path) {
-            result.failed.push((candidate.clone(), err));
+            result.failed.push((candidate.clone(), err.to_string()));
             continue;
         }
 
@@ -213,21 +217,29 @@ pub fn delete_selected(
     Ok(result)
 }
 
-pub fn check_broad_roots(roots: &[PathBuf]) -> Result<(), String> {
+pub fn check_broad_roots(roots: &[PathBuf]) -> Result<(), CleanError> {
     for root in roots {
         if let Some(canonical) = root.canonicalize().ok().or_else(|| Some(root.clone()))
             && is_broad_root(&canonical)
         {
-            return Err(format!(
+            return Err(CleanError::Generic(format!(
                 "refusing to clean against broad root {}: pass --allow-broad-root to override",
                 canonical.display()
-            ));
+            )));
         }
     }
     Ok(())
 }
 
 fn is_broad_root(path: &Path) -> bool {
+    if path.has_root()
+        && !path
+            .components()
+            .any(|component| matches!(component, std::path::Component::Normal(_)))
+    {
+        return true;
+    }
+
     let broad: &[&str] = &[
         "/",
         "/etc",
@@ -266,34 +278,34 @@ fn is_broad_root(path: &Path) -> bool {
     broad.iter().any(|b| path_str.as_ref() == *b)
 }
 
-pub(crate) fn validate_for_deletion(path: &Path) -> Result<(), String> {
+pub(crate) fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
     let metadata = fs::symlink_metadata(path).map_err(|err| {
-        format!(
+        CleanError::Generic(format!(
             "{} no longer exists or cannot be read: {err}",
             path.display()
-        )
+        ))
     })?;
     if metadata.file_type().is_symlink() {
-        return Err(format!(
+        return Err(CleanError::Generic(format!(
             "refusing to delete {}: path is now a symlink",
             path.display()
-        ));
+        )));
     }
     if !metadata.is_dir() {
-        return Err(format!(
+        return Err(CleanError::Generic(format!(
             "refusing to delete {}: path is no longer a directory",
             path.display()
-        ));
+        )));
     }
 
-    let canonical = path
-        .canonicalize()
-        .map_err(|err| format!("failed to canonicalize {}: {err}", path.display()))?;
+    let canonical = path.canonicalize().map_err(|err| {
+        CleanError::Generic(format!("failed to canonicalize {}: {err}", path.display()))
+    })?;
     if is_runtime_or_system_path(&canonical) {
-        return Err(format!(
+        return Err(CleanError::Generic(format!(
             "refusing to delete {}: resolves to a protected runtime or system path",
             path.display()
-        ));
+        )));
     }
 
     Ok(())
@@ -315,7 +327,7 @@ pub fn print_clean_result(result: &CleanResult) {
     }
 }
 
-pub fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, String> {
+pub fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, CleanError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
@@ -334,7 +346,7 @@ pub fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, String> 
             let start = parse_selection_number(start, count)?;
             let end = parse_selection_number(end, count)?;
             if start > end {
-                return Err(format!("invalid range '{part}'"));
+                return Err(CleanError::Generic(format!("invalid range '{part}'")));
             }
             for index in start..=end {
                 if !selected.contains(&index) {
@@ -351,13 +363,15 @@ pub fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, String> 
     Ok(selected)
 }
 
-fn parse_selection_number(raw: &str, count: usize) -> Result<usize, String> {
+fn parse_selection_number(raw: &str, count: usize) -> Result<usize, CleanError> {
     let number = raw
         .trim()
         .parse::<usize>()
-        .map_err(|_| format!("invalid selection '{raw}'"))?;
+        .map_err(|_| CleanError::Generic(format!("invalid selection '{raw}'")))?;
     if number == 0 || number > count {
-        return Err(format!("selection {number} is out of range 1-{count}"));
+        return Err(CleanError::Generic(format!(
+            "selection {number} is out of range 1-{count}"
+        )));
     }
     Ok(number - 1)
 }
@@ -387,15 +401,17 @@ mod tests {
 
     #[test]
     fn check_broad_roots_rejects_root_slash() {
-        let err =
-            check_broad_roots(&[PathBuf::from("/")]).expect_err("/ must be rejected as broad");
+        let err = check_broad_roots(&[PathBuf::from("/")])
+            .expect_err("/ must be rejected as broad")
+            .to_string();
         assert!(err.contains("broad root"), "unexpected error: {err}");
     }
 
     #[test]
     fn check_broad_roots_rejects_etc() {
         let err = check_broad_roots(&[PathBuf::from("/etc")])
-            .expect_err("/etc must be rejected as broad");
+            .expect_err("/etc must be rejected as broad")
+            .to_string();
         assert!(err.contains("broad root"), "unexpected error: {err}");
     }
 
@@ -424,7 +440,9 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&real, &link).unwrap();
-        let err = validate_for_deletion(&link).expect_err("symlink must be rejected");
+        let err = validate_for_deletion(&link)
+            .expect_err("symlink must be rejected")
+            .to_string();
         assert!(err.contains("symlink"), "unexpected error: {err}");
     }
 
@@ -432,7 +450,9 @@ mod tests {
     fn validate_rejects_missing_path() {
         let temp = TempDir::new().unwrap();
         let missing = temp.path().join("missing");
-        let err = validate_for_deletion(&missing).expect_err("missing path must be rejected");
+        let err = validate_for_deletion(&missing)
+            .expect_err("missing path must be rejected")
+            .to_string();
         assert!(
             err.contains("no longer exists") || err.contains("cannot be read"),
             "unexpected error: {err}"
@@ -444,7 +464,9 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let file = temp.path().join("file");
         fs::write(&file, b"x").unwrap();
-        let err = validate_for_deletion(&file).expect_err("file must be rejected");
+        let err = validate_for_deletion(&file)
+            .expect_err("file must be rejected")
+            .to_string();
         assert!(
             err.contains("no longer a directory"),
             "unexpected error: {err}"

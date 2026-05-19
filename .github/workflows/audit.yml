@@ -1,0 +1,47 @@
+name: Audit
+
+on:
+  # Weekly canary, Monday 14:00 UTC.
+  schedule:
+    - cron: "0 14 * * 1"
+  # Re-run whenever dependency files change.
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/audit.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+  # Manual trigger so maintainers can re-run after CVE disclosures
+  # without waiting for the weekly slot.
+  workflow_dispatch:
+
+# Workflow-level permissions intentionally omitted. The default
+# GITHUB_TOKEN gets the minimum scope (contents: read). Write scopes
+# that rustsec/audit-check needs to file advisory issues / PR
+# comments are declared per-job below, so only that job's token
+# carries them.
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    # rustsec/audit-check opens an issue (and/or leaves a PR comment)
+    # when a CVE is found in Cargo.lock — those two writes are why
+    # this job needs more than the default read.
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run rustsec/audit-check
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

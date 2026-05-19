@@ -71,6 +71,11 @@ pub struct CommonScanArgs {
     /// Write scan results as an auditable action plan.
     #[arg(long)]
     pub write_plan: Option<PathBuf>,
+
+    /// Exclude paths from scan. Uses .gitignore-style globs. Repeatable.
+    /// Layered on top of any `.rcleanignore` file at the scan root.
+    #[arg(long = "ignore", value_name = "GLOB")]
+    pub ignore: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -118,7 +123,7 @@ impl CommonScanArgs {
         }
     }
 
-    pub fn to_scan_options(&self) -> Result<ScanOptions, String> {
+    pub fn to_scan_options(&self) -> Result<ScanOptions, crate::error::ParseError> {
         let categories = if self.category.is_empty() {
             None
         } else {
@@ -141,6 +146,7 @@ impl CommonScanArgs {
             },
             include_blocked: self.include_blocked,
             verbose: self.verbose,
+            ignore_globs: self.ignore.clone(),
         })
     }
 }

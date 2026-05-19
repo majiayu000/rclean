@@ -1,5 +1,8 @@
 # rclean
 
+[![CI](https://github.com/majiayu000/rclean/actions/workflows/ci.yml/badge.svg)](https://github.com/majiayu000/rclean/actions/workflows/ci.yml)
+[![Audit](https://github.com/majiayu000/rclean/actions/workflows/audit.yml/badge.svg)](https://github.com/majiayu000/rclean/actions/workflows/audit.yml)
+
 Rust-native CLI for finding and cleaning rebuildable developer artifacts.
 
 `rclean` is not a general disk cleaner. It targets project-local artifacts
@@ -106,6 +109,9 @@ rclean clean --plan rclean-plan.json --dry-run
 - `--all` selects only `safe` candidates unless `--include-caution` is passed.
 - default clean mode moves to Trash when available.
 - `--permanent` is required for permanent deletion.
+
+See [`SECURITY.md`](SECURITY.md) for the threat model, in-scope issues,
+and how to report a vulnerability privately.
 
 ## Supported Ecosystems
 
