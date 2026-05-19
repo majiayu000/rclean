@@ -159,6 +159,71 @@ Permanent clean after reviewing the dry run:
 rclean clean ~/code --all --permanent --yes
 ```
 
+## Filtering
+
+`rclean` supports several flags for narrowing what `scan` and `clean` consider.
+All filters apply *after* classification, so blocked paths are still suppressed
+from the bulk selection regardless of these settings.
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `--depth <N>` | `6` | Max directory levels traversed from each root. |
+| `--min-size <SIZE>` | `1mb` | Drop candidates smaller than `SIZE` (e.g. `0`, `100mb`, `1g`). Blocked candidates are never dropped by size. |
+| `--older-than <DUR>` | none | Keep only projects whose newest activity is older than `DUR` (e.g. `30d`, `6m`, `1y`). |
+| `--category <LIST>` | all | Comma-separated subset of `deps,build,cache,test`. |
+| `--rule <LIST>` | all | Comma-separated rule ids (see `rclean rules`). |
+| `--include-caution` | off | Include caution candidates in `clean --all`. |
+| `--include-blocked` | off | Show blocked candidates in the report. They are still never selected by `--all`. |
+| `--ignore <GLOB>` | none | Repeatable. Drops candidates matching a `.gitignore`-style glob. |
+| `--allow-broad-root` | off | `clean` only. Allow a scan root that resolves to a broad system or user path (e.g. `/`, `$HOME`, `/etc`, `/usr`). |
+
+## `.rcleanignore`
+
+Place an `.rcleanignore` file at the root of any scan target to permanently
+exclude candidate paths. The syntax is the same as `.gitignore`, including
+negation with `!`:
+
+```gitignore
+# Keep a vendored target tree we deliberately ship
+sealed-vendor/target
+
+# Skip an entire workspace
+legacy-monorepo/
+
+# But re-include one project inside it
+!legacy-monorepo/important-app/node_modules
+```
+
+`--ignore <GLOB>` layers on top of `.rcleanignore` and is repeatable, so
+ad-hoc exclusions don't need a file:
+
+```bash
+rclean scan ~/code --ignore "**/playground/**" --ignore "tmp-*"
+```
+
+If both an `.rcleanignore` entry and a `--ignore` glob match the same path,
+the path is excluded.
+
+## Reports and Plans
+
+`rclean scan` can emit a machine-readable JSON report or an auditable action
+plan:
+
+```bash
+# JSON for tooling/CI
+rclean scan ~/code --json > rclean-report.json
+
+# Action plan for human review and replayable cleanup
+rclean scan ~/code --write-plan rclean-plan.json
+rclean clean --plan rclean-plan.json --dry-run
+rclean clean --plan rclean-plan.json --yes
+```
+
+The action plan is the trust boundary: `clean --plan` re-validates every
+path against the live filesystem before deleting, refuses to follow new
+symlinks, and rejects plans whose roots have changed shape since the
+scan.
+
 ## Development
 
 ```bash
