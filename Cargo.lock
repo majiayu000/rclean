@@ -800,6 +800,7 @@ dependencies = [
  "globset",
  "ignore",
  "predicates",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",
