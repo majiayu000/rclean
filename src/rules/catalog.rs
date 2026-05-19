@@ -177,4 +177,10 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "out",
         restore_hint: "Re-run the project build",
     },
+    RuleInfo {
+        rule_id: "xcode.derived_data",
+        category: Category::Build,
+        candidate: "DerivedData",
+        restore_hint: "Xcode will repopulate it on the next build",
+    },
 ];

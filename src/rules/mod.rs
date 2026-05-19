@@ -14,6 +14,7 @@ mod node;
 mod python;
 mod ruby;
 mod rust;
+mod xcode;
 
 use markers::{
     has_marker, has_prefixed_marker, is_dotnet_project, is_python_project, is_ruby_project,
@@ -48,6 +49,7 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
         .or_else(|| ruby::classify(project_dir, name, path_ref))
         .or_else(|| go::classify(project_dir, name, path_ref))
         .or_else(|| ios::classify(project_dir, name, path_ref))
+        .or_else(|| xcode::classify(project_dir, name, path_ref))
         .or_else(|| generic::classify(project_dir, name, path_ref));
 
     draft.map(|mut draft| {
@@ -88,7 +90,17 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "build"
             | "dist"
             | "out"
+            | "DerivedData"
     )
+}
+
+/// Returns true for rule ids whose classifier intentionally targets
+/// paths inside the user runtime/system tree (e.g. `~/Library/...`).
+/// `apply_path_safety` skips the generic runtime-path block for these
+/// — the classifier already established that the path is a
+/// rebuildable cache, not user data.
+pub fn is_global_rule(rule_id: &str) -> bool {
+    matches!(rule_id, "xcode.derived_data")
 }
 
 pub fn is_project_marker_name(name: &str) -> bool {
