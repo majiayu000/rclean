@@ -241,7 +241,11 @@ fn scan_dir(
     context: &mut ScanContext<'_>,
     projects: &mut Vec<ProjectReport>,
 ) -> Result<(), ScanError> {
-    if depth > context.options.max_depth || is_skip_dir(dir) {
+    // depth==0 means `dir` is a user-supplied scan root (e.g.
+    // `rclean scan ~/.cargo` or any path expanded by `--home`).
+    // is_skip_dir is for *descending* into known-uninteresting
+    // subdirs and must not reject a root the user explicitly named.
+    if depth > context.options.max_depth || (depth > 0 && is_skip_dir(dir)) {
         return Ok(());
     }
 

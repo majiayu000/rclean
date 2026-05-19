@@ -3,6 +3,53 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 #[test]
+fn home_flag_conflicts_with_positional_paths() {
+    // --home is mutually exclusive with positional paths
+    // (clap-enforced via conflicts_with = "paths").
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", "--home", "/tmp/somepath"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with").or(predicate::str::contains("conflicts with")));
+}
+
+#[test]
+fn home_flag_runs_without_panicking_on_empty_home() {
+    // With HOME pointed at a temp dir containing none of the
+    // toolchain dirs, --home should still exit cleanly (just with
+    // exit code 3 = no candidates) rather than panic or error.
+    let temp = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .code(3); // no candidates because no toolchain dirs exist
+}
+
+#[test]
+fn home_flag_expands_to_cargo_root_when_present() {
+    // With a synthetic ~/.cargo/registry/cache, --home should pick
+    // it up via the cargo.registry_cache rule, proving the path
+    // expansion + rule dispatch work end-to-end.
+    let temp = TempDir::new().unwrap();
+    let registry = temp.path().join(".cargo").join("registry");
+    std::fs::create_dir_all(&registry).unwrap();
+    std::fs::create_dir(registry.join("cache")).unwrap();
+    std::fs::write(registry.join("cache").join("blob"), "x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"cargo.registry_cache\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
 fn help_prints_usage() {
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.arg("--help")
