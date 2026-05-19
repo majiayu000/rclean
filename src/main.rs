@@ -1,5 +1,6 @@
 mod clean;
 mod cli;
+mod doctor;
 mod error;
 mod model;
 mod output;
@@ -150,6 +151,15 @@ fn run() -> Result<ExitCode, RcleanError> {
         Commands::Rules => {
             output::print_rules();
             Ok(ExitCode::SUCCESS)
+        }
+        Commands::Doctor => {
+            let report = doctor::diagnose();
+            output::print_doctor(&report);
+            if report.applicable_count() == 0 {
+                Ok(ExitCode::from(3))
+            } else {
+                Ok(ExitCode::SUCCESS)
+            }
         }
     }
 }
