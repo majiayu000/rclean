@@ -30,6 +30,10 @@ pub enum PlanError {
     },
     #[error("plan parse error: {0}")]
     Parse(#[from] serde_json::Error),
+    #[error(
+        "unsupported action plan schema version {found}; this build supports {supported}. Re-run `rclean scan --write-plan <path>` to regenerate the plan"
+    )]
+    UnsupportedSchemaVersion { found: u32, supported: u32 },
     #[error("{0}")]
     Generic(String),
 }

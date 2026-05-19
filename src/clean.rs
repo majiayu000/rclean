@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::CleanArgs;
 use crate::error::CleanError;
-use crate::model::{Candidate, Safety, ScanReport, format_bytes};
+use crate::model::{Candidate, Category, Safety, ScanReport, format_bytes};
 use crate::scan::is_runtime_or_system_path;
 
 #[derive(Debug, Clone, Copy)]
@@ -14,10 +14,15 @@ struct SelectableCandidate<'a> {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "graveyard"), allow(dead_code))]
 pub struct SelectedCandidate {
+    pub id: Option<String>,
     pub path: PathBuf,
     pub bytes: u64,
     pub rule_id: String,
+    pub category: Category,
+    pub safety: Safety,
+    pub risk_score: f32,
 }
 
 #[derive(Debug, Default)]
@@ -129,7 +134,7 @@ fn select_interactively(
     Ok(selected)
 }
 
-pub fn print_plan(selected: &[SelectedCandidate], permanent: bool, dry_run: bool) {
+pub fn print_plan(selected: &[SelectedCandidate], delete_mode: &str, dry_run: bool) {
     if selected.is_empty() {
         println!();
         println!("Nothing selected.");
@@ -142,7 +147,7 @@ pub fn print_plan(selected: &[SelectedCandidate], permanent: bool, dry_run: bool
         "Plan: {} candidates, {} selected, mode: {}{}",
         selected.len(),
         format_bytes(total),
-        if permanent { "permanent" } else { "trash" },
+        delete_mode,
         if dry_run { " (dry run)" } else { "" }
     );
     for candidate in selected {
@@ -167,7 +172,18 @@ pub fn confirm_if_needed(
     let mode = if args.permanent {
         "permanently delete"
     } else {
-        "move to Trash"
+        #[cfg(feature = "graveyard")]
+        {
+            if args.graveyard {
+                "move to the rclean graveyard"
+            } else {
+                "move to Trash"
+            }
+        }
+        #[cfg(not(feature = "graveyard"))]
+        {
+            "move to Trash"
+        }
     };
     print!(
         "Confirm: {mode} {} candidates ({})? [y/N] ",
@@ -222,13 +238,8 @@ pub fn delete_selected(
 /// `delete_selected` so callers can print one summary regardless of
 /// delete mode.
 ///
-/// Per-grave metadata that `clean.rs` doesn't currently track on
-/// `SelectedCandidate` (category, safety, risk_score) is stored with
-/// conservative defaults: safety="safe" (the candidate passed the
-/// trust gate to be selected at all), category="unknown",
-/// risk_score=0.0. A follow-up PR that lifts those fields onto
-/// `SelectedCandidate` will populate them properly so the manifest
-/// audit trail is complete.
+/// Plan-origin candidates carry their ActionPlan v2 candidate id in
+/// `SelectedCandidate::id`; direct scan selections leave it empty.
 #[cfg(feature = "graveyard")]
 pub fn delete_selected_into_graveyard(
     selected: &[SelectedCandidate],
@@ -245,14 +256,16 @@ pub fn delete_selected_into_graveyard(
             continue;
         }
 
+        let category = candidate.category.to_string();
+        let safety = candidate.safety.to_string();
         let input = GraveInput {
             original_path: &candidate.path,
             size_bytes: candidate.bytes,
-            plan_id: None,
+            plan_id: candidate.id.clone(),
             rule_id: &candidate.rule_id,
-            category: "unknown",
-            safety_at_delete: "safe",
-            risk_score_at_delete: 0.0,
+            category: &category,
+            safety_at_delete: &safety,
+            risk_score_at_delete: candidate.risk_score,
             tool_version,
         };
 
@@ -426,9 +439,13 @@ fn parse_selection_number(raw: &str, count: usize) -> Result<usize, CleanError> 
 
 fn to_selected(candidate: &Candidate) -> SelectedCandidate {
     SelectedCandidate {
+        id: None,
         path: PathBuf::from(&candidate.path),
         bytes: candidate.bytes,
         rule_id: candidate.rule_id.clone(),
+        category: candidate.category,
+        safety: candidate.safety,
+        risk_score: candidate.risk_score,
     }
 }
 
@@ -530,9 +547,13 @@ mod tests {
         fs::create_dir(&candidate_path).unwrap();
 
         let selected = vec![SelectedCandidate {
+            id: None,
             path: candidate_path.clone(),
             bytes: 0,
             rule_id: "test".to_string(),
+            category: crate::model::Category::Build,
+            safety: Safety::Safe,
+            risk_score: 0.0,
         }];
 
         // TOCTOU: replace the candidate directory with a symlink between scan and delete.
