@@ -195,4 +195,16 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "db",
         restore_hint: "Cargo will re-clone git dependencies on the next build",
     },
+    RuleInfo {
+        rule_id: "node.npm_cacache",
+        category: Category::Cache,
+        candidate: "_cacache",
+        restore_hint: "npm will rebuild the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "node.yarn_cache",
+        category: Category::Cache,
+        candidate: "Yarn",
+        restore_hint: "Yarn will rebuild the cache on the next install",
+    },
 ];

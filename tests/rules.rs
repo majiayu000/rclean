@@ -258,6 +258,51 @@ fn cargo_git_db_is_classified_under_cargo_git() {
 }
 
 #[test]
+fn npm_cacache_is_classified_under_dot_npm() {
+    // Synthesize <root>/.npm/_cacache
+    let temp = TempDir::new().unwrap();
+    let npm = temp.path().join(".npm");
+    fs::create_dir_all(&npm).unwrap();
+    make_dir(&npm, "_cacache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        npm.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"node.npm_cacache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn yarn_cache_is_classified_under_library_caches() {
+    // Synthesize <root>/Library/Caches/Yarn
+    let temp = TempDir::new().unwrap();
+    let caches = temp.path().join("Library").join("Caches");
+    fs::create_dir_all(&caches).unwrap();
+    make_dir(&caches, "Yarn");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        caches.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"node.yarn_cache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
 fn cargo_cache_outside_cargo_registry_is_not_classified() {
     let temp = TempDir::new().unwrap();
     make_dir(temp.path(), "cache");

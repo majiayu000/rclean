@@ -12,6 +12,7 @@ mod ios;
 mod jvm;
 mod markers;
 mod node;
+mod node_global;
 mod python;
 mod ruby;
 mod rust;
@@ -52,6 +53,7 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
         .or_else(|| ios::classify(project_dir, name, path_ref))
         .or_else(|| xcode::classify(project_dir, name, path_ref))
         .or_else(|| cargo_global::classify(project_dir, name, path_ref))
+        .or_else(|| node_global::classify(project_dir, name, path_ref))
         .or_else(|| generic::classify(project_dir, name, path_ref));
 
     draft.map(|mut draft| {
@@ -95,6 +97,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "DerivedData"
             | "cache"
             | "db"
+            | "_cacache"
+            | "Yarn"
     )
 }
 
@@ -106,7 +110,11 @@ pub fn is_candidate_name(name: &str) -> bool {
 pub fn is_global_rule(rule_id: &str) -> bool {
     matches!(
         rule_id,
-        "xcode.derived_data" | "cargo.registry_cache" | "cargo.git_db"
+        "xcode.derived_data"
+            | "cargo.registry_cache"
+            | "cargo.git_db"
+            | "node.npm_cacache"
+            | "node.yarn_cache"
     )
 }
 
