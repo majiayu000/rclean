@@ -464,7 +464,13 @@ fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
         return;
     }
 
-    if is_runtime_or_system_path(&draft.path) {
+    // Global rules (e.g. `xcode.derived_data`) target paths that
+    // live *inside* the user's Library / runtime tree by design.
+    // Their classifier already establishes that the path is a
+    // rebuildable cache, so the generic runtime/system-path block
+    // would otherwise hide them. is_global_rule() is the
+    // explicit opt-out list.
+    if !rules::is_global_rule(&draft.rule_id) && is_runtime_or_system_path(&draft.path) {
         draft.safety = Safety::Blocked;
         draft
             .warnings
