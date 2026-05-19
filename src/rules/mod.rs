@@ -13,6 +13,7 @@ mod jvm;
 mod markers;
 mod node;
 mod node_global;
+mod pip;
 mod python;
 mod ruby;
 mod rust;
@@ -54,6 +55,7 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
         .or_else(|| xcode::classify(project_dir, name, path_ref))
         .or_else(|| cargo_global::classify(project_dir, name, path_ref))
         .or_else(|| node_global::classify(project_dir, name, path_ref))
+        .or_else(|| pip::classify(project_dir, name, path_ref))
         .or_else(|| generic::classify(project_dir, name, path_ref));
 
     draft.map(|mut draft| {
@@ -99,6 +101,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "db"
             | "_cacache"
             | "Yarn"
+            | "pip"
     )
 }
 
@@ -115,6 +118,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "cargo.git_db"
             | "node.npm_cacache"
             | "node.yarn_cache"
+            | "pip.cache"
     )
 }
 

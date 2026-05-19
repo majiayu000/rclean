@@ -303,6 +303,49 @@ fn yarn_cache_is_classified_under_library_caches() {
 }
 
 #[test]
+fn pip_cache_is_classified_under_macos_library_caches() {
+    let temp = TempDir::new().unwrap();
+    let caches = temp.path().join("Library").join("Caches");
+    fs::create_dir_all(&caches).unwrap();
+    make_dir(&caches, "pip");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        caches.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn pip_cache_is_classified_under_xdg_cache() {
+    let temp = TempDir::new().unwrap();
+    let xdg = temp.path().join(".cache");
+    fs::create_dir_all(&xdg).unwrap();
+    make_dir(&xdg, "pip");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        xdg.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
 fn cargo_cache_outside_cargo_registry_is_not_classified() {
     let temp = TempDir::new().unwrap();
     make_dir(temp.path(), "cache");

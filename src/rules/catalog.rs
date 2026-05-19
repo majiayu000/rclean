@@ -207,4 +207,10 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "Yarn",
         restore_hint: "Yarn will rebuild the cache on the next install",
     },
+    RuleInfo {
+        rule_id: "pip.cache",
+        category: Category::Cache,
+        candidate: "pip",
+        restore_hint: "pip will repopulate the cache on the next install",
+    },
 ];
