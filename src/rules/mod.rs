@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod cargo_global;
 mod catalog;
 mod dotnet;
 mod flutter;
@@ -50,6 +51,7 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
         .or_else(|| go::classify(project_dir, name, path_ref))
         .or_else(|| ios::classify(project_dir, name, path_ref))
         .or_else(|| xcode::classify(project_dir, name, path_ref))
+        .or_else(|| cargo_global::classify(project_dir, name, path_ref))
         .or_else(|| generic::classify(project_dir, name, path_ref));
 
     draft.map(|mut draft| {
@@ -91,6 +93,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "dist"
             | "out"
             | "DerivedData"
+            | "cache"
+            | "db"
     )
 }
 
@@ -100,7 +104,10 @@ pub fn is_candidate_name(name: &str) -> bool {
 /// — the classifier already established that the path is a
 /// rebuildable cache, not user data.
 pub fn is_global_rule(rule_id: &str) -> bool {
-    matches!(rule_id, "xcode.derived_data")
+    matches!(
+        rule_id,
+        "xcode.derived_data" | "cargo.registry_cache" | "cargo.git_db"
+    )
 }
 
 pub fn is_project_marker_name(name: &str) -> bool {

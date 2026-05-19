@@ -183,4 +183,16 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "DerivedData",
         restore_hint: "Xcode will repopulate it on the next build",
     },
+    RuleInfo {
+        rule_id: "cargo.registry_cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "Cargo will redownload crates on the next build",
+    },
+    RuleInfo {
+        rule_id: "cargo.git_db",
+        category: Category::Cache,
+        candidate: "db",
+        restore_hint: "Cargo will re-clone git dependencies on the next build",
+    },
 ];
