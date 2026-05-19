@@ -346,6 +346,28 @@ fn pip_cache_is_classified_under_xdg_cache() {
 }
 
 #[test]
+fn gradle_caches_is_classified_under_dot_gradle() {
+    let temp = TempDir::new().unwrap();
+    let gradle = temp.path().join(".gradle");
+    fs::create_dir_all(&gradle).unwrap();
+    make_dir(&gradle, "caches");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        gradle.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"gradle.caches\""))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
 fn cargo_cache_outside_cargo_registry_is_not_classified() {
     let temp = TempDir::new().unwrap();
     make_dir(temp.path(), "cache");

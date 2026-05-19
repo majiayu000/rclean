@@ -213,4 +213,10 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "pip",
         restore_hint: "pip will repopulate the cache on the next install",
     },
+    RuleInfo {
+        rule_id: "gradle.caches",
+        category: Category::Cache,
+        candidate: "caches",
+        restore_hint: "Gradle will redownload dependencies on the next build",
+    },
 ];
