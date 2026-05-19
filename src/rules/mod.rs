@@ -108,6 +108,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "pip"
             | "caches"
             | "repository"
+            | "CoreSimulator"
     )
 }
 
@@ -127,6 +128,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "pip.cache"
             | "gradle.caches"
             | "maven.local_repo"
+            | "xcode.simulators"
     )
 }
 

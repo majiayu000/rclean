@@ -390,6 +390,28 @@ fn maven_local_repo_is_classified_under_dot_m2() {
 }
 
 #[test]
+fn xcode_simulators_is_classified_under_library_developer() {
+    let temp = TempDir::new().unwrap();
+    let developer = temp.path().join("Library").join("Developer");
+    fs::create_dir_all(&developer).unwrap();
+    make_dir(&developer, "CoreSimulator");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        developer.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"xcode.simulators\""))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
 fn cargo_cache_outside_cargo_registry_is_not_classified() {
     let temp = TempDir::new().unwrap();
     make_dir(temp.path(), "cache");

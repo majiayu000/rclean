@@ -225,4 +225,10 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "repository",
         restore_hint: "Maven will redownload dependencies on the next build",
     },
+    RuleInfo {
+        rule_id: "xcode.simulators",
+        category: Category::Cache,
+        candidate: "CoreSimulator",
+        restore_hint: "Xcode will recreate simulators on the next iOS app run",
+    },
 ];
