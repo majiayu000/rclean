@@ -14,6 +14,7 @@ use crate::model::{
 };
 use crate::rules;
 use crate::scan::is_runtime_or_system_path;
+use crate::user_rules::UserRuleSet;
 
 pub const ACTION_PLAN_SCHEMA_VERSION: u32 = 2;
 
@@ -193,11 +194,15 @@ fn classify_plan_candidate(
                 .iter()
                 .any(|project_candidate| project_candidate.path == candidate.path)
         })
-        .find_map(|project| classify_from_project_context(project, path))
-        .or_else(|| classify_from_path_parent(path))
+        .find_map(|project| classify_from_project_context(plan, project, path))
+        .or_else(|| classify_from_path_parent(plan, path))
 }
 
-fn classify_from_project_context(project: &ProjectReport, path: &Path) -> Option<CandidateDraft> {
+fn classify_from_project_context(
+    plan: &ActionPlan,
+    project: &ProjectReport,
+    path: &Path,
+) -> Option<CandidateDraft> {
     let project_dir = PathBuf::from(&project.path);
     let relative = path.strip_prefix(&project_dir).ok()?;
     let first_component = relative.components().next()?;
@@ -206,14 +211,45 @@ fn classify_from_project_context(project: &ProjectReport, path: &Path) -> Option
     };
     let name = name.to_str()?;
     let classifier_path = project_dir.join(name);
-    let draft = rules::classify_candidate(&project_dir, name, classifier_path)?;
+    let draft = classify_from_project_rules(plan, &project_dir, name, classifier_path)?;
     (draft.path == path).then_some(draft)
 }
 
-fn classify_from_path_parent(path: &Path) -> Option<CandidateDraft> {
+fn classify_from_path_parent(plan: &ActionPlan, path: &Path) -> Option<CandidateDraft> {
     let parent = path.parent()?;
     let name = path.file_name()?.to_str()?;
-    rules::classify_candidate(parent, name, path.to_path_buf())
+    classify_from_project_rules(plan, parent, name, path.to_path_buf())
+}
+
+fn classify_from_project_rules(
+    plan: &ActionPlan,
+    project_dir: &Path,
+    name: &str,
+    path: PathBuf,
+) -> Option<CandidateDraft> {
+    rules::classify_candidate(project_dir, name, path)
+        .or_else(|| classify_from_user_rules(plan, project_dir, name))
+}
+
+fn classify_from_user_rules(
+    plan: &ActionPlan,
+    project_dir: &Path,
+    name: &str,
+) -> Option<CandidateDraft> {
+    let root = matching_plan_root(plan, project_dir)?;
+    let user_rules = UserRuleSet::load_from_root(&root);
+    if user_rules.is_empty() {
+        return None;
+    }
+    user_rules.classify(name, project_dir)
+}
+
+fn matching_plan_root(plan: &ActionPlan, path: &Path) -> Option<PathBuf> {
+    plan.roots
+        .iter()
+        .map(PathBuf::from)
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count())
 }
 
 pub fn revalidate_selected(
