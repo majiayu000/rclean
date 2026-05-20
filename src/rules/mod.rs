@@ -12,6 +12,7 @@ mod gradle;
 mod ios;
 mod jvm;
 mod markers;
+mod maven;
 mod node;
 mod node_global;
 mod pip;
@@ -69,9 +70,10 @@ static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
+static MAVEN_RULES: RuleFn = RuleFn(maven::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 15] = [
+static BUILTIN_RULES: [&dyn RuleSet; 16] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -86,6 +88,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 15] = [
     &NODE_GLOBAL_RULES,
     &PIP_RULES,
     &GRADLE_RULES,
+    &MAVEN_RULES,
     &GENERIC_RULES,
 ];
 

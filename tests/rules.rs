@@ -356,6 +356,22 @@ fn gradle_caches_is_classified_under_dot_gradle() {
 }
 
 #[test]
+fn maven_local_repo_is_classified_under_dot_m2() {
+    let temp = TempDir::new().unwrap();
+    let m2 = temp.path().join(".m2");
+    fs::create_dir_all(&m2).unwrap();
+    make_dir(&m2, "repository");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", m2.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"maven.local_repo\""))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
 fn cargo_cache_outside_cargo_registry_is_not_classified() {
     let temp = TempDir::new().unwrap();
     make_dir(temp.path(), "cache");
