@@ -31,3 +31,7 @@ updates:
     labels:
       - dependencies
       - ci
+    ignore:
+      # This workflow action ref intentionally mirrors Cargo.toml's
+      # rust-version and is not a normal updatable GitHub Action pin.
+      - dependency-name: dtolnay/rust-toolchain
