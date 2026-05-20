@@ -29,6 +29,10 @@ pub enum Commands {
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
     Rules,
+    /// Diagnostic: list which global-cache rules are applicable on
+    /// this machine right now. Tells you which toolchain caches
+    /// exist under $HOME without running a full scan.
+    Doctor,
     /// Restore a grave from the rclean graveyard.
     #[cfg(feature = "graveyard")]
     Restore(RestoreArgs),

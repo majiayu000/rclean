@@ -1,3 +1,4 @@
+use crate::doctor::{DoctorReport, Status};
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
 
@@ -112,6 +113,27 @@ pub fn print_explanation(explanation: &Explanation) {
     if explanation.safety == Safety::Unknown {
         println!("No built-in cleanup rule matched this path.");
     }
+}
+
+pub fn print_doctor(report: &DoctorReport) {
+    println!("{:<26} {:<10} Anchor / Reason", "Rule", "Status");
+    println!("{}", "-".repeat(76));
+    for entry in &report.entries {
+        let (status_label, detail) = match &entry.status {
+            Status::Applicable => (
+                "applicable",
+                short_path(&entry.anchor.display().to_string()),
+            ),
+            Status::Skipped { reason } => ("skipped", (*reason).to_string()),
+        };
+        println!("{:<26} {:<10} {}", entry.rule_id, status_label, detail);
+    }
+    println!();
+    println!(
+        "{} of {} rules applicable on this machine.",
+        report.applicable_count(),
+        report.total_count()
+    );
 }
 
 pub fn print_rules() {

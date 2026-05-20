@@ -53,6 +53,36 @@ fn home_flag_expands_to_cargo_root_when_present() {
 }
 
 #[test]
+fn doctor_prints_rule_status_table() {
+    // Run with a clean HOME so the output is deterministic
+    // (no rules applicable).
+    let temp = TempDir::new().unwrap();
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .arg("doctor")
+        .assert()
+        .code(3) // 0 rules applicable → exit 3
+        .stdout(predicate::str::contains("cargo.registry_cache"))
+        .stdout(predicate::str::contains("xcode.derived_data"))
+        .stdout(predicate::str::contains("of 9 rules applicable"));
+}
+
+#[test]
+fn doctor_marks_existing_anchor_applicable() {
+    // Synthesize ~/.cargo/registry so cargo.registry_cache applies.
+    let temp = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp.path().join(".cargo").join("registry")).unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .arg("doctor")
+        .assert()
+        .success() // ≥1 applicable → exit 0
+        .stdout(predicate::str::contains("cargo.registry_cache"))
+        .stdout(predicate::str::contains("applicable"));
+}
+
+#[test]
 fn help_prints_usage() {
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.arg("--help")
