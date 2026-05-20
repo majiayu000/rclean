@@ -213,6 +213,69 @@ fn xcode_derived_data_is_classified_under_library_developer_xcode() {
 }
 
 #[test]
+fn cargo_registry_cache_is_classified_under_cargo_registry() {
+    let temp = TempDir::new().unwrap();
+    let registry = temp.path().join(".cargo").join("registry");
+    fs::create_dir_all(&registry).unwrap();
+    make_dir(&registry, "cache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        registry.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"cargo.registry_cache\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn cargo_git_db_is_classified_under_cargo_git() {
+    let temp = TempDir::new().unwrap();
+    let git_dir = temp.path().join(".cargo").join("git");
+    fs::create_dir_all(&git_dir).unwrap();
+    make_dir(&git_dir, "db");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        git_dir.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"cargo.git_db\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn cargo_cache_outside_cargo_registry_is_not_classified() {
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "cache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"cargo.registry_cache\"").not());
+}
+
+#[test]
 fn xcode_derived_data_outside_canonical_path_is_not_classified() {
     // A directory literally named `DerivedData` outside the canonical
     // Xcode path must not be picked up.

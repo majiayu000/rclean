@@ -33,6 +33,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "dist"
             | "out"
             | "DerivedData"
+            | "cache"
+            | "db"
     )
 }
 
@@ -40,7 +42,10 @@ pub fn is_candidate_name(name: &str) -> bool {
 /// paths inside the user runtime/system tree (e.g. `~/Library/...`).
 /// `apply_path_safety` skips the generic runtime-path block for these.
 pub fn is_global_rule(rule_id: &str) -> bool {
-    matches!(rule_id, "xcode.derived_data")
+    matches!(
+        rule_id,
+        "xcode.derived_data" | "cargo.registry_cache" | "cargo.git_db"
+    )
 }
 
 pub fn is_project_marker_name(name: &str) -> bool {

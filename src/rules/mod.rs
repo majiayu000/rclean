@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod cargo_global;
 mod catalog;
 mod dotnet;
 mod flutter;
@@ -61,9 +62,10 @@ static RUBY_RULES: RuleFn = RuleFn(ruby::classify);
 static GO_RULES: RuleFn = RuleFn(go::classify);
 static IOS_RULES: RuleFn = RuleFn(ios::classify);
 static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
+static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 11] = [
+static BUILTIN_RULES: [&dyn RuleSet; 12] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -74,6 +76,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 11] = [
     &GO_RULES,
     &IOS_RULES,
     &XCODE_RULES,
+    &CARGO_GLOBAL_RULES,
     &GENERIC_RULES,
 ];
 
