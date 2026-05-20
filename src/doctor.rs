@@ -150,7 +150,11 @@ pub fn diagnose() -> DoctorReport {
     DoctorReport { entries }
 }
 
-fn check_anchor(rule_id: &'static str, anchor: PathBuf, missing_reason: &'static str) -> DoctorEntry {
+fn check_anchor(
+    rule_id: &'static str,
+    anchor: PathBuf,
+    missing_reason: &'static str,
+) -> DoctorEntry {
     let exists = anchor.is_dir();
     let status = if exists {
         Status::Applicable
@@ -171,6 +175,9 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    use std::sync::{Mutex, MutexGuard};
+
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn diagnose_returns_one_entry_per_phase1_global_rule() {
@@ -223,17 +230,22 @@ mod tests {
     /// restores it on drop. Avoids leaking the override into other
     /// tests in the same binary.
     fn with_home(path: &Path) -> HomeGuard {
+        let lock = HOME_LOCK.lock().expect("HOME test mutex poisoned");
         let previous = std::env::var_os("HOME");
-        // SAFETY: tests run serially when they touch env vars; the
-        // outer Drop restores HOME so other tests aren't affected.
+        // SAFETY: HOME_LOCK serializes every test in this module that
+        // mutates the process environment, and Drop restores HOME.
         unsafe {
             std::env::set_var("HOME", path);
         }
-        HomeGuard { previous }
+        HomeGuard {
+            previous,
+            _lock: lock,
+        }
     }
 
     struct HomeGuard {
         previous: Option<std::ffi::OsString>,
+        _lock: MutexGuard<'static, ()>,
     }
 
     impl Drop for HomeGuard {
