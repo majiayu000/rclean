@@ -168,6 +168,47 @@ fn scan_write_plan_then_clean_plan_dry_run() {
 }
 
 #[test]
+fn ruby_vendor_bundle_plan_dry_run_replays_successfully() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(
+        temp.path().join("Gemfile"),
+        "source 'https://rubygems.org'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(temp.path().join("vendor").join("bundle")).unwrap();
+    std::fs::write(
+        temp.path().join("vendor").join("bundle").join("cache.txt"),
+        "abc",
+    )
+    .unwrap();
+    let plan = temp.path().join("plan.json");
+
+    let mut scan = Command::cargo_bin("rclean").unwrap();
+    scan.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--write-plan",
+        plan.to_str().unwrap(),
+        "--min-size",
+        "0",
+        "--include-caution",
+    ])
+    .assert()
+    .success();
+
+    assert!(plan.exists());
+
+    let mut clean = Command::cargo_bin("rclean").unwrap();
+    clean
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(temp.path().join("vendor").join("bundle").exists());
+}
+
+#[test]
 fn rules_lists_every_classifier_emitted_id() {
     // Guards against the catalog/classifier drift where rule_ids like
     // node.build / node.dist / node.out were emitted by classify_candidate

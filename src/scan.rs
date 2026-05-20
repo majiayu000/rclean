@@ -1,7 +1,7 @@
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
@@ -16,79 +16,11 @@ use crate::model::{
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
-/// Per-directory immediate file-byte tally collected during `scan_dir`.
-/// A project's source size is the fold of every entry under its `project_dir`,
-/// which lets us drop the dedicated `project_source_size` walkdir pass.
-type DirSizes = HashMap<PathBuf, u64>;
+mod git_cache;
+mod sizer;
 
-#[derive(Default)]
-pub(crate) struct GitCache {
-    by_dir: RefCell<HashMap<PathBuf, Option<GitInfo>>>,
-}
-
-impl GitCache {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
-        let cached_for_dir = self.by_dir.borrow().get(dir).cloned();
-        if let Some(cached) = cached_for_dir {
-            return cached;
-        }
-
-        let repo_root = match run_git_rev_parse(dir) {
-            Some(root) => root,
-            None => {
-                self.by_dir.borrow_mut().insert(dir.to_path_buf(), None);
-                return None;
-            }
-        };
-
-        let root_path = PathBuf::from(&repo_root);
-        let cached_for_root = self.by_dir.borrow().get(&root_path).cloned();
-        if let Some(Some(info)) = cached_for_root {
-            self.by_dir
-                .borrow_mut()
-                .insert(dir.to_path_buf(), Some(info.clone()));
-            return Some(info);
-        }
-
-        let dirty = run_git_dirty(&root_path);
-        let info = GitInfo { repo_root, dirty };
-        let mut map = self.by_dir.borrow_mut();
-        map.insert(root_path, Some(info.clone()));
-        map.insert(dir.to_path_buf(), Some(info.clone()));
-        Some(info)
-    }
-}
-
-fn run_git_rev_parse(dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let repo_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if repo_root.is_empty() {
-        None
-    } else {
-        Some(repo_root)
-    }
-}
-
-fn run_git_dirty(repo_root: &Path) -> bool {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(["status", "--porcelain"])
-        .output();
-    matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
-}
+pub(crate) use git_cache::GitCache;
+use sizer::DirSizes;
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanOptions {
@@ -154,7 +86,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
     let mut roots = Vec::new();
     let mut projects = Vec::new();
     let git_cache = GitCache::new();
-    let mut sizes: DirSizes = HashMap::new();
+    let mut sizes = DirSizes::new();
 
     for path in paths {
         let root = path
@@ -249,8 +181,8 @@ fn scan_dir(
         Ok(entries) => entries.flatten().collect::<Vec<_>>(),
         Err(err) => {
             // v0.1.0 only emitted this with --verbose. Keep it at debug to
-            // match the existing "noisy IO" level used by dir_size and
-            // project_source_size, so non-verbose runs stay quiet.
+            // match the existing "noisy IO" level used by sizing, so
+            // non-verbose runs stay quiet.
             debug!(path = %dir.display(), error = %err, "skip directory");
             return Ok(());
         }
@@ -371,30 +303,10 @@ fn build_project_report(
         });
     }
 
-    // Compute every draft's directory size in parallel. Each
-    // `dir_size` walks an independent candidate subtree (e.g.
-    // `node_modules`, `.next`, `.turbo`), so a project with N
-    // candidates lets rayon split N walkdir traversals across
-    // worker threads instead of running them sequentially.
-    //
-    // Blocked candidates short-circuit to 0 without walking. The
-    // closure captures nothing mutable — `options.verbose` is
-    // Copy and the path comes from each draft. The output
-    // preserves input order so the subsequent zip is correct.
-    use rayon::prelude::*;
-    let draft_sizes: Vec<u64> = drafts
-        .par_iter()
-        .map(|draft| {
-            if draft.safety == Safety::Blocked {
-                0
-            } else {
-                dir_size(&draft.path, options.verbose)
-            }
-        })
-        .collect();
+    let size_summary = sizer::summarize(dir, &drafts, sizes, options.verbose);
 
     let mut candidates = Vec::new();
-    for (mut draft, bytes) in drafts.into_iter().zip(draft_sizes) {
+    for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
         if let Some(git) = &git
             && git.dirty
             && draft.safety == Safety::Safe
@@ -430,7 +342,7 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let source_bytes = sum_subtree_bytes(dir, sizes);
+    let source_bytes = size_summary.source_bytes;
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -580,44 +492,6 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
     }
 
     newest
-}
-
-fn dir_size(path: &Path, _verbose: bool) -> u64 {
-    let mut total: u64 = 0;
-    for result in walkdir::WalkDir::new(path).follow_links(false) {
-        let entry = match result {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!(path = %path.display(), error = %err, "dir_size walk error");
-                continue;
-            }
-        };
-        match entry.metadata() {
-            Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
-            }
-            Ok(_) => {}
-            Err(err) => {
-                debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
-            }
-        }
-    }
-    total
-}
-
-/// Folds every per-directory `file_bytes` tally that `scan_dir` already
-/// collected for paths under `project_dir`. Candidate subtrees are absent
-/// from the map (scan_dir doesn't recurse into them — `dir_size` handles
-/// those separately, unbounded), and skipped/excluded names never make it
-/// into the map either.
-fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
-    let mut total: u64 = 0;
-    for (path, bytes) in sizes {
-        if path == project_dir || path.starts_with(project_dir) {
-            total = total.saturating_add(*bytes);
-        }
-    }
-    total
 }
 
 /// Composite risk-score signal for a candidate inside `project_dir`.

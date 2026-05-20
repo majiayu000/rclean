@@ -34,10 +34,9 @@ Order below mirrors merge order.
   files still load (field defaults to 0.0); new plans serialize the
   field. Stays in schemaVersion 1.
 
-## 0.1.1 - Unreleased (M1 candidate)
+## 0.1.1 - 2026-05-19
 
-Once the M1 PRs (#28, #29, #30, #33) land, this section becomes the
-0.1.1 entry. Pure internal rebuild — no user-facing CLI behavior change.
+Pure internal rebuild — no user-facing CLI behavior change.
 
 ### Changed
 
