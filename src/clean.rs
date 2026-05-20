@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use crate::cli::CleanArgs;
 use crate::error::CleanError;
 use crate::model::{Candidate, Category, Safety, ScanReport, format_bytes};
+use crate::rules;
 use crate::scan::is_runtime_or_system_path;
 
 #[derive(Debug, Clone, Copy)]
@@ -242,7 +243,7 @@ pub fn delete_selected(
     let mut result = CleanResult::default();
 
     for candidate in selected {
-        if let Err(err) = validate_for_deletion(&candidate.path) {
+        if let Err(err) = validate_candidate_for_deletion(candidate) {
             result.failed.push((candidate.clone(), err.to_string()));
             continue;
         }
@@ -280,7 +281,7 @@ pub fn delete_selected_into_graveyard(
     let mut result = CleanResult::default();
 
     for candidate in selected {
-        if let Err(err) = validate_for_deletion(&candidate.path) {
+        if let Err(err) = validate_candidate_for_deletion(candidate) {
             result.failed.push((candidate.clone(), err.to_string()));
             continue;
         }
@@ -368,7 +369,16 @@ fn is_broad_root(path: &Path) -> bool {
     broad.iter().any(|b| path_str.as_ref() == *b)
 }
 
-pub(crate) fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
+#[cfg(test)]
+fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
+    validate_for_deletion_with_rule(path, None)
+}
+
+fn validate_candidate_for_deletion(candidate: &SelectedCandidate) -> Result<(), CleanError> {
+    validate_for_deletion_with_rule(&candidate.path, Some(&candidate.rule_id))
+}
+
+fn validate_for_deletion_with_rule(path: &Path, rule_id: Option<&str>) -> Result<(), CleanError> {
     let metadata = fs::symlink_metadata(path).map_err(|err| {
         CleanError::Generic(format!(
             "{} no longer exists or cannot be read: {err}",
@@ -391,7 +401,8 @@ pub(crate) fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
     let canonical = path.canonicalize().map_err(|err| {
         CleanError::Generic(format!("failed to canonicalize {}: {err}", path.display()))
     })?;
-    if is_runtime_or_system_path(&canonical) {
+    let allowed_global_rule = rule_id.is_some_and(rules::is_global_rule);
+    if is_runtime_or_system_path(&canonical) && !allowed_global_rule {
         return Err(CleanError::Generic(format!(
             "refusing to delete {}: resolves to a protected runtime or system path",
             path.display()

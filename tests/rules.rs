@@ -213,6 +213,31 @@ fn xcode_derived_data_is_classified_under_library_developer_xcode() {
 }
 
 #[test]
+fn xcode_derived_data_safe_candidate_can_be_cleaned() {
+    let temp = TempDir::new().unwrap();
+    let xcode_dir = temp.path().join("Library").join("Developer").join("Xcode");
+    let derived_data = xcode_dir.join("DerivedData");
+    fs::create_dir_all(&derived_data).unwrap();
+    fs::write(derived_data.join("placeholder"), b"x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        xcode_dir.to_str().unwrap(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Cleaned: 1 candidates"));
+
+    assert!(!derived_data.exists(), "DerivedData should be removed");
+}
+
+#[test]
 fn cargo_registry_cache_is_classified_under_cargo_registry() {
     let temp = TempDir::new().unwrap();
     let registry = temp.path().join(".cargo").join("registry");
