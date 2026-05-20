@@ -151,11 +151,56 @@ pub fn print_rules() {
 }
 
 fn short_path(path: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    if !home.is_empty() && path.starts_with(&home) {
-        return path.replacen(&home, "~", 1);
+    for home in home_prefixes() {
+        let Some(rest) = path.strip_prefix(&home) else {
+            continue;
+        };
+        if rest.is_empty() {
+            return "~".to_string();
+        }
+        if rest.starts_with(std::path::MAIN_SEPARATOR)
+            || rest.starts_with('/')
+            || rest.starts_with('\\')
+        {
+            return format!("~{rest}");
+        }
     }
     path.to_string()
+}
+
+fn home_prefixes() -> Vec<String> {
+    let mut prefixes = Vec::new();
+    for key in home_env_keys() {
+        let Some(home) = std::env::var_os(key) else {
+            continue;
+        };
+        if home.is_empty() {
+            continue;
+        }
+
+        let raw = std::path::PathBuf::from(home);
+        push_unique(&mut prefixes, raw.display().to_string());
+        if let Ok(canonical) = raw.canonicalize() {
+            push_unique(&mut prefixes, canonical.display().to_string());
+        }
+    }
+    prefixes
+}
+
+#[cfg(windows)]
+fn home_env_keys() -> &'static [&'static str] {
+    &["HOME", "USERPROFILE"]
+}
+
+#[cfg(not(windows))]
+fn home_env_keys() -> &'static [&'static str] {
+    &["HOME"]
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
 }
 
 fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
