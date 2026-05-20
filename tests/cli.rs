@@ -10,7 +10,10 @@ fn home_flag_conflicts_with_positional_paths() {
     cmd.args(["scan", "--home", "/tmp/somepath"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("cannot be used with").or(predicate::str::contains("conflicts with")));
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .or(predicate::str::contains("conflicts with")),
+        );
 }
 
 #[test]
@@ -86,6 +89,43 @@ fn help_prints_usage() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Find and clean rebuildable"));
+}
+
+#[test]
+fn watch_help_exposes_poll_interval() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["watch", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--every"));
+}
+
+#[cfg(feature = "tui")]
+#[test]
+fn tui_falls_back_to_text_selection_when_alt_screen_unavailable() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+    let plan = temp.path().join("tui-plan.json");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("TERM", "dumb")
+        .args([
+            "tui",
+            temp.path().to_str().unwrap(),
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .write_stdin("a\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote action plan"))
+        .stderr(predicate::str::contains("falling back to text selection"));
+
+    assert!(plan.exists());
 }
 
 #[test]
@@ -205,6 +245,47 @@ fn scan_write_plan_then_clean_plan_dry_run() {
         .stdout(predicate::str::contains("Plan: 1 candidates"));
 
     assert!(temp.path().join("node_modules").exists());
+}
+
+#[test]
+fn ruby_vendor_bundle_plan_dry_run_replays_successfully() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(
+        temp.path().join("Gemfile"),
+        "source 'https://rubygems.org'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(temp.path().join("vendor").join("bundle")).unwrap();
+    std::fs::write(
+        temp.path().join("vendor").join("bundle").join("cache.txt"),
+        "abc",
+    )
+    .unwrap();
+    let plan = temp.path().join("plan.json");
+
+    let mut scan = Command::cargo_bin("rclean").unwrap();
+    scan.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--write-plan",
+        plan.to_str().unwrap(),
+        "--min-size",
+        "0",
+        "--include-caution",
+    ])
+    .assert()
+    .success();
+
+    assert!(plan.exists());
+
+    let mut clean = Command::cargo_bin("rclean").unwrap();
+    clean
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(temp.path().join("vendor").join("bundle").exists());
 }
 
 #[test]

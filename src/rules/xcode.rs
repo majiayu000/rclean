@@ -32,9 +32,7 @@ use crate::model::{CandidateDraft, Category, Safety};
 use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
-    if name == "DerivedData"
-        && parent_ends_with(project_dir, &["Library", "Developer", "Xcode"])
-    {
+    if name == "DerivedData" && parent_ends_with(project_dir, &["Library", "Developer", "Xcode"]) {
         return Some(CandidateDraft {
             path: path.to_path_buf(),
             name: name.to_string(),
