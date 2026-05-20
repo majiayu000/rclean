@@ -96,8 +96,15 @@ pub struct CleanArgs {
     pub dry_run: bool,
 
     /// Permanently delete selected candidates.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "graveyard")]
     pub permanent: bool,
+
+    /// Move selected candidates into the rclean graveyard (7-day
+    /// recoverable). Mutually exclusive with `--permanent`. Requires
+    /// the `graveyard` feature (default on).
+    #[cfg(feature = "graveyard")]
+    #[arg(long)]
+    pub graveyard: bool,
 
     /// Skip confirmation prompts where allowed.
     #[arg(long)]
