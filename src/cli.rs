@@ -21,6 +21,10 @@ pub enum Commands {
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
     Clean(CleanArgs),
+    /// Select cleanable artifacts in an interactive terminal UI.
+    Tui(CommonScanArgs),
+    /// Watch lockfiles and refresh cleanable artifact candidates.
+    Watch(WatchArgs),
     /// Explain whether a single path is cleanable and why.
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
@@ -103,10 +107,24 @@ pub struct CleanArgs {
     #[arg(long)]
     pub plan: Option<PathBuf>,
 
+    /// Use the feature-gated terminal selector instead of numbered text prompts.
+    #[arg(long)]
+    pub tui: bool,
+
     /// Allow cleaning when a scan root resolves to a broad system or user root
     /// (for example /, $HOME, /etc, /usr). Off by default.
     #[arg(long)]
     pub allow_broad_root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    #[command(flatten)]
+    pub common: CommonScanArgs,
+
+    /// Poll interval after the watcher is idle or unavailable. Examples: 60s, 5m.
+    #[arg(long, default_value = "60s")]
+    pub every: String,
 }
 
 #[derive(Debug, Args)]

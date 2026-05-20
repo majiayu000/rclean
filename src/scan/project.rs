@@ -26,7 +26,7 @@ use crate::rules;
 use super::ScanOptions;
 use super::git_cache::GitCache;
 use super::safety::is_skip_name;
-use super::sizer::{DirSizes, dir_size, sum_subtree_bytes};
+use super::sizer::{self, DirSizes};
 
 pub(crate) fn build_project_report(
     dir: &Path,
@@ -59,8 +59,10 @@ pub(crate) fn build_project_report(
         });
     }
 
+    let size_summary = sizer::summarize(dir, &drafts, sizes, options.verbose);
+
     let mut candidates = Vec::new();
-    for mut draft in drafts {
+    for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
         if let Some(git) = &git
             && git.dirty
             && draft.safety == Safety::Safe
@@ -71,11 +73,6 @@ pub(crate) fn build_project_report(
                 .push("project has uncommitted git changes".to_string());
         }
 
-        let bytes = if draft.safety == Safety::Blocked {
-            0
-        } else {
-            dir_size(&draft.path, options.verbose)
-        };
         if bytes < options.min_size && draft.safety != Safety::Blocked {
             continue;
         }
@@ -101,7 +98,7 @@ pub(crate) fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let source_bytes = sum_subtree_bytes(dir, sizes);
+    let source_bytes = size_summary.source_bytes;
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0

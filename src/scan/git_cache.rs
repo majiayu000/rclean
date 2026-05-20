@@ -5,20 +5,21 @@
 //! candidates share one cache entry for the enclosing repo, so we
 //! avoid the O(N) `git` subprocess fan-out the v0.1.0 baseline had.
 //!
-//! `Mutex<HashMap>` (not `RefCell`) so the parallel walker can share
-//! one cache across worker threads. Contention is low: the cache
+//! The cache is thread-safe so the parallel walker can share one
+//! instance across worker threads. Contention is low: the cache
 //! transitions only when entering a candidate directory.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::model::GitInfo;
 
 #[derive(Default)]
 pub(crate) struct GitCache {
-    by_dir: Mutex<HashMap<PathBuf, Option<GitInfo>>>,
+    by_dir: RwLock<HashMap<PathBuf, GitInfo>>,
+    non_repos: RwLock<HashSet<PathBuf>>,
 }
 
 impl GitCache {
@@ -27,56 +28,60 @@ impl GitCache {
     }
 
     pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
-        // Phase 1: cache lookup. Scope the guard so it drops before we
-        // run git subprocesses below — otherwise the guard's lifetime
-        // can extend past the `if let` and deadlock on the next lock().
-        {
-            let map = self
-                .by_dir
-                .lock()
-                .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-            if let Some(cached) = map.get(dir) {
-                return cached.clone();
-            }
+        if let Some(info) = self.cached_info(dir) {
+            return Some(info);
+        }
+        if self.is_known_non_repo(dir) {
+            return None;
         }
 
         let repo_root = match run_git_rev_parse(dir) {
             Some(root) => root,
             None => {
-                self.by_dir
-                    .lock()
-                    .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"))
-                    .insert(dir.to_path_buf(), None);
+                self.remember_non_repo(dir);
                 return None;
             }
         };
 
         let root_path = PathBuf::from(&repo_root);
-        let cached_root = {
-            let map = self
-                .by_dir
-                .lock()
-                .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-            map.get(&root_path).cloned()
-        };
-        if let Some(Some(info)) = cached_root {
-            self.by_dir
-                .lock()
-                .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"))
-                .insert(dir.to_path_buf(), Some(info.clone()));
+        if let Some(info) = self.cached_info(&root_path) {
+            self.remember_info(dir, info.clone());
             return Some(info);
         }
 
-        let dirty = run_git_dirty(&root_path);
-        let info = GitInfo { repo_root, dirty };
-        let mut map = self
-            .by_dir
-            .lock()
-            .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-        map.insert(root_path, Some(info.clone()));
-        map.insert(dir.to_path_buf(), Some(info.clone()));
+        let info = GitInfo {
+            repo_root,
+            dirty: run_git_dirty(&root_path),
+        };
+        self.remember_info(&root_path, info.clone());
+        self.remember_info(dir, info.clone());
         Some(info)
     }
+
+    fn cached_info(&self, dir: &Path) -> Option<GitInfo> {
+        read_lock(&self.by_dir).get(dir).cloned()
+    }
+
+    fn remember_info(&self, dir: &Path, info: GitInfo) {
+        write_lock(&self.by_dir).insert(dir.to_path_buf(), info);
+    }
+
+    fn is_known_non_repo(&self, dir: &Path) -> bool {
+        read_lock(&self.non_repos).contains(dir)
+    }
+
+    fn remember_non_repo(&self, dir: &Path) {
+        write_lock(&self.non_repos).insert(dir.to_path_buf());
+    }
+}
+
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn run_git_rev_parse(dir: &Path) -> Option<String> {
@@ -101,7 +106,7 @@ fn run_git_dirty(repo_root: &Path) -> bool {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_root)
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "-uall"])
         .output();
     matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
 }

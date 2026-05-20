@@ -37,7 +37,9 @@ use crate::rules;
 use crate::user_rules::UserRuleSet;
 
 pub(crate) use git_cache::GitCache;
-pub(crate) use project::{build_project_report, build_summary, compute_risk_score, project_activity};
+pub(crate) use project::{
+    build_project_report, build_summary, compute_risk_score, project_activity,
+};
 pub(crate) use safety::{apply_path_safety, is_runtime_or_system_path};
 pub(crate) use sizer::DirSizes;
 pub(crate) use walker::{WalkScratch, walk_parallel};
@@ -134,14 +136,8 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             if drafts.is_empty() {
                 continue;
             }
-            let project = build_project_report(
-                &project_dir,
-                &root,
-                drafts,
-                options,
-                &git_cache,
-                &sizes,
-            )?;
+            let project =
+                build_project_report(&project_dir, &root, drafts, options, &git_cache, &sizes)?;
             if !project.candidates.is_empty() {
                 projects.push(project);
             }

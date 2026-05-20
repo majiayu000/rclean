@@ -12,13 +12,42 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
 use tracing::debug;
+
+use crate::model::{CandidateDraft, Safety};
 
 pub(crate) type DirSizes = HashMap<PathBuf, u64>;
 
-/// Unbounded subtree byte count. Used for candidate directories
-/// whose contents the walker deliberately skipped.
-pub(crate) fn dir_size(path: &Path, _verbose: bool) -> u64 {
+pub(crate) struct SizeSummary {
+    pub candidate_bytes: Vec<u64>,
+    pub source_bytes: u64,
+}
+
+pub(crate) fn summarize(
+    project_dir: &Path,
+    drafts: &[CandidateDraft],
+    sizes: &DirSizes,
+    verbose: bool,
+) -> SizeSummary {
+    let candidate_bytes = drafts
+        .par_iter()
+        .map(|draft| {
+            if draft.safety == Safety::Blocked {
+                0
+            } else {
+                dir_size(&draft.path, verbose)
+            }
+        })
+        .collect();
+
+    SizeSummary {
+        candidate_bytes,
+        source_bytes: sum_subtree_bytes(project_dir, sizes),
+    }
+}
+
+fn dir_size(path: &Path, _verbose: bool) -> u64 {
     let mut total: u64 = 0;
     for result in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = match result {
@@ -46,7 +75,7 @@ pub(crate) fn dir_size(path: &Path, _verbose: bool) -> u64 {
 /// absent from the map (the walker doesn't recurse into them —
 /// `dir_size` handles those separately, unbounded), and
 /// skipped/excluded names never make it into the map either.
-pub(crate) fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
+fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     let mut total: u64 = 0;
     for (path, bytes) in sizes {
         if path == project_dir || path.starts_with(project_dir) {
