@@ -36,7 +36,7 @@ jobs:
         run: cargo build --release
 
   # Verifies the minimum supported Rust version declared in Cargo.toml
-  # (rust-version = "1.88") still actually builds and tests. Runs on
+  # (rust-version = "1.95") still actually builds and tests. Runs on
   # Ubuntu only — MSRV is a toolchain-version concern, not a
   # platform-coverage concern, so cross-platform stays in `test` above.
   msrv:
@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install pinned MSRV toolchain
-        uses: dtolnay/rust-toolchain@1.88
+        uses: dtolnay/rust-toolchain@1.95
 
       - name: Cargo build (MSRV)
         run: cargo build --all-targets --all-features
