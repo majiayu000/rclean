@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,7 +9,9 @@ use serde_json::Value;
 
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
-use crate::model::{Candidate, Category, ProjectReport, Safety, ScanReport, Summary};
+use crate::model::{
+    Candidate, CandidateDraft, Category, ProjectReport, Safety, ScanReport, Summary,
+};
 use crate::rules;
 use crate::scan::is_runtime_or_system_path;
 
@@ -58,6 +60,29 @@ pub fn write_action_plan(
         } else {
             delete_mode.to_string()
         },
+        roots: report.roots.clone(),
+        summary,
+        selected,
+        projects: report.projects.clone(),
+    };
+    let json = serde_json::to_string_pretty(&plan)?;
+    write_atomically(path, json.as_bytes())
+}
+
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+pub fn write_selected_action_plan(
+    report: &ScanReport,
+    path: &Path,
+    selected: &[SelectedCandidate],
+    delete_mode: &str,
+) -> Result<(), PlanError> {
+    let selected = collect_selected_paths(report, selected);
+    let summary = summarize_selected(&selected, &report.summary);
+    let plan = ActionPlan {
+        schema_version: 1,
+        tool_version: report.tool_version.clone(),
+        generated_at: Utc::now().to_rfc3339(),
+        delete_mode: delete_mode.to_string(),
         roots: report.roots.clone(),
         summary,
         selected,
@@ -128,20 +153,7 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
-        let parent = path.parent().ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has no parent directory: {}",
-                candidate.path
-            ))
-        })?;
-        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has invalid file name: {}",
-                candidate.path
-            ))
-        })?;
-
-        let draft = rules::classify_candidate(parent, name, path.clone()).ok_or_else(|| {
+        let draft = classify_plan_candidate(plan, candidate, &path).ok_or_else(|| {
             PlanError::Generic(format!(
                 "{} is not recognized by any current rule (plan may be stale or tampered)",
                 candidate.path
@@ -166,6 +178,42 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
         });
     }
     Ok(selected)
+}
+
+fn classify_plan_candidate(
+    plan: &ActionPlan,
+    candidate: &PlanCandidate,
+    path: &Path,
+) -> Option<CandidateDraft> {
+    plan.projects
+        .iter()
+        .filter(|project| {
+            project
+                .candidates
+                .iter()
+                .any(|project_candidate| project_candidate.path == candidate.path)
+        })
+        .find_map(|project| classify_from_project_context(project, path))
+        .or_else(|| classify_from_path_parent(path))
+}
+
+fn classify_from_project_context(project: &ProjectReport, path: &Path) -> Option<CandidateDraft> {
+    let project_dir = PathBuf::from(&project.path);
+    let relative = path.strip_prefix(&project_dir).ok()?;
+    let first_component = relative.components().next()?;
+    let Component::Normal(name) = first_component else {
+        return None;
+    };
+    let name = name.to_str()?;
+    let classifier_path = project_dir.join(name);
+    let draft = rules::classify_candidate(&project_dir, name, classifier_path)?;
+    (draft.path == path).then_some(draft)
+}
+
+fn classify_from_path_parent(path: &Path) -> Option<CandidateDraft> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_str()?;
+    rules::classify_candidate(parent, name, path.to_path_buf())
 }
 
 pub fn revalidate_selected(
@@ -251,6 +299,25 @@ fn collect_selected(report: &ScanReport, include_caution: bool) -> Vec<PlanCandi
             candidate.safety == Safety::Safe
                 || (include_caution && candidate.safety == Safety::Caution)
         })
+        .map(to_plan_candidate)
+        .collect()
+}
+
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+fn collect_selected_paths(
+    report: &ScanReport,
+    selected: &[SelectedCandidate],
+) -> Vec<PlanCandidate> {
+    let selected_paths = selected
+        .iter()
+        .map(|candidate| candidate.path.display().to_string())
+        .collect::<std::collections::HashSet<_>>();
+
+    report
+        .projects
+        .iter()
+        .flat_map(|project| project.candidates.iter())
+        .filter(|candidate| selected_paths.contains(&candidate.path))
         .map(to_plan_candidate)
         .collect()
 }
