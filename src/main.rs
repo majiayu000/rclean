@@ -14,7 +14,10 @@ mod parse;
 mod plan;
 mod rules;
 mod scan;
+#[cfg(feature = "tui")]
+mod tui;
 mod user_rules;
+mod watch;
 
 use std::process::ExitCode;
 
@@ -46,6 +49,7 @@ fn init_tracing(verbose: bool) {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .with_level(false)
         .with_target(false)
         .without_time()
         .with_writer(std::io::stderr)
@@ -64,7 +68,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 // User-facing success confirmation. Bypass the tracing
                 // filter (default `warn` would hide info!) so the message
                 // stays visible without --verbose, matching v0.1.0.
-                eprintln!("wrote action plan: {}", plan_path.display());
+                write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
             }
             if args.json {
                 output::print_json(&report)?;
@@ -110,7 +114,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                     // User-facing success confirmation. Bypass the tracing
                     // filter (default `warn` would hide info!) so the message
                     // stays visible without --verbose, matching v0.1.0.
-                    eprintln!("wrote action plan: {}", plan_path.display());
+                    write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
                 }
                 let selected = clean::select_candidates(&report, &args)?;
                 (selected, Some(report))
@@ -154,6 +158,21 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::from(1))
             }
         }
+        Commands::Tui(args) => {
+            #[cfg(feature = "tui")]
+            {
+                tui::run_command(args)
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = args;
+                Err(RcleanError::from(
+                    "TUI support is not enabled in this build; rebuild with --features tui"
+                        .to_string(),
+                ))
+            }
+        }
+        Commands::Watch(args) => watch::run(args),
         Commands::Explain(args) => {
             let explanation = scan::explain_path(&args.path)?;
             output::print_explanation(&explanation);
@@ -168,4 +187,13 @@ fn run() -> Result<ExitCode, RcleanError> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {
+    use std::io::Write;
+
+    let mut stderr = std::io::stderr().lock();
+    stderr.write_fmt(args)?;
+    stderr.write_all(b"\n")?;
+    Ok(())
 }
