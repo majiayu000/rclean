@@ -2,7 +2,9 @@ use std::path::Path;
 
 use globset::GlobMatcher;
 use serde::Deserialize;
+use tracing::warn;
 
+use crate::error::UserRuleError;
 use crate::model::{CandidateDraft, Category, Safety};
 
 /// On-disk schema for `.rclean.toml`. Kept as a private newtype so we can
@@ -60,14 +62,14 @@ impl UserRuleSet {
         let raw = match std::fs::read_to_string(&path) {
             Ok(r) => r,
             Err(err) => {
-                eprintln!("warning: failed to read {}: {err}", path.display());
+                warn!("warning: failed to read {}: {err}", path.display());
                 return Self::default();
             }
         };
         let parsed: UserRuleFile = match toml::from_str(&raw) {
             Ok(p) => p,
             Err(err) => {
-                eprintln!("warning: invalid {}: {err}", path.display());
+                warn!("warning: invalid {}: {err}", path.display());
                 return Self::default();
             }
         };
@@ -79,15 +81,15 @@ impl UserRuleSet {
                         // First-match wins (declaration order). Warn so
                         // the user knows the duplicate later rule will
                         // never fire.
-                        eprintln!(
-                            "warning: .rclean.toml duplicate rule id '{}' — keeping the first, ignoring the rest",
+                        warn!(
+                            "warning: .rclean.toml duplicate rule id '{}' - keeping the first, ignoring the rest",
                             rule.id
                         );
                         continue;
                     }
                     rules.push(rule);
                 }
-                Err(err) => eprintln!("warning: .rclean.toml rule rejected: {err}"),
+                Err(err) => warn!("warning: .rclean.toml rule rejected: {err}"),
             }
         }
         Self { rules }
@@ -133,26 +135,29 @@ impl UserRuleSet {
     }
 }
 
-fn validate(raw: UserRuleRaw) -> Result<UserRule, String> {
+fn validate(raw: UserRuleRaw) -> Result<UserRule, UserRuleError> {
     if raw.id.is_empty() {
-        return Err("rule id must not be empty".to_string());
+        return Err(UserRuleError::EmptyId);
     }
-    let category: Category = raw
-        .category
-        .parse()
-        .map_err(|e: String| format!("rule '{}': {e}", raw.id))?;
+    let category: Category =
+        raw.category
+            .parse()
+            .map_err(|message: String| UserRuleError::InvalidCategory {
+                id: raw.id.clone(),
+                message,
+            })?;
     let safety = parse_safety(&raw.safety, &raw.id)?;
     if raw.parent_markers.is_empty() && safety == Safety::Caution {
         // A bare-name caution rule with no parent_markers can fire under
         // any directory, including system locations. Reject as part of
         // SPEC §4.2 ("user rule with safety=caution requires at least
         // one parent_markers entry").
-        return Err(format!(
-            "rule '{}': safety=caution requires at least one parent_markers entry",
-            raw.id
-        ));
+        return Err(UserRuleError::CautionRequiresParentMarkers { id: raw.id.clone() });
     }
-    let glob = globset::Glob::new(&raw.name_glob).map_err(|e| format!("rule '{}': {e}", raw.id))?;
+    let glob = globset::Glob::new(&raw.name_glob).map_err(|source| UserRuleError::InvalidGlob {
+        id: raw.id.clone(),
+        source,
+    })?;
     let matcher = glob.compile_matcher();
     Ok(UserRule {
         id: raw.id.clone(),
@@ -167,16 +172,15 @@ fn validate(raw: UserRuleRaw) -> Result<UserRule, String> {
     })
 }
 
-fn parse_safety(s: &str, id: &str) -> Result<Safety, String> {
+fn parse_safety(s: &str, id: &str) -> Result<Safety, UserRuleError> {
     match s {
         "safe" => Ok(Safety::Safe),
         "caution" => Ok(Safety::Caution),
-        "blocked" => Err(format!(
-            "rule '{id}': safety=blocked is not allowed for user rules (only builtin rules may produce blocked)"
-        )),
-        other => Err(format!(
-            "rule '{id}': invalid safety '{other}' (use 'safe' or 'caution')"
-        )),
+        "blocked" => Err(UserRuleError::BlockedSafety { id: id.to_string() }),
+        other => Err(UserRuleError::InvalidSafety {
+            id: id.to_string(),
+            safety: other.to_string(),
+        }),
     }
 }
 
