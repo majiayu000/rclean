@@ -14,7 +14,10 @@ mod parse;
 mod plan;
 mod rules;
 mod scan;
+#[cfg(feature = "tui")]
+mod tui;
 mod user_rules;
+mod watch;
 
 use std::process::ExitCode;
 
@@ -146,6 +149,21 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::from(1))
             }
         }
+        Commands::Tui(args) => {
+            #[cfg(feature = "tui")]
+            {
+                tui::run_command(args)
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = args;
+                Err(RcleanError::from(
+                    "TUI support is not enabled in this build; rebuild with --features tui"
+                        .to_string(),
+                ))
+            }
+        }
+        Commands::Watch(args) => watch::run(args),
         Commands::Explain(args) => {
             let explanation = scan::explain_path(&args.path)?;
             output::print_explanation(&explanation);

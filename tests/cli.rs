@@ -12,6 +12,43 @@ fn help_prints_usage() {
 }
 
 #[test]
+fn watch_help_exposes_poll_interval() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["watch", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--every"));
+}
+
+#[cfg(feature = "tui")]
+#[test]
+fn tui_falls_back_to_text_selection_when_alt_screen_unavailable() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+    let plan = temp.path().join("tui-plan.json");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("TERM", "dumb")
+        .args([
+            "tui",
+            temp.path().to_str().unwrap(),
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .write_stdin("a\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote action plan"))
+        .stderr(predicate::str::contains("falling back to text selection"));
+
+    assert!(plan.exists());
+}
+
+#[test]
 fn scan_json_detects_node_modules() {
     let temp = TempDir::new().unwrap();
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();
