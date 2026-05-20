@@ -158,6 +158,31 @@ fn format_percent(value: f64) -> String {
     format!("{value:.1}%")
 }
 
+#[cfg(feature = "graveyard")]
+pub fn print_graveyard_list(records: &[crate::graveyard::ManifestRecord]) {
+    if records.is_empty() {
+        println!("No active graves.");
+        return;
+    }
+
+    println!(
+        "{:<22} {:<20} {:>10} {:<20} Original",
+        "Id", "Deleted (UTC)", "Size", "Rule"
+    );
+    println!("{}", "-".repeat(110));
+    for r in records {
+        let deleted = r.deleted_at.format("%Y-%m-%d %H:%M:%S").to_string();
+        println!(
+            "{:<22} {:<20} {:>10} {:<20} {}",
+            truncate(&r.id, 22),
+            deleted,
+            format_bytes(r.size_bytes),
+            truncate(&r.rule_id, 20),
+            r.original_path.display(),
+        );
+    }
+}
+
 fn truncate(value: &str, width: usize) -> String {
     let chars = value.chars().collect::<Vec<_>>();
     if chars.len() <= width {
