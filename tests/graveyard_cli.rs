@@ -79,3 +79,31 @@ fn graveyard_and_permanent_flags_are_mutually_exclusive() {
     .failure()
     .stderr(predicate::str::contains("--graveyard").or(predicate::str::contains("--permanent")));
 }
+
+#[test]
+fn clean_graveyard_write_plan_marks_delete_mode() {
+    let workspace = TempDir::new().unwrap();
+    build_node_project(&workspace);
+    let plan = workspace.path().join("plan.json");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        workspace.path().to_str().unwrap(),
+        "--all",
+        "--dry-run",
+        "--graveyard",
+        "--write-plan",
+        plan.to_str().unwrap(),
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success();
+
+    let raw = fs::read_to_string(plan).unwrap();
+    assert!(raw.contains(r#""schemaVersion": 2"#));
+    assert!(raw.contains(r#""deleteMode": "graveyard""#));
+    assert!(raw.contains(r#""id": "#));
+    assert!(raw.contains(r#""riskScore": "#));
+}

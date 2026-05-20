@@ -1,11 +1,6 @@
 mod clean;
 mod cli;
 mod error;
-// CLI integration (clean --graveyard, rclean restore, etc.) lands in
-// a follow-up PR per docs/specs/v0.1.x-roadmap.md §4.7. The storage
-// layer is staged ahead so the API surface can be reviewed in
-// isolation; the inner-module `#![allow(dead_code, unused_imports)]`
-// disappears once the CLI wiring uses every public item.
 #[cfg(feature = "graveyard")]
 mod graveyard;
 mod model;
@@ -82,6 +77,7 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         }
         Commands::Clean(args) => {
+            let delete_mode = requested_delete_mode(&args);
             if !args.allow_broad_root {
                 if let Some(plan_path) = &args.plan {
                     let action_plan = plan::read_action_plan(plan_path)?;
@@ -109,7 +105,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                         plan_path,
                         args.common.include_caution,
                         args.permanent,
-                        if args.permanent { "permanent" } else { "trash" },
+                        delete_mode,
                     )?;
                     // User-facing success confirmation. Bypass the tracing
                     // filter (default `warn` would hide info!) so the message
@@ -128,7 +124,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 }
             }
             if !args.common.json {
-                clean::print_plan(&selected, args.permanent, args.dry_run);
+                clean::print_plan(&selected, delete_mode, args.dry_run);
             }
 
             if selected.is_empty() {
@@ -227,6 +223,17 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         },
     }
+}
+
+fn requested_delete_mode(args: &cli::CleanArgs) -> &'static str {
+    if args.permanent {
+        return "permanent";
+    }
+    #[cfg(feature = "graveyard")]
+    if args.graveyard {
+        return "graveyard";
+    }
+    "trash"
 }
 
 fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {

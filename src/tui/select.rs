@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::clean::SelectedCandidate;
 use crate::error::CleanError;
-use crate::model::{Candidate, Safety, ScanReport, format_bytes};
+use crate::model::{Candidate, Category, Safety, ScanReport, format_bytes};
 
 use super::{search, theme};
 
@@ -33,7 +33,7 @@ impl Drop for TerminalGuard {
 struct CandidateRow {
     path: String,
     label: String,
-    category: String,
+    category: Category,
     bytes: u64,
     safety: Safety,
     risk_score: f32,
@@ -264,9 +264,13 @@ impl SelectorApp {
             .map(|index| {
                 let row = &self.rows[*index];
                 SelectedCandidate {
+                    id: None,
                     path: PathBuf::from(&row.path),
                     bytes: row.bytes,
                     rule_id: row.rule_id.clone(),
+                    category: row.category,
+                    safety: row.safety,
+                    risk_score: row.risk_score,
                 }
             })
             .collect()
@@ -309,7 +313,7 @@ fn row_from_candidate(candidate: &Candidate) -> CandidateRow {
     CandidateRow {
         path: candidate.path.clone(),
         label: candidate.name.clone(),
-        category: candidate.category.to_string(),
+        category: candidate.category,
         bytes: candidate.bytes,
         safety: candidate.safety,
         risk_score: candidate.risk_score,

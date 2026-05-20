@@ -83,7 +83,7 @@ Clean flags:
 
 ## 6. ActionPlan Contract
 
-An ActionPlan is JSON with schema version `1`.
+An ActionPlan is JSON with schema version `2`.
 
 Required fields:
 
@@ -96,11 +96,23 @@ Required fields:
 - `selected`
 - `projects`
 
+Selected candidate fields:
+
+- `id` — plan-local ULID-style identifier used to correlate graveyard records
+- `path`
+- `ruleId`
+- `bytes`
+- `safety`
+- `category`
+- `riskScore`
+
 Plan semantics:
 
 - `scan --write-plan plan.json` writes all report candidates to an ActionPlan.
 - `clean --plan plan.json --dry-run` prints selected candidates without deleting.
 - `clean --plan plan.json` revalidates every selected candidate before deletion.
+- `schemaVersion: 1` plans are rejected with a rescan hint.
+- `deleteMode` may be `trash`, `graveyard`, or `permanent`.
 - stale plan paths must be rejected if they no longer exist, become symlinks, or
   resolve outside the original roots.
 
