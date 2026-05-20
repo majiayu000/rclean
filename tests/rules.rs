@@ -266,18 +266,12 @@ fn npm_cacache_is_classified_under_dot_npm() {
     make_dir(&npm, "_cacache");
 
     let mut cmd = Command::cargo_bin("rclean").unwrap();
-    cmd.args([
-        "scan",
-        npm.to_str().unwrap(),
-        "--json",
-        "--min-size",
-        "0",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"ruleId\": \"node.npm_cacache\""))
-    .stdout(predicate::str::contains("\"safety\": \"safe\""))
-    .stdout(predicate::str::contains("\"category\": \"cache\""));
+    cmd.args(["scan", npm.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"node.npm_cacache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""))
+        .stdout(predicate::str::contains("\"category\": \"cache\""));
 }
 
 #[test]
@@ -332,17 +326,11 @@ fn pip_cache_is_classified_under_xdg_cache() {
     make_dir(&xdg, "pip");
 
     let mut cmd = Command::cargo_bin("rclean").unwrap();
-    cmd.args([
-        "scan",
-        xdg.to_str().unwrap(),
-        "--json",
-        "--min-size",
-        "0",
-    ])
-    .assert()
-    .success()
-    .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
-    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+    cmd.args(["scan", xdg.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
 }
 
 #[test]
