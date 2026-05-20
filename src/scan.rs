@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
-use tracing::{debug, warn};
+use tracing::warn;
 
 use crate::error::ScanError;
 use crate::model::{
@@ -14,13 +14,14 @@ use crate::model::{
     ScanReport, Summary,
 };
 use crate::rules;
+use crate::scan_walker::{WalkScratch, walk_parallel};
 use crate::user_rules::UserRuleSet;
 
 mod git_cache;
 mod sizer;
 
 pub(crate) use git_cache::GitCache;
-use sizer::DirSizes;
+pub(crate) use sizer::DirSizes;
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanOptions {
@@ -73,15 +74,6 @@ impl IgnoreMatcher {
     }
 }
 
-struct ScanContext<'a> {
-    root: &'a Path,
-    options: &'a ScanOptions,
-    matcher: &'a IgnoreMatcher,
-    user_rules: &'a UserRuleSet,
-    git_cache: &'a GitCache,
-    sizes: &'a mut DirSizes,
-}
-
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
@@ -98,15 +90,37 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         roots.push(root.display().to_string());
         let user_rules = UserRuleSet::load_from_root(&root);
         let matcher = IgnoreMatcher::build(&root, &options.ignore_globs);
-        let mut context = ScanContext {
-            root: &root,
-            options,
-            matcher: &matcher,
-            user_rules: &user_rules,
-            git_cache: &git_cache,
-            sizes: &mut sizes,
-        };
-        scan_dir(&root, 0, &mut context, &mut projects)?;
+
+        // Phase 1: parallel walk collects (project_dir, drafts) and
+        // per-dir file_bytes into thread-safe accumulators.
+        let walk = WalkScratch::new();
+        walk_parallel(&root, options, &matcher, &user_rules, &walk);
+
+        let (drafts_by_project, walk_sizes) = walk.into_inner();
+        for (dir, bytes) in walk_sizes {
+            *sizes.entry(dir).or_insert(0) += bytes;
+        }
+
+        // Phase 2: serial post-processing per project so dir_size,
+        // git_info, and risk_score all see consistent state. Sort
+        // project_dirs deterministically so the output order is
+        // stable across runs.
+        let mut project_dirs: Vec<PathBuf> = drafts_by_project.keys().cloned().collect();
+        project_dirs.sort();
+        for project_dir in project_dirs {
+            let drafts = drafts_by_project
+                .get(&project_dir)
+                .cloned()
+                .unwrap_or_default();
+            if drafts.is_empty() {
+                continue;
+            }
+            let project =
+                build_project_report(&project_dir, &root, drafts, options, &git_cache, &sizes)?;
+            if !project.candidates.is_empty() {
+                projects.push(project);
+            }
+        }
     }
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
@@ -165,111 +179,6 @@ pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
         restore_hint: Some(draft.restore_hint),
         risk_score: Some(risk_score),
     })
-}
-
-fn scan_dir(
-    dir: &Path,
-    depth: usize,
-    context: &mut ScanContext<'_>,
-    projects: &mut Vec<ProjectReport>,
-) -> Result<(), ScanError> {
-    if depth > context.options.max_depth || is_skip_dir(dir) {
-        return Ok(());
-    }
-
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries.flatten().collect::<Vec<_>>(),
-        Err(err) => {
-            // v0.1.0 only emitted this with --verbose. Keep it at debug to
-            // match the existing "noisy IO" level used by sizing, so
-            // non-verbose runs stay quiet.
-            debug!(path = %dir.display(), error = %err, "skip directory");
-            return Ok(());
-        }
-    };
-
-    let mut drafts = Vec::new();
-    let mut child_dirs = Vec::new();
-    let mut file_bytes: u64 = 0;
-
-    for entry in entries {
-        let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        let is_symlink = metadata.file_type().is_symlink();
-
-        if metadata.is_file() && !is_symlink {
-            file_bytes = file_bytes.saturating_add(metadata.len());
-            continue;
-        }
-
-        if !metadata.is_dir() && !is_symlink {
-            continue;
-        }
-
-        let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
-            continue;
-        };
-
-        if rules::is_candidate_name(&name)
-            && let Some(mut draft) = rules::classify_candidate(dir, &name, path.clone())
-        {
-            if context.matcher.is_ignored(&path, true) {
-                continue;
-            }
-            apply_path_safety(context.root, &mut draft);
-            if should_include(&draft, context.options) {
-                drafts.push(draft);
-            }
-            continue;
-        }
-
-        // Builtin classifier missed. Give user rules from `.rclean.toml`
-        // a chance — they can match arbitrary directory names like
-        // `my_build_*` under user-declared `parent_markers`.
-        if !context.user_rules.is_empty()
-            && let Some(mut draft) = context.user_rules.classify(&name, dir)
-        {
-            if context.matcher.is_ignored(&path, true) {
-                continue;
-            }
-            apply_path_safety(context.root, &mut draft);
-            if should_include(&draft, context.options) {
-                drafts.push(draft);
-            }
-            continue;
-        }
-
-        if metadata.is_dir() && !is_symlink && !is_skip_name(&name) {
-            if context.matcher.is_ignored(&path, true) {
-                continue;
-            }
-            child_dirs.push(path);
-        }
-    }
-
-    context.sizes.insert(dir.to_path_buf(), file_bytes);
-
-    for child in &child_dirs {
-        scan_dir(child, depth + 1, context, projects)?;
-    }
-
-    if !drafts.is_empty() {
-        let project = build_project_report(
-            dir,
-            context.root,
-            drafts,
-            context.options,
-            context.git_cache,
-            context.sizes,
-        )?;
-        if !project.candidates.is_empty() {
-            projects.push(project);
-        }
-    }
-
-    Ok(())
 }
 
 fn build_project_report(
@@ -363,7 +272,7 @@ fn build_project_report(
     })
 }
 
-fn should_include(draft: &CandidateDraft, options: &ScanOptions) -> bool {
+pub(crate) fn should_include(draft: &CandidateDraft, options: &ScanOptions) -> bool {
     if let Some(categories) = &options.categories
         && !categories.contains(&draft.category)
     {
@@ -382,7 +291,7 @@ fn should_include(draft: &CandidateDraft, options: &ScanOptions) -> bool {
     }
 }
 
-fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
+pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
     let metadata = fs::symlink_metadata(&draft.path);
     if metadata
         .as_ref()
@@ -555,13 +464,13 @@ fn has_lockfile(project_dir: &Path) -> bool {
         .any(|name| project_dir.join(name).is_file())
 }
 
-fn is_skip_dir(path: &Path) -> bool {
+pub(crate) fn is_skip_dir(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(is_skip_name)
 }
 
-fn is_skip_name(name: &str) -> bool {
+pub(crate) fn is_skip_name(name: &str) -> bool {
     matches!(
         name,
         ".git"
