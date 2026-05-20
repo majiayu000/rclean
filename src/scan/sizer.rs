@@ -1,3 +1,14 @@
+//! Directory-size accumulation for phase 2 of `scan()`.
+//!
+//! Phase 1 (`walker`) populates a `DirSizes` map with immediate file
+//! byte tallies per directory. Phase 2 folds entries in that map
+//! under each project root via [`sum_subtree_bytes`] to get the
+//! project's non-artifact source size.
+//!
+//! Candidate subtrees (e.g. `node_modules`) are absent from the map
+//! because the walker prunes them — their bytes come from
+//! [`dir_size`] called per-candidate during project materialization.
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -6,9 +17,6 @@ use tracing::debug;
 
 use crate::model::{CandidateDraft, Safety};
 
-/// Per-directory immediate file-byte tally collected during `scan_dir`.
-/// A project's source size is folded from this map instead of doing a
-/// dedicated second source-size walk.
 pub(crate) type DirSizes = HashMap<PathBuf, u64>;
 
 pub(crate) struct SizeSummary {
@@ -62,9 +70,11 @@ fn dir_size(path: &Path, _verbose: bool) -> u64 {
     total
 }
 
-/// Folds every per-directory `file_bytes` tally that `scan_dir` already
-/// collected for paths under `project_dir`. Candidate subtrees are absent
-/// from the map because scan traversal does not recurse into them.
+/// Folds every per-directory `file_bytes` tally collected by the
+/// walker for paths under `project_dir`. Candidate subtrees are
+/// absent from the map (the walker doesn't recurse into them —
+/// `dir_size` handles those separately, unbounded), and
+/// skipped/excluded names never make it into the map either.
 fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
     let mut total: u64 = 0;
     for (path, bytes) in sizes {

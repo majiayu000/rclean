@@ -14,7 +14,6 @@ mod parse;
 mod plan;
 mod rules;
 mod scan;
-mod scan_walker;
 #[cfg(feature = "tui")]
 mod tui;
 mod user_rules;

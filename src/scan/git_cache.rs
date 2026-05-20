@@ -1,3 +1,14 @@
+//! Git metadata caching for the scan phase.
+//!
+//! `GitCache` runs `git rev-parse` and `git status --porcelain` at
+//! most once per repo per scan. Monorepos with many sibling
+//! candidates share one cache entry for the enclosing repo, so we
+//! avoid the O(N) `git` subprocess fan-out the v0.1.0 baseline had.
+//!
+//! The cache is thread-safe so the parallel walker can share one
+//! instance across worker threads. Contention is low: the cache
+//! transitions only when entering a candidate directory.
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
