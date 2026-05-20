@@ -84,6 +84,9 @@ pub enum RcleanError {
     Output(#[from] serde_json::Error),
     #[error("output io error: {0}")]
     OutputIo(#[from] std::io::Error),
+    #[cfg(feature = "graveyard")]
+    #[error(transparent)]
+    Graveyard(#[from] crate::graveyard::GraveyardError),
 }
 
 impl From<String> for RcleanError {
