@@ -21,10 +21,65 @@ pub enum Commands {
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
     Clean(CleanArgs),
+    /// Select cleanable artifacts in an interactive terminal UI.
+    Tui(CommonScanArgs),
+    /// Watch lockfiles and refresh cleanable artifact candidates.
+    Watch(WatchArgs),
     /// Explain whether a single path is cleanable and why.
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
     Rules,
+    /// Restore a grave from the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Restore(RestoreArgs),
+    /// Inspect or maintain the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Graveyard(GraveyardArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct RestoreArgs {
+    /// id of the grave to restore (from `rclean graveyard list`).
+    #[arg(long = "id", value_name = "ID")]
+    pub id: String,
+
+    /// Restore to this path instead of the original. Useful when the
+    /// original location is now occupied.
+    #[arg(long, value_name = "PATH")]
+    pub to: Option<PathBuf>,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardArgs {
+    #[command(subcommand)]
+    pub command: GraveyardCommands,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Subcommand)]
+pub enum GraveyardCommands {
+    /// List active graves.
+    List(GraveyardListArgs),
+    /// Remove every grave past its expiry.
+    Gc(GraveyardGcArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardListArgs {
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardGcArgs {
+    /// Show what would be removed without actually deleting.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -106,8 +161,15 @@ pub struct CleanArgs {
     pub dry_run: bool,
 
     /// Permanently delete selected candidates.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "graveyard")]
     pub permanent: bool,
+
+    /// Move selected candidates into the rclean graveyard (7-day
+    /// recoverable). Mutually exclusive with `--permanent`. Requires
+    /// the `graveyard` feature (default on).
+    #[cfg(feature = "graveyard")]
+    #[arg(long)]
+    pub graveyard: bool,
 
     /// Skip confirmation prompts where allowed.
     #[arg(long)]
@@ -117,10 +179,24 @@ pub struct CleanArgs {
     #[arg(long)]
     pub plan: Option<PathBuf>,
 
+    /// Use the feature-gated terminal selector instead of numbered text prompts.
+    #[arg(long)]
+    pub tui: bool,
+
     /// Allow cleaning when a scan root resolves to a broad system or user root
     /// (for example /, $HOME, /etc, /usr). Off by default.
     #[arg(long)]
     pub allow_broad_root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    #[command(flatten)]
+    pub common: CommonScanArgs,
+
+    /// Poll interval after the watcher is idle or unavailable. Examples: 60s, 5m.
+    #[arg(long, default_value = "60s")]
+    pub every: String,
 }
 
 #[derive(Debug, Args)]

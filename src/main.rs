@@ -1,13 +1,18 @@
 mod clean;
 mod cli;
 mod error;
+#[cfg(feature = "graveyard")]
+mod graveyard;
 mod model;
 mod output;
 mod parse;
 mod plan;
 mod rules;
 mod scan;
+#[cfg(feature = "tui")]
+mod tui;
 mod user_rules;
+mod watch;
 
 use std::process::ExitCode;
 
@@ -39,6 +44,7 @@ fn init_tracing(verbose: bool) {
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
+        .with_level(false)
         .with_target(false)
         .without_time()
         .with_writer(std::io::stderr)
@@ -57,7 +63,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 // User-facing success confirmation. Bypass the tracing
                 // filter (default `warn` would hide info!) so the message
                 // stays visible without --verbose, matching v0.1.0.
-                eprintln!("wrote action plan: {}", plan_path.display());
+                write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
             }
             if args.json {
                 output::print_json(&report)?;
@@ -71,6 +77,7 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         }
         Commands::Clean(args) => {
+            let delete_mode = requested_delete_mode(&args);
             if !args.allow_broad_root {
                 if let Some(plan_path) = &args.plan {
                     let action_plan = plan::read_action_plan(plan_path)?;
@@ -98,12 +105,12 @@ fn run() -> Result<ExitCode, RcleanError> {
                         plan_path,
                         args.common.include_caution,
                         args.permanent,
-                        if args.permanent { "permanent" } else { "trash" },
+                        delete_mode,
                     )?;
                     // User-facing success confirmation. Bypass the tracing
                     // filter (default `warn` would hide info!) so the message
                     // stays visible without --verbose, matching v0.1.0.
-                    eprintln!("wrote action plan: {}", plan_path.display());
+                    write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
                 }
                 let selected = clean::select_candidates(&report, &args)?;
                 (selected, Some(report))
@@ -117,7 +124,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 }
             }
             if !args.common.json {
-                clean::print_plan(&selected, args.permanent, args.dry_run);
+                clean::print_plan(&selected, delete_mode, args.dry_run);
             }
 
             if selected.is_empty() {
@@ -129,6 +136,15 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
 
             clean::confirm_if_needed(&selected, &args)?;
+            #[cfg(feature = "graveyard")]
+            let result = if args.graveyard {
+                // SPEC §4.7.1: lazy create on first bury.
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                clean::delete_selected_into_graveyard(&selected, &yard)?
+            } else {
+                clean::delete_selected(&selected, args.permanent)?
+            };
+            #[cfg(not(feature = "graveyard"))]
             let result = clean::delete_selected(&selected, args.permanent)?;
             clean::print_clean_result(&result);
 
@@ -138,6 +154,21 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::from(1))
             }
         }
+        Commands::Tui(args) => {
+            #[cfg(feature = "tui")]
+            {
+                tui::run_command(args)
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                let _ = args;
+                Err(RcleanError::from(
+                    "TUI support is not enabled in this build; rebuild with --features tui"
+                        .to_string(),
+                ))
+            }
+        }
+        Commands::Watch(args) => watch::run(args),
         Commands::Explain(args) => {
             let explanation = scan::explain_path(&args.path)?;
             output::print_explanation(&explanation);
@@ -151,5 +182,65 @@ fn run() -> Result<ExitCode, RcleanError> {
             output::print_rules();
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "graveyard")]
+        Commands::Restore(args) => {
+            let yard = graveyard::Graveyard::open(graveyard::default_root());
+            let record = yard.restore_by_id(&args.id, args.to.as_deref())?;
+            eprintln!(
+                "restored {} -> {}",
+                record.id,
+                record.original_path.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        #[cfg(feature = "graveyard")]
+        Commands::Graveyard(args) => match args.command {
+            cli::GraveyardCommands::List(list_args) => {
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                let records = yard.list()?;
+                if list_args.json {
+                    let json = serde_json::to_string_pretty(&records)
+                        .map_err(error::RcleanError::Output)?;
+                    println!("{json}");
+                } else {
+                    output::print_graveyard_list(&records);
+                }
+                if records.is_empty() {
+                    Ok(ExitCode::from(3))
+                } else {
+                    Ok(ExitCode::SUCCESS)
+                }
+            }
+            cli::GraveyardCommands::Gc(gc_args) => {
+                let yard = graveyard::Graveyard::open(graveyard::default_root());
+                let collected = yard.gc(gc_args.dry_run)?;
+                if gc_args.dry_run {
+                    eprintln!("dry-run: would remove {} expired grave(s)", collected.len());
+                } else {
+                    eprintln!("removed {} expired grave(s)", collected.len());
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
     }
+}
+
+fn requested_delete_mode(args: &cli::CleanArgs) -> &'static str {
+    if args.permanent {
+        return "permanent";
+    }
+    #[cfg(feature = "graveyard")]
+    if args.graveyard {
+        return "graveyard";
+    }
+    "trash"
+}
+
+fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {
+    use std::io::Write;
+
+    let mut stderr = std::io::stderr().lock();
+    stderr.write_fmt(args)?;
+    stderr.write_all(b"\n")?;
+    Ok(())
 }

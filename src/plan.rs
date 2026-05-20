@@ -1,14 +1,21 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
-use crate::model::{Candidate, ProjectReport, Safety, ScanReport, Summary};
+use crate::model::{
+    Candidate, CandidateDraft, Category, ProjectReport, Safety, ScanReport, Summary,
+};
 use crate::rules;
 use crate::scan::is_runtime_or_system_path;
+
+pub const ACTION_PLAN_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -26,10 +33,13 @@ pub struct ActionPlan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanCandidate {
+    pub id: String,
     pub path: String,
     pub rule_id: String,
     pub bytes: u64,
     pub safety: Safety,
+    pub category: Category,
+    pub risk_score: f32,
 }
 
 pub fn write_action_plan(
@@ -42,7 +52,7 @@ pub fn write_action_plan(
     let selected = collect_selected(report, include_caution);
     let summary = summarize_selected(&selected, &report.summary);
     let plan = ActionPlan {
-        schema_version: 1,
+        schema_version: ACTION_PLAN_SCHEMA_VERSION,
         tool_version: report.tool_version.clone(),
         generated_at: Utc::now().to_rfc3339(),
         delete_mode: if include_permanent {
@@ -50,6 +60,29 @@ pub fn write_action_plan(
         } else {
             delete_mode.to_string()
         },
+        roots: report.roots.clone(),
+        summary,
+        selected,
+        projects: report.projects.clone(),
+    };
+    let json = serde_json::to_string_pretty(&plan)?;
+    write_atomically(path, json.as_bytes())
+}
+
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+pub fn write_selected_action_plan(
+    report: &ScanReport,
+    path: &Path,
+    selected: &[SelectedCandidate],
+    delete_mode: &str,
+) -> Result<(), PlanError> {
+    let selected = collect_selected_paths(report, selected);
+    let summary = summarize_selected(&selected, &report.summary);
+    let plan = ActionPlan {
+        schema_version: 1,
+        tool_version: report.tool_version.clone(),
+        generated_at: Utc::now().to_rfc3339(),
+        delete_mode: delete_mode.to_string(),
         roots: report.roots.clone(),
         summary,
         selected,
@@ -91,13 +124,20 @@ pub fn read_action_plan(path: &Path) -> Result<ActionPlan, PlanError> {
         path: path.to_path_buf(),
         source,
     })?;
-    let plan: ActionPlan = serde_json::from_str(&raw)?;
-    if plan.schema_version != 1 {
-        return Err(PlanError::Generic(format!(
-            "unsupported action plan schema version {}",
-            plan.schema_version
-        )));
+    let value: Value = serde_json::from_str(&raw)?;
+    let found_version = value
+        .get("schemaVersion")
+        .and_then(Value::as_u64)
+        .map(|version| version as u32)
+        .unwrap_or(0);
+    if found_version != ACTION_PLAN_SCHEMA_VERSION {
+        return Err(PlanError::UnsupportedSchemaVersion {
+            found: found_version,
+            supported: ACTION_PLAN_SCHEMA_VERSION,
+        });
     }
+    let plan: ActionPlan = serde_json::from_value(value)?;
+    validate_delete_mode(&plan.delete_mode)?;
     Ok(plan)
 }
 
@@ -113,20 +153,7 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
-        let parent = path.parent().ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has no parent directory: {}",
-                candidate.path
-            ))
-        })?;
-        let name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
-            PlanError::Generic(format!(
-                "plan candidate has invalid file name: {}",
-                candidate.path
-            ))
-        })?;
-
-        let draft = rules::classify_candidate(parent, name, path.clone()).ok_or_else(|| {
+        let draft = classify_plan_candidate(plan, candidate, &path).ok_or_else(|| {
             PlanError::Generic(format!(
                 "{} is not recognized by any current rule (plan may be stale or tampered)",
                 candidate.path
@@ -141,12 +168,52 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
         }
 
         selected.push(SelectedCandidate {
+            id: Some(candidate.id.clone()),
             path,
             bytes: candidate.bytes,
             rule_id: draft.rule_id,
+            category: draft.category,
+            safety: draft.safety,
+            risk_score: candidate.risk_score,
         });
     }
     Ok(selected)
+}
+
+fn classify_plan_candidate(
+    plan: &ActionPlan,
+    candidate: &PlanCandidate,
+    path: &Path,
+) -> Option<CandidateDraft> {
+    plan.projects
+        .iter()
+        .filter(|project| {
+            project
+                .candidates
+                .iter()
+                .any(|project_candidate| project_candidate.path == candidate.path)
+        })
+        .find_map(|project| classify_from_project_context(project, path))
+        .or_else(|| classify_from_path_parent(path))
+}
+
+fn classify_from_project_context(project: &ProjectReport, path: &Path) -> Option<CandidateDraft> {
+    let project_dir = PathBuf::from(&project.path);
+    let relative = path.strip_prefix(&project_dir).ok()?;
+    let first_component = relative.components().next()?;
+    let Component::Normal(name) = first_component else {
+        return None;
+    };
+    let name = name.to_str()?;
+    let classifier_path = project_dir.join(name);
+    let draft = rules::classify_candidate(&project_dir, name, classifier_path)?;
+    (draft.path == path).then_some(draft)
+}
+
+fn classify_from_path_parent(path: &Path) -> Option<CandidateDraft> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_str()?;
+    rules::classify_candidate(parent, name, path.to_path_buf())
 }
 
 pub fn revalidate_selected(
@@ -236,14 +303,69 @@ fn collect_selected(report: &ScanReport, include_caution: bool) -> Vec<PlanCandi
         .collect()
 }
 
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+fn collect_selected_paths(
+    report: &ScanReport,
+    selected: &[SelectedCandidate],
+) -> Vec<PlanCandidate> {
+    let selected_paths = selected
+        .iter()
+        .map(|candidate| candidate.path.display().to_string())
+        .collect::<std::collections::HashSet<_>>();
+
+    report
+        .projects
+        .iter()
+        .flat_map(|project| project.candidates.iter())
+        .filter(|candidate| selected_paths.contains(&candidate.path))
+        .map(to_plan_candidate)
+        .collect()
+}
+
 fn to_plan_candidate(candidate: &Candidate) -> PlanCandidate {
     PlanCandidate {
+        id: generate_candidate_id(),
         path: candidate.path.clone(),
         rule_id: candidate.rule_id.clone(),
         bytes: candidate.bytes,
         safety: candidate.safety,
+        category: candidate.category,
+        risk_score: candidate.risk_score,
     }
 }
+
+fn validate_delete_mode(delete_mode: &str) -> Result<(), PlanError> {
+    match delete_mode {
+        "trash" | "graveyard" | "permanent" => Ok(()),
+        other => Err(PlanError::Generic(format!(
+            "unsupported action plan deleteMode {other:?}; expected trash, graveyard, or permanent"
+        ))),
+    }
+}
+
+fn generate_candidate_id() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let timestamp_ms = now.as_millis() & ((1u128 << 48) - 1);
+    let counter = PLAN_ID_COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
+    let entropy = ((std::process::id() as u128 & 0xffff) << 64)
+        | ((counter & 0x0000_ffff_ffff_ffff) << 16)
+        | (now.subsec_nanos() as u128 & 0xffff);
+    encode_ulid((timestamp_ms << 80) | entropy)
+}
+
+fn encode_ulid(mut value: u128) -> String {
+    const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let mut out = [b'0'; 26];
+    for index in (0..out.len()).rev() {
+        out[index] = CROCKFORD[(value & 0b1_1111) as usize];
+        value >>= 5;
+    }
+    String::from_utf8(out.to_vec()).expect("ULID alphabet is valid UTF-8")
+}
+
+static PLAN_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(test)]
 mod tests {
@@ -288,7 +410,7 @@ mod tests {
                     reasons: vec!["test".to_string()],
                     warnings: Vec::new(),
                     restore_hint: "install".to_string(),
-                    risk_score: 0.0,
+                    risk_score: 0.42,
                 }],
                 total_bytes: 3,
                 project_bytes: 5,
@@ -317,6 +439,29 @@ mod tests {
 
         assert_eq!(selected.len(), 1);
         revalidate_selected(&plan, &selected).unwrap();
+    }
+
+    #[test]
+    fn writes_schema_v2_candidate_id_and_risk_score() {
+        let temp = TempDir::new().unwrap();
+        let candidate = create_node_project(temp.path());
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+        let plan = read_action_plan(&plan_path).unwrap();
+
+        assert_eq!(plan.schema_version, ACTION_PLAN_SCHEMA_VERSION);
+        assert_eq!(plan.selected.len(), 1);
+        assert_eq!(plan.selected[0].id.len(), 26);
+        assert!(
+            plan.selected[0]
+                .id
+                .chars()
+                .all(|c| "0123456789ABCDEFGHJKMNPQRSTVWXYZ".contains(c)),
+            "candidate id should use Crockford ULID alphabet"
+        );
+        assert!((plan.selected[0].risk_score - 0.42).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -465,7 +610,7 @@ mod tests {
         fs::write(
             &plan_path,
             r#"{
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "toolVersion": "0.1.0",
                 "generatedAt": "2026-05-06T00:00:00Z",
                 "deleteMode": "trash",
@@ -490,5 +635,42 @@ mod tests {
             .expect_err("should reject unknown fields")
             .to_string();
         assert!(err.contains("unknown field"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn rejects_schema_v1_with_rescan_hint() {
+        let temp = TempDir::new().unwrap();
+        let plan_path = temp.path().join("plan.json");
+        fs::write(
+            &plan_path,
+            r#"{
+                "schemaVersion": 1,
+                "toolVersion": "0.1.0",
+                "generatedAt": "2026-05-06T00:00:00Z",
+                "deleteMode": "trash",
+                "roots": [],
+                "summary": {
+                    "projectsScanned": 0,
+                    "projectsWithCandidates": 0,
+                    "candidates": 0,
+                    "safeCandidates": 0,
+                    "cautionCandidates": 0,
+                    "blockedCandidates": 0,
+                    "totalBytes": 0
+                },
+                "selected": [],
+                "projects": []
+            }"#,
+        )
+        .unwrap();
+
+        let err = read_action_plan(&plan_path)
+            .expect_err("schema v1 must be rejected")
+            .to_string();
+        assert!(err.contains("schema version 1"), "unexpected error: {err}");
+        assert!(
+            err.contains("scan --write-plan"),
+            "rescan hint missing: {err}"
+        );
     }
 }

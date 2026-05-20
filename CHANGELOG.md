@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to semantic versioning. Pre-1.0, patch versions may
 include breaking changes per semver 0.x; each break is noted explicitly.
 
+## 0.1.3 - Unreleased (M3 candidate)
+
+### Changed
+
+- ActionPlan output is now `schemaVersion: 2`. Selected candidates carry a
+  plan-local `id`, `category`, and `riskScore`; `deleteMode` now records
+  `graveyard` when plans are written through `clean --graveyard --write-plan`.
+- `schemaVersion: 1` plans are intentionally rejected with a rescan hint. Per
+  the 0.x roadmap, there is no compatibility shim for old ActionPlan files.
+- Graveyard manifest writes now preserve selected candidate category, safety,
+  risk score, and the ActionPlan v2 candidate id when a plan-origin candidate
+  is buried.
+
 ## 0.1.2 - Unreleased (M2 candidate)
 
 Once the M2 PRs (#34, #35, #36) land, this section becomes the 0.1.2 entry.
@@ -34,10 +47,9 @@ Order below mirrors merge order.
   files still load (field defaults to 0.0); new plans serialize the
   field. Stays in schemaVersion 1.
 
-## 0.1.1 - Unreleased (M1 candidate)
+## 0.1.1 - 2026-05-19
 
-Once the M1 PRs (#28, #29, #30, #33) land, this section becomes the
-0.1.1 entry. Pure internal rebuild — no user-facing CLI behavior change.
+Pure internal rebuild — no user-facing CLI behavior change.
 
 ### Changed
 

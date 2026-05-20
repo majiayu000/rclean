@@ -61,6 +61,7 @@ pub fn parse_duration(raw: &str) -> Result<Duration, ParseError> {
         ParseError::InvalidDuration(format!("invalid duration '{raw}'. Number is too large"))
     })?;
     let seconds = match unit {
+        "s" => 1,
         "h" => 60 * 60,
         "d" => 24 * 60 * 60,
         "w" => 7 * 24 * 60 * 60,
@@ -68,7 +69,7 @@ pub fn parse_duration(raw: &str) -> Result<Duration, ParseError> {
         "y" => 365 * 24 * 60 * 60,
         _ => {
             return Err(ParseError::InvalidDuration(format!(
-                "invalid duration unit '{unit}'. Use h, d, w, m, or y"
+                "invalid duration unit '{unit}'. Use s, h, d, w, m, or y"
             )));
         }
     };
@@ -101,6 +102,7 @@ mod tests {
 
     #[test]
     fn parses_duration_units() {
+        assert_eq!(parse_duration("60s").unwrap(), Duration::from_secs(60));
         assert_eq!(parse_duration("1h").unwrap(), Duration::from_secs(3600));
         assert_eq!(parse_duration("2d").unwrap(), Duration::from_secs(172800));
         assert_eq!(parse_duration("1w").unwrap(), Duration::from_secs(604800));
