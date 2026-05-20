@@ -38,6 +38,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "_cacache"
             | "Yarn"
             | "pip"
+            | "caches"
     )
 }
 
@@ -53,6 +54,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "node.npm_cacache"
             | "node.yarn_cache"
             | "pip.cache"
+            | "gradle.caches"
     )
 }
 
