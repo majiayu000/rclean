@@ -82,6 +82,8 @@ pub enum RcleanError {
     Parse(#[from] ParseError),
     #[error("output serialization error: {0}")]
     Output(#[from] serde_json::Error),
+    #[error("output io error: {0}")]
+    OutputIo(#[from] std::io::Error),
     #[cfg(feature = "graveyard")]
     #[error(transparent)]
     Graveyard(#[from] crate::graveyard::GraveyardError),
@@ -91,4 +93,26 @@ impl From<String> for RcleanError {
     fn from(s: String) -> Self {
         Self::Scan(ScanError::Generic(s))
     }
+}
+
+#[derive(Debug, Error)]
+pub enum UserRuleError {
+    #[error("rule id must not be empty")]
+    EmptyId,
+    #[error("rule '{id}': {message}")]
+    InvalidCategory { id: String, message: String },
+    #[error("rule '{id}': safety=caution requires at least one parent_markers entry")]
+    CautionRequiresParentMarkers { id: String },
+    #[error("rule '{id}': {source}")]
+    InvalidGlob {
+        id: String,
+        #[source]
+        source: globset::Error,
+    },
+    #[error(
+        "rule '{id}': safety=blocked is not allowed for user rules (only builtin rules may produce blocked)"
+    )]
+    BlockedSafety { id: String },
+    #[error("rule '{id}': invalid safety '{safety}' (use 'safe' or 'caution')")]
+    InvalidSafety { id: String, safety: String },
 }
