@@ -131,6 +131,20 @@ pub struct CommonScanArgs {
     /// Layered on top of any `.rcleanignore` file at the scan root.
     #[arg(long = "ignore", value_name = "GLOB")]
     pub ignore: Vec<String>,
+
+    /// Expand to all developer toolchain cache locations under $HOME
+    /// (~/.cargo, ~/.gradle, ~/.m2, ~/.npm, plus platform-specific
+    /// paths like ~/Library/Caches and ~/Library/Developer on macOS,
+    /// ~/.cache on Linux). Conflicts with positional `paths`.
+    ///
+    /// This is the entry point for the v0.2 "developer-grade mole"
+    /// flow — it activates the global cache rules
+    /// (xcode.derived_data, cargo.registry_cache, gradle.caches,
+    /// maven.local_repo, node.npm_cacache, node.yarn_cache,
+    /// pip.cache, xcode.simulators) without forcing the user to
+    /// remember every path.
+    #[arg(long, conflicts_with = "paths")]
+    pub home: bool,
 }
 
 #[derive(Debug, Args)]
@@ -192,6 +206,9 @@ pub struct ExplainArgs {
 
 impl CommonScanArgs {
     pub fn paths_or_current_dir(&self) -> Vec<PathBuf> {
+        if self.home {
+            return home_toolchain_paths();
+        }
         if self.paths.is_empty() {
             vec![PathBuf::from(".")]
         } else {
@@ -225,4 +242,38 @@ impl CommonScanArgs {
             ignore_globs: self.ignore.clone(),
         })
     }
+}
+
+/// Roots `--home` expands into. Only paths that actually exist on
+/// disk are returned, so a user without (e.g.) Maven installed
+/// won't see a noisy "cannot canonicalize ~/.m2" error.
+///
+/// Order is deterministic so the report ordering is stable.
+fn home_toolchain_paths() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let home = PathBuf::from(home);
+
+    let mut candidates: Vec<PathBuf> = vec![
+        home.join(".cargo"),
+        home.join(".gradle"),
+        home.join(".m2"),
+        home.join(".npm"),
+        home.join(".pnpm-store"),
+    ];
+
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(home.join("Library").join("Caches"));
+        candidates.push(home.join("Library").join("Developer"));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        candidates.push(home.join(".cache"));
+    }
+
+    candidates.retain(|p| p.is_dir());
+    candidates
 }

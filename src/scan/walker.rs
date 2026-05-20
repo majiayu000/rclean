@@ -103,6 +103,14 @@ pub(crate) fn walk_parallel(
                 None => return WalkState::Continue,
             };
 
+            // The scan root may itself be a normally skipped toolchain
+            // directory, especially with `--home` expansion (`~/.cargo`,
+            // `~/.gradle`, `~/Library`, ...). Always allow the explicit
+            // root, then apply pruning to descendants.
+            if path == root {
+                return WalkState::Continue;
+            }
+
             // Pruned subtrees match v0.1.0 is_skip_dir semantics.
             if file_type.is_dir() && (is_skip_dir(&path) || is_skip_name_path(&path)) {
                 return WalkState::Skip;
@@ -128,11 +136,6 @@ pub(crate) fn walk_parallel(
             // dir-symlinks as classification candidates here.
             let is_dir_like = file_type.is_dir() || file_type.is_symlink();
             if !is_dir_like {
-                return WalkState::Continue;
-            }
-
-            // Don't reclassify the scan root itself.
-            if path == root {
                 return WalkState::Continue;
             }
 
