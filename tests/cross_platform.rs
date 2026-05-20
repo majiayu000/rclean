@@ -100,30 +100,25 @@ mod unix {
 mod windows {
     use super::*;
 
-    /// Anchor: on Windows the home directory env var is `USERPROFILE`,
-    /// not `HOME`. `output::short_path` currently only reads `HOME`,
-    /// so on Windows the table output never collapses to `~`. This
-    /// test documents that as the *current* behavior so a future
-    /// fix (read `USERPROFILE` on `cfg(windows)`) lands with a
-    /// regression-protecting test already in place — flip the
-    /// assertion when the fix is in.
+    /// Windows uses `USERPROFILE` as its home directory env var.
+    /// `scan()` canonicalizes roots into extended paths, so the test
+    /// uses the canonical parent as `USERPROFILE` to assert the exact
+    /// prefix-collapsing behavior the CLI sees on CI.
     #[test]
-    fn userprofile_is_not_yet_collapsed_in_table_output() {
+    fn userprofile_prefix_is_collapsed_to_tilde_in_table_output() {
         let temp = TempDir::new().unwrap();
         make_node_project(&temp);
+        let canonical = temp.path().canonicalize().unwrap();
+        let parent = canonical.parent().unwrap();
+        let leaf = canonical.file_name().unwrap().to_str().unwrap();
 
         let mut cmd = Command::cargo_bin("rclean").unwrap();
         cmd.env_remove("HOME")
-            .env("USERPROFILE", temp.path().parent().unwrap())
+            .env("USERPROFILE", parent)
             .args(["scan", temp.path().to_str().unwrap(), "--min-size", "0"])
             .assert()
             .success()
-            // Current behavior: USERPROFILE is *not* read, so the
-            // absolute path with backslashes (or forward slashes
-            // depending on Rust's display impl) is rendered as-is,
-            // never as `~/...`. The assertion below documents the
-            // gap as a known issue.
-            .stdout(predicate::str::contains("~/").not());
+            .stdout(predicate::str::contains(format!("~\\{leaf}")));
     }
 
     /// A symlink_dir candidate is classified as blocked on Windows.
