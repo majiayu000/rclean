@@ -183,3 +183,251 @@ fn flutter_build_wins_over_node_build_in_mixed_project() {
     .stdout(predicate::str::contains("\"ruleId\": \"dart.build\""))
     .stdout(predicate::str::contains("\"safety\": \"safe\""));
 }
+
+#[test]
+fn xcode_derived_data_is_classified_under_library_developer_xcode() {
+    // Simulate the canonical Xcode path layout. The scan root is the
+    // synthetic `Library/Developer/Xcode` directory; the candidate is
+    // `DerivedData` directly inside it. We don't rely on the user
+    // actually having Xcode installed.
+    let temp = TempDir::new().unwrap();
+    let xcode_dir = temp.path().join("Library").join("Developer").join("Xcode");
+    fs::create_dir_all(&xcode_dir).unwrap();
+    make_dir(&xcode_dir, "DerivedData");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        xcode_dir.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"xcode.derived_data\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"build\""));
+}
+
+#[test]
+fn cargo_registry_cache_is_classified_under_cargo_registry() {
+    let temp = TempDir::new().unwrap();
+    let registry = temp.path().join(".cargo").join("registry");
+    fs::create_dir_all(&registry).unwrap();
+    make_dir(&registry, "cache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        registry.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"cargo.registry_cache\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn cargo_git_db_is_classified_under_cargo_git() {
+    let temp = TempDir::new().unwrap();
+    let git_dir = temp.path().join(".cargo").join("git");
+    fs::create_dir_all(&git_dir).unwrap();
+    make_dir(&git_dir, "db");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        git_dir.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"cargo.git_db\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn npm_cacache_is_classified_under_dot_npm() {
+    // Synthesize <root>/.npm/_cacache
+    let temp = TempDir::new().unwrap();
+    let npm = temp.path().join(".npm");
+    fs::create_dir_all(&npm).unwrap();
+    make_dir(&npm, "_cacache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", npm.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"node.npm_cacache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""))
+        .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn yarn_cache_is_classified_under_library_caches() {
+    // Synthesize <root>/Library/Caches/Yarn
+    let temp = TempDir::new().unwrap();
+    let caches = temp.path().join("Library").join("Caches");
+    fs::create_dir_all(&caches).unwrap();
+    make_dir(&caches, "Yarn");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        caches.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"node.yarn_cache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn pip_cache_is_classified_under_macos_library_caches() {
+    let temp = TempDir::new().unwrap();
+    let caches = temp.path().join("Library").join("Caches");
+    fs::create_dir_all(&caches).unwrap();
+    make_dir(&caches, "pip");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        caches.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn pip_cache_is_classified_under_xdg_cache() {
+    let temp = TempDir::new().unwrap();
+    let xdg = temp.path().join(".cache");
+    fs::create_dir_all(&xdg).unwrap();
+    make_dir(&xdg, "pip");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", xdg.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"pip.cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn gradle_caches_is_classified_under_dot_gradle() {
+    let temp = TempDir::new().unwrap();
+    let gradle = temp.path().join(".gradle");
+    fs::create_dir_all(&gradle).unwrap();
+    make_dir(&gradle, "caches");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        gradle.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"gradle.caches\""))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn maven_local_repo_is_classified_under_dot_m2() {
+    let temp = TempDir::new().unwrap();
+    let m2 = temp.path().join(".m2");
+    fs::create_dir_all(&m2).unwrap();
+    make_dir(&m2, "repository");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", m2.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"maven.local_repo\""))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn xcode_simulators_is_classified_under_library_developer() {
+    let temp = TempDir::new().unwrap();
+    let developer = temp.path().join("Library").join("Developer");
+    fs::create_dir_all(&developer).unwrap();
+    make_dir(&developer, "CoreSimulator");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        developer.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"xcode.simulators\""))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn cargo_cache_outside_cargo_registry_is_not_classified() {
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "cache");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"cargo.registry_cache\"").not());
+}
+
+#[test]
+fn xcode_derived_data_outside_canonical_path_is_not_classified() {
+    // A directory literally named `DerivedData` outside the canonical
+    // Xcode path must not be picked up.
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "DerivedData");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    // exit code 3 = no candidates (matches main.rs Commands::Scan).
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"xcode.derived_data\"").not());
+}

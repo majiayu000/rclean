@@ -177,4 +177,58 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "out",
         restore_hint: "Re-run the project build",
     },
+    RuleInfo {
+        rule_id: "xcode.derived_data",
+        category: Category::Build,
+        candidate: "DerivedData",
+        restore_hint: "Xcode will repopulate it on the next build",
+    },
+    RuleInfo {
+        rule_id: "cargo.registry_cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "Cargo will redownload crates on the next build",
+    },
+    RuleInfo {
+        rule_id: "cargo.git_db",
+        category: Category::Cache,
+        candidate: "db",
+        restore_hint: "Cargo will re-clone git dependencies on the next build",
+    },
+    RuleInfo {
+        rule_id: "node.npm_cacache",
+        category: Category::Cache,
+        candidate: "_cacache",
+        restore_hint: "npm will rebuild the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "node.yarn_cache",
+        category: Category::Cache,
+        candidate: "Yarn",
+        restore_hint: "Yarn will rebuild the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "pip.cache",
+        category: Category::Cache,
+        candidate: "pip",
+        restore_hint: "pip will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "gradle.caches",
+        category: Category::Cache,
+        candidate: "caches",
+        restore_hint: "Gradle will redownload dependencies on the next build",
+    },
+    RuleInfo {
+        rule_id: "maven.local_repo",
+        category: Category::Cache,
+        candidate: "repository",
+        restore_hint: "Maven will redownload dependencies on the next build",
+    },
+    RuleInfo {
+        rule_id: "xcode.simulators",
+        category: Category::Cache,
+        candidate: "CoreSimulator",
+        restore_hint: "Xcode will recreate simulators on the next iOS app run",
+    },
 ];

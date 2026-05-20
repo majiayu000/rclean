@@ -1,3 +1,4 @@
+use crate::doctor::{DoctorReport, Status};
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
 
@@ -114,6 +115,27 @@ pub fn print_explanation(explanation: &Explanation) {
     }
 }
 
+pub fn print_doctor(report: &DoctorReport) {
+    println!("{:<26} {:<10} Anchor / Reason", "Rule", "Status");
+    println!("{}", "-".repeat(76));
+    for entry in &report.entries {
+        let (status_label, detail) = match &entry.status {
+            Status::Applicable => (
+                "applicable",
+                short_path(&entry.anchor.display().to_string()),
+            ),
+            Status::Skipped { reason } => ("skipped", (*reason).to_string()),
+        };
+        println!("{:<26} {:<10} {}", entry.rule_id, status_label, detail);
+    }
+    println!();
+    println!(
+        "{} of {} rules applicable on this machine.",
+        report.applicable_count(),
+        report.total_count()
+    );
+}
+
 pub fn print_rules() {
     println!(
         "{:<24} {:<8} {:<18} Restore hint",
@@ -156,6 +178,31 @@ fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
 
 fn format_percent(value: f64) -> String {
     format!("{value:.1}%")
+}
+
+#[cfg(feature = "graveyard")]
+pub fn print_graveyard_list(records: &[crate::graveyard::ManifestRecord]) {
+    if records.is_empty() {
+        println!("No active graves.");
+        return;
+    }
+
+    println!(
+        "{:<22} {:<20} {:>10} {:<20} Original",
+        "Id", "Deleted (UTC)", "Size", "Rule"
+    );
+    println!("{}", "-".repeat(110));
+    for r in records {
+        let deleted = r.deleted_at.format("%Y-%m-%d %H:%M:%S").to_string();
+        println!(
+            "{:<22} {:<20} {:>10} {:<20} {}",
+            truncate(&r.id, 22),
+            deleted,
+            format_bytes(r.size_bytes),
+            truncate(&r.rule_id, 20),
+            r.original_path.display(),
+        );
+    }
 }
 
 fn truncate(value: &str, width: usize) -> String {
