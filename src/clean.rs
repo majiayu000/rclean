@@ -30,6 +30,26 @@ pub fn select_candidates(
     report: &ScanReport,
     args: &CleanArgs,
 ) -> Result<Vec<SelectedCandidate>, CleanError> {
+    if args.tui {
+        #[cfg(feature = "tui")]
+        {
+            return crate::tui::select_candidates(report, args.common.include_caution);
+        }
+        #[cfg(not(feature = "tui"))]
+        {
+            return Err(CleanError::Generic(
+                "TUI support is not enabled in this build; rebuild with --features tui".to_string(),
+            ));
+        }
+    }
+
+    select_candidates_text(report, args)
+}
+
+pub fn select_candidates_text(
+    report: &ScanReport,
+    args: &CleanArgs,
+) -> Result<Vec<SelectedCandidate>, CleanError> {
     let candidates = selectable_candidates(report);
 
     if !args.all {
@@ -45,6 +65,15 @@ pub fn select_candidates(
         }
     }
     Ok(selected)
+}
+
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+pub fn select_interactively_text(
+    report: &ScanReport,
+    include_caution: bool,
+) -> Result<Vec<SelectedCandidate>, CleanError> {
+    let candidates = selectable_candidates(report);
+    select_interactively(&candidates, include_caution)
 }
 
 fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {

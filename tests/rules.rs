@@ -183,3 +183,52 @@ fn flutter_build_wins_over_node_build_in_mixed_project() {
     .stdout(predicate::str::contains("\"ruleId\": \"dart.build\""))
     .stdout(predicate::str::contains("\"safety\": \"safe\""));
 }
+
+#[test]
+fn xcode_derived_data_is_classified_under_library_developer_xcode() {
+    // Simulate the canonical Xcode path layout. The scan root is the
+    // synthetic `Library/Developer/Xcode` directory; the candidate is
+    // `DerivedData` directly inside it. We don't rely on the user
+    // actually having Xcode installed.
+    let temp = TempDir::new().unwrap();
+    let xcode_dir = temp.path().join("Library").join("Developer").join("Xcode");
+    fs::create_dir_all(&xcode_dir).unwrap();
+    make_dir(&xcode_dir, "DerivedData");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        xcode_dir.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"xcode.derived_data\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"build\""));
+}
+
+#[test]
+fn xcode_derived_data_outside_canonical_path_is_not_classified() {
+    // A directory literally named `DerivedData` outside the canonical
+    // Xcode path must not be picked up.
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "DerivedData");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    // exit code 3 = no candidates (matches main.rs Commands::Scan).
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"xcode.derived_data\"").not());
+}

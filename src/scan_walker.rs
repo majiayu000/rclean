@@ -73,10 +73,7 @@ pub(crate) fn walk_parallel(
 ) {
     use std::thread::available_parallelism;
 
-    let threads = available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
-        .max(1);
+    let threads = available_parallelism().map(|n| n.get()).unwrap_or(1).max(1);
 
     let mut builder = WalkBuilder::new(root);
     builder
@@ -115,7 +112,10 @@ pub(crate) fn walk_parallel(
                 if let Ok(metadata) = entry.metadata()
                     && let Some(parent) = path.parent()
                 {
-                    let mut sizes = scratch.sizes.lock().unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
+                    let mut sizes = scratch
+                        .sizes
+                        .lock()
+                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
                     let entry = sizes.entry(parent.to_path_buf()).or_insert(0);
                     *entry = entry.saturating_add(metadata.len());
                 }
@@ -152,7 +152,10 @@ pub(crate) fn walk_parallel(
                 }
                 apply_path_safety(root, &mut draft);
                 if should_include(&draft, options) {
-                    let mut drafts = scratch.drafts_by_project.lock().unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
+                    let mut drafts = scratch
+                        .drafts_by_project
+                        .lock()
+                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
                     drafts.entry(parent.to_path_buf()).or_default().push(draft);
                 }
                 // Classified candidate's subtree is the candidate's
@@ -170,7 +173,10 @@ pub(crate) fn walk_parallel(
                 }
                 apply_path_safety(root, &mut draft);
                 if should_include(&draft, options) {
-                    let mut drafts = scratch.drafts_by_project.lock().unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
+                    let mut drafts = scratch
+                        .drafts_by_project
+                        .lock()
+                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
                     drafts.entry(parent.to_path_buf()).or_default().push(draft);
                 }
                 return WalkState::Skip;

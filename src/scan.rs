@@ -1,12 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::process::Command;
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
-use tracing::{debug, warn};
+use tracing::warn;
 
 use crate::error::ScanError;
 use crate::model::{
@@ -17,95 +17,11 @@ use crate::rules;
 use crate::scan_walker::{WalkScratch, walk_parallel};
 use crate::user_rules::UserRuleSet;
 
-/// Per-directory immediate file-byte tally collected during `scan_dir`.
-/// A project's source size is the fold of every entry under its `project_dir`,
-/// which lets us drop the dedicated `project_source_size` walkdir pass.
-pub(crate) type DirSizes = HashMap<PathBuf, u64>;
+mod git_cache;
+mod sizer;
 
-/// Thread-safe `git_info` cache. `Mutex<HashMap>` instead of
-/// `RefCell` so the parallel walker can share one cache across worker
-/// threads. Contention is low: a `bury()` / scan only hits this cache
-/// when transitioning between candidate directories.
-#[derive(Default)]
-pub(crate) struct GitCache {
-    by_dir: Mutex<HashMap<PathBuf, Option<GitInfo>>>,
-}
-
-impl GitCache {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn info_for(&self, dir: &Path) -> Option<GitInfo> {
-        // Phase 1: cache lookup. Scope the guard so it drops before we
-        // run git subprocesses below — otherwise the guard's lifetime
-        // can extend past the `if let` and deadlock on the next lock().
-        {
-            let map = self.by_dir.lock().unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-            if let Some(cached) = map.get(dir) {
-                return cached.clone();
-            }
-        }
-
-        let repo_root = match run_git_rev_parse(dir) {
-            Some(root) => root,
-            None => {
-                self.by_dir
-                    .lock()
-                    .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"))
-                    .insert(dir.to_path_buf(), None);
-                return None;
-            }
-        };
-
-        let root_path = PathBuf::from(&repo_root);
-        let cached_root = {
-            let map = self.by_dir.lock().unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-            map.get(&root_path).cloned()
-        };
-        if let Some(Some(info)) = cached_root {
-            self.by_dir
-                .lock()
-                .unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"))
-                .insert(dir.to_path_buf(), Some(info.clone()));
-            return Some(info);
-        }
-
-        let dirty = run_git_dirty(&root_path);
-        let info = GitInfo { repo_root, dirty };
-        let mut map = self.by_dir.lock().unwrap_or_else(|e| panic!("git cache mutex poisoned: {e}"));
-        map.insert(root_path, Some(info.clone()));
-        map.insert(dir.to_path_buf(), Some(info.clone()));
-        Some(info)
-    }
-}
-
-fn run_git_rev_parse(dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let repo_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if repo_root.is_empty() {
-        None
-    } else {
-        Some(repo_root)
-    }
-}
-
-fn run_git_dirty(repo_root: &Path) -> bool {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_root)
-        .args(["status", "--porcelain"])
-        .output();
-    matches!(output, Ok(o) if o.status.success() && !o.stdout.is_empty())
-}
+pub(crate) use git_cache::GitCache;
+pub(crate) use sizer::DirSizes;
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanOptions {
@@ -162,7 +78,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
     let mut roots = Vec::new();
     let mut projects = Vec::new();
     let git_cache = GitCache::new();
-    let mut sizes: DirSizes = HashMap::new();
+    let mut sizes = DirSizes::new();
 
     for path in paths {
         let root = path
@@ -192,18 +108,15 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         let mut project_dirs: Vec<PathBuf> = drafts_by_project.keys().cloned().collect();
         project_dirs.sort();
         for project_dir in project_dirs {
-            let drafts = drafts_by_project.get(&project_dir).cloned().unwrap_or_default();
+            let drafts = drafts_by_project
+                .get(&project_dir)
+                .cloned()
+                .unwrap_or_default();
             if drafts.is_empty() {
                 continue;
             }
-            let project = build_project_report(
-                &project_dir,
-                &root,
-                drafts,
-                options,
-                &git_cache,
-                &sizes,
-            )?;
+            let project =
+                build_project_report(&project_dir, &root, drafts, options, &git_cache, &sizes)?;
             if !project.candidates.is_empty() {
                 projects.push(project);
             }
@@ -268,7 +181,6 @@ pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
     })
 }
 
-
 fn build_project_report(
     dir: &Path,
     _root: &Path,
@@ -300,8 +212,10 @@ fn build_project_report(
         });
     }
 
+    let size_summary = sizer::summarize(dir, &drafts, sizes, options.verbose);
+
     let mut candidates = Vec::new();
-    for mut draft in drafts {
+    for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
         if let Some(git) = &git
             && git.dirty
             && draft.safety == Safety::Safe
@@ -312,11 +226,6 @@ fn build_project_report(
                 .push("project has uncommitted git changes".to_string());
         }
 
-        let bytes = if draft.safety == Safety::Blocked {
-            0
-        } else {
-            dir_size(&draft.path, options.verbose)
-        };
         if bytes < options.min_size && draft.safety != Safety::Blocked {
             continue;
         }
@@ -342,7 +251,7 @@ fn build_project_report(
         .filter(|candidate| candidate.safety != Safety::Blocked)
         .map(|candidate| candidate.bytes)
         .sum();
-    let source_bytes = sum_subtree_bytes(dir, sizes);
+    let source_bytes = size_summary.source_bytes;
     let project_bytes = source_bytes + total_bytes;
     let artifact_percent = if project_bytes == 0 {
         0.0
@@ -393,7 +302,13 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
         return;
     }
 
-    if is_runtime_or_system_path(&draft.path) {
+    // Global rules (e.g. `xcode.derived_data`) target paths that
+    // live *inside* the user's Library / runtime tree by design.
+    // Their classifier already establishes that the path is a
+    // rebuildable cache, so the generic runtime/system-path block
+    // would otherwise hide them. is_global_rule() is the
+    // explicit opt-out list.
+    if !rules::is_global_rule(&draft.rule_id) && is_runtime_or_system_path(&draft.path) {
         draft.safety = Safety::Blocked;
         draft
             .warnings
@@ -486,44 +401,6 @@ fn project_activity(project_dir: &Path, max_depth: usize) -> Option<SystemTime> 
     }
 
     newest
-}
-
-fn dir_size(path: &Path, _verbose: bool) -> u64 {
-    let mut total: u64 = 0;
-    for result in walkdir::WalkDir::new(path).follow_links(false) {
-        let entry = match result {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!(path = %path.display(), error = %err, "dir_size walk error");
-                continue;
-            }
-        };
-        match entry.metadata() {
-            Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
-            }
-            Ok(_) => {}
-            Err(err) => {
-                debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
-            }
-        }
-    }
-    total
-}
-
-/// Folds every per-directory `file_bytes` tally that `scan_dir` already
-/// collected for paths under `project_dir`. Candidate subtrees are absent
-/// from the map (scan_dir doesn't recurse into them — `dir_size` handles
-/// those separately, unbounded), and skipped/excluded names never make it
-/// into the map either.
-fn sum_subtree_bytes(project_dir: &Path, sizes: &DirSizes) -> u64 {
-    let mut total: u64 = 0;
-    for (path, bytes) in sizes {
-        if path == project_dir || path.starts_with(project_dir) {
-            total = total.saturating_add(*bytes);
-        }
-    }
-    total
 }
 
 /// Composite risk-score signal for a candidate inside `project_dir`.
