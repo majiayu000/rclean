@@ -22,7 +22,7 @@ tui = ["dep:crossterm", "dep:ratatui"]
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
-crossterm = { version = "0.28", optional = true }
+crossterm = { version = "0.29", optional = true }
 globset = "0.4"
 ignore = "0.4"
 notify = "8"
