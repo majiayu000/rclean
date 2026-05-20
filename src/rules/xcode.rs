@@ -15,12 +15,13 @@
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
     if name != "DerivedData" {
         return None;
     }
-    if !ends_with_xcode_developer(project_dir) {
+    if !parent_ends_with(project_dir, &["Library", "Developer", "Xcode"]) {
         return None;
     }
 
@@ -34,24 +35,6 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
         warnings: Vec::new(),
         restore_hint: "Xcode will repopulate it on the next build".to_string(),
     })
-}
-
-/// Returns true if `dir` ends with the canonical Xcode developer
-/// path. Matches both `~/Library/Developer/Xcode` (a user passed
-/// `scan ~/Library/Developer/Xcode`) and the symlinked variant some
-/// macOS setups use.
-fn ends_with_xcode_developer(dir: &Path) -> bool {
-    let components: Vec<&str> = dir
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect();
-    if components.len() < 3 {
-        return false;
-    }
-    let n = components.len();
-    components[n - 3] == "Library"
-        && components[n - 2] == "Developer"
-        && components[n - 1] == "Xcode"
 }
 
 #[cfg(test)]

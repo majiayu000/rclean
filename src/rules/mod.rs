@@ -13,6 +13,7 @@ mod jvm;
 mod markers;
 mod node;
 mod node_global;
+mod pip;
 mod project;
 mod python;
 mod ruby;
@@ -65,9 +66,10 @@ static IOS_RULES: RuleFn = RuleFn(ios::classify);
 static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
+static PIP_RULES: RuleFn = RuleFn(pip::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 13] = [
+static BUILTIN_RULES: [&dyn RuleSet; 14] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -80,6 +82,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 13] = [
     &XCODE_RULES,
     &CARGO_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,
+    &PIP_RULES,
     &GENERIC_RULES,
 ];
 

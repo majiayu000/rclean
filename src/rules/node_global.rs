@@ -29,6 +29,7 @@
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
     if name == "_cacache" && parent_file_name_is(project_dir, ".npm") {
@@ -64,18 +65,6 @@ fn parent_file_name_is(dir: &Path, expected: &str) -> bool {
     dir.file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|name| name == expected)
-}
-
-fn parent_ends_with(dir: &Path, suffix: &[&str]) -> bool {
-    let components: Vec<&str> = dir
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect();
-    if components.len() < suffix.len() {
-        return false;
-    }
-    let tail = &components[components.len() - suffix.len()..];
-    tail == suffix
 }
 
 #[cfg(test)]

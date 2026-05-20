@@ -37,6 +37,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "db"
             | "_cacache"
             | "Yarn"
+            | "pip"
     )
 }
 
@@ -51,6 +52,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "cargo.git_db"
             | "node.npm_cacache"
             | "node.yarn_cache"
+            | "pip.cache"
     )
 }
 

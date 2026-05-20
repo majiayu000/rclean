@@ -27,6 +27,7 @@
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
     if name == "cache" && parent_ends_with(project_dir, &[".cargo", "registry"]) {
@@ -56,21 +57,6 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
     }
 
     None
-}
-
-/// Returns true if `dir` ends with the given component sequence.
-/// E.g. for `dir = /Users/x/.cargo/registry`, suffix
-/// `[".cargo", "registry"]` matches.
-fn parent_ends_with(dir: &Path, suffix: &[&str]) -> bool {
-    let components: Vec<&str> = dir
-        .components()
-        .filter_map(|c| c.as_os_str().to_str())
-        .collect();
-    if components.len() < suffix.len() {
-        return false;
-    }
-    let tail = &components[components.len() - suffix.len()..];
-    tail == suffix
 }
 
 #[cfg(test)]
