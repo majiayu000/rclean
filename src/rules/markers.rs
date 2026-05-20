@@ -5,6 +5,25 @@ pub fn has_marker(dir: &Path, marker: &str) -> bool {
     dir.join(marker).is_file()
 }
 
+/// Returns true if `dir`'s path components end with the given
+/// component sequence. Used by global-path rules (xcode, cargo_global,
+/// node_global, pip, ...) to anchor a candidate to its canonical
+/// parent location.
+///
+/// Example: `parent_ends_with("/Users/x/.cargo/registry", &[".cargo", "registry"])`
+/// returns true.
+pub fn parent_ends_with(dir: &Path, suffix: &[&str]) -> bool {
+    let components: Vec<&str> = dir
+        .components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect();
+    if components.len() < suffix.len() {
+        return false;
+    }
+    let tail = &components[components.len() - suffix.len()..];
+    tail == suffix
+}
+
 pub fn has_prefixed_marker(dir: &Path, prefix: &str) -> bool {
     let Ok(entries) = fs::read_dir(dir) else {
         return false;

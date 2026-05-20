@@ -21,10 +21,69 @@ pub enum Commands {
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
     Clean(CleanArgs),
+    /// Select cleanable artifacts in an interactive terminal UI.
+    Tui(CommonScanArgs),
+    /// Watch lockfiles and refresh cleanable artifact candidates.
+    Watch(WatchArgs),
     /// Explain whether a single path is cleanable and why.
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
     Rules,
+    /// Diagnostic: list which global-cache rules are applicable on
+    /// this machine right now. Tells you which toolchain caches
+    /// exist under $HOME without running a full scan.
+    Doctor,
+    /// Restore a grave from the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Restore(RestoreArgs),
+    /// Inspect or maintain the rclean graveyard.
+    #[cfg(feature = "graveyard")]
+    Graveyard(GraveyardArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct RestoreArgs {
+    /// id of the grave to restore (from `rclean graveyard list`).
+    #[arg(long = "id", value_name = "ID")]
+    pub id: String,
+
+    /// Restore to this path instead of the original. Useful when the
+    /// original location is now occupied.
+    #[arg(long, value_name = "PATH")]
+    pub to: Option<PathBuf>,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardArgs {
+    #[command(subcommand)]
+    pub command: GraveyardCommands,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Subcommand)]
+pub enum GraveyardCommands {
+    /// List active graves.
+    List(GraveyardListArgs),
+    /// Remove every grave past its expiry.
+    Gc(GraveyardGcArgs),
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardListArgs {
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[cfg(feature = "graveyard")]
+#[derive(Debug, Args)]
+pub struct GraveyardGcArgs {
+    /// Show what would be removed without actually deleting.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -76,6 +135,20 @@ pub struct CommonScanArgs {
     /// Layered on top of any `.rcleanignore` file at the scan root.
     #[arg(long = "ignore", value_name = "GLOB")]
     pub ignore: Vec<String>,
+
+    /// Expand to all developer toolchain cache locations under $HOME
+    /// (~/.cargo, ~/.gradle, ~/.m2, ~/.npm, plus platform-specific
+    /// paths like ~/Library/Caches and ~/Library/Developer on macOS,
+    /// ~/.cache on Linux). Conflicts with positional `paths`.
+    ///
+    /// This is the entry point for the v0.2 "developer-grade mole"
+    /// flow — it activates the global cache rules
+    /// (xcode.derived_data, cargo.registry_cache, gradle.caches,
+    /// maven.local_repo, node.npm_cacache, node.yarn_cache,
+    /// pip.cache, xcode.simulators) without forcing the user to
+    /// remember every path.
+    #[arg(long, conflicts_with = "paths")]
+    pub home: bool,
 }
 
 #[derive(Debug, Args)]
@@ -92,8 +165,15 @@ pub struct CleanArgs {
     pub dry_run: bool,
 
     /// Permanently delete selected candidates.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "graveyard")]
     pub permanent: bool,
+
+    /// Move selected candidates into the rclean graveyard (7-day
+    /// recoverable). Mutually exclusive with `--permanent`. Requires
+    /// the `graveyard` feature (default on).
+    #[cfg(feature = "graveyard")]
+    #[arg(long)]
+    pub graveyard: bool,
 
     /// Skip confirmation prompts where allowed.
     #[arg(long)]
@@ -103,10 +183,24 @@ pub struct CleanArgs {
     #[arg(long)]
     pub plan: Option<PathBuf>,
 
+    /// Use the feature-gated terminal selector instead of numbered text prompts.
+    #[arg(long)]
+    pub tui: bool,
+
     /// Allow cleaning when a scan root resolves to a broad system or user root
     /// (for example /, $HOME, /etc, /usr). Off by default.
     #[arg(long)]
     pub allow_broad_root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct WatchArgs {
+    #[command(flatten)]
+    pub common: CommonScanArgs,
+
+    /// Poll interval after the watcher is idle or unavailable. Examples: 60s, 5m.
+    #[arg(long, default_value = "60s")]
+    pub every: String,
 }
 
 #[derive(Debug, Args)]
@@ -116,6 +210,9 @@ pub struct ExplainArgs {
 
 impl CommonScanArgs {
     pub fn paths_or_current_dir(&self) -> Vec<PathBuf> {
+        if self.home {
+            return home_toolchain_paths();
+        }
         if self.paths.is_empty() {
             vec![PathBuf::from(".")]
         } else {
@@ -149,4 +246,38 @@ impl CommonScanArgs {
             ignore_globs: self.ignore.clone(),
         })
     }
+}
+
+/// Roots `--home` expands into. Only paths that actually exist on
+/// disk are returned, so a user without (e.g.) Maven installed
+/// won't see a noisy "cannot canonicalize ~/.m2" error.
+///
+/// Order is deterministic so the report ordering is stable.
+fn home_toolchain_paths() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let home = PathBuf::from(home);
+
+    let mut candidates: Vec<PathBuf> = vec![
+        home.join(".cargo"),
+        home.join(".gradle"),
+        home.join(".m2"),
+        home.join(".npm"),
+        home.join(".pnpm-store"),
+    ];
+
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(home.join("Library").join("Caches"));
+        candidates.push(home.join("Library").join("Developer"));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        candidates.push(home.join(".cache"));
+    }
+
+    candidates.retain(|p| p.is_dir());
+    candidates
 }
