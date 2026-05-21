@@ -213,6 +213,63 @@ fn xcode_derived_data_is_classified_under_library_developer_xcode() {
 }
 
 #[test]
+fn xcode_derived_data_safe_candidate_can_be_cleaned() {
+    let temp = TempDir::new().unwrap();
+    let xcode_dir = temp.path().join("Library").join("Developer").join("Xcode");
+    let derived_data = xcode_dir.join("DerivedData");
+    fs::create_dir_all(&derived_data).unwrap();
+    fs::write(derived_data.join("placeholder"), b"x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        xcode_dir.to_str().unwrap(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Cleaned: 1 candidates"));
+
+    assert!(!derived_data.exists(), "DerivedData should be removed");
+}
+
+#[test]
+fn xcode_derived_data_action_plan_replays_successfully() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let xcode_dir = temp.path().join("Library").join("Developer").join("Xcode");
+    let derived_data = xcode_dir.join("DerivedData");
+    fs::create_dir_all(&derived_data)?;
+    fs::write(derived_data.join("placeholder"), b"x")?;
+    let plan = temp.path().join("plan.json");
+
+    let mut scan = Command::cargo_bin("rclean").unwrap();
+    scan.arg("scan")
+        .arg(&xcode_dir)
+        .arg("--write-plan")
+        .arg(&plan)
+        .args(["--min-size", "0"])
+        .assert()
+        .success();
+
+    let mut clean = Command::cargo_bin("rclean").unwrap();
+    clean
+        .arg("clean")
+        .arg("--plan")
+        .arg(&plan)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(derived_data.exists(), "dry-run must not remove DerivedData");
+    Ok(())
+}
+
+#[test]
 fn cargo_registry_cache_is_classified_under_cargo_registry() {
     let temp = TempDir::new().unwrap();
     let registry = temp.path().join(".cargo").join("registry");
