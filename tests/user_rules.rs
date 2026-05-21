@@ -45,6 +45,50 @@ restore_hint = "make build"
 }
 
 #[test]
+fn user_rule_action_plan_replays_successfully() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("Makefile"), "all:\n\techo build\n").unwrap();
+    std::fs::create_dir(temp.path().join("my_build_x86")).unwrap();
+    std::fs::write(temp.path().join("my_build_x86").join("a.o"), b"x").unwrap();
+    std::fs::write(
+        temp.path().join(".rclean.toml"),
+        r#"
+[[rule]]
+id = "user.makefile_build"
+name_glob = "my_build_*"
+parent_markers = ["Makefile"]
+category = "build"
+safety = "safe"
+"#,
+    )
+    .unwrap();
+    let plan = temp.path().join("plan.json");
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"))
+        .stdout(predicate::str::contains("user.makefile_build"));
+
+    assert!(temp.path().join("my_build_x86").exists());
+}
+
+#[test]
 fn user_rule_skipped_when_parent_marker_missing() {
     // Same .rclean.toml as above, but no Makefile in the project — the
     // rule must not fire. Exit code 3 = zero candidates, that's the
