@@ -146,19 +146,19 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
     for candidate in &plan.selected {
         let path = PathBuf::from(&candidate.path);
 
-        if is_runtime_or_system_path(&path) {
-            return Err(PlanError::Generic(format!(
-                "{} is inside a protected runtime or system path; refusing to clean",
-                candidate.path
-            )));
-        }
-
         let draft = classify_plan_candidate(plan, candidate, &path).ok_or_else(|| {
             PlanError::Generic(format!(
                 "{} is not recognized by any current rule (plan may be stale or tampered)",
                 candidate.path
             ))
         })?;
+
+        if is_runtime_or_system_path(&path) && !rules::is_global_rule(&draft.rule_id) {
+            return Err(PlanError::Generic(format!(
+                "{} is inside a protected runtime or system path; refusing to clean",
+                candidate.path
+            )));
+        }
 
         if draft.safety == Safety::Blocked || draft.safety == Safety::Unknown {
             return Err(PlanError::Generic(format!(
