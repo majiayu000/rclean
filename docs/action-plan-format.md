@@ -33,8 +33,8 @@ a partially written plan never appears on disk. The top-level shape:
 
 ```json
 {
-  "schemaVersion": 1,
-  "toolVersion": "0.1.0",
+  "schemaVersion": 2,
+  "toolVersion": "0.1.4",
   "generatedAt": "2026-05-19T03:21:07.123Z",
   "deleteMode": "trash",
   "roots": ["/Users/me/code"],
@@ -49,10 +49,13 @@ a partially written plan never appears on disk. The top-level shape:
   },
   "selected": [
     {
+      "id": "01KS49DGM3X5AG00000000181R",
       "path": "/Users/me/code/web/node_modules",
       "ruleId": "node.node_modules",
       "bytes": 12884901888,
-      "safety": "safe"
+      "safety": "safe",
+      "category": "deps",
+      "riskScore": 0.25
     }
   ],
   "projects": [ /* full ProjectReport entries — see schemas below */ ]
@@ -68,10 +71,10 @@ emits (top-level keys appear in struct declaration order).
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | `u32` | Currently `1`. Any other value is rejected on read. |
+| `schemaVersion` | `u32` | Currently `2`. Any other value is rejected on read with a rescan hint. |
 | `toolVersion` | `string` | The `CARGO_PKG_VERSION` of `rclean` that wrote the plan. Informational. |
 | `generatedAt` | `string` (RFC 3339) | UTC timestamp the plan was written. |
-| `deleteMode` | `"trash"` \| `"permanent"` | What the eventual `clean` will do. Set by `--permanent` at scan-write time. |
+| `deleteMode` | `"trash"` \| `"graveyard"` \| `"permanent"` | What the eventual `clean` will do. Set by the requested clean mode at plan-write time. |
 | `roots` | `string[]` | The scan roots, as displayed (typically already canonicalized). `clean --plan` will not delete anything that resolves outside these roots. |
 | `summary` | object | Counts and total bytes for the **selected** subset, not the whole scan (with `projectsScanned` / `projectsWithCandidates` preserved from the underlying scan). See below. |
 | `selected` | `PlanCandidate[]` | The list of paths `clean --plan` will attempt to delete, in scan-emit order. Built from `Safety::Safe` candidates (and `Safety::Caution` if `--include-caution` was passed to the scan). |
@@ -81,10 +84,13 @@ emits (top-level keys appear in struct declaration order).
 
 | Field | Type | Notes |
 |---|---|---|
+| `id` | `string` | Stable 26-character candidate id generated when the plan is written. Graveyard mode records it for later restore/audit trails. |
 | `path` | `string` | Absolute path to the candidate directory. |
 | `ruleId` | `string` | The rule id (e.g. `rust.target`, `node.node_modules`) recorded at scan time. Re-validated at clean time. |
 | `bytes` | `u64` | Candidate byte size at scan time. Informational — `clean --plan` does not enforce it. |
 | `safety` | `"safe"` \| `"caution"` \| `"blocked"` \| `"unknown"` | Safety tier at scan time. In a plan written by the standard flow this is always `"safe"` or `"caution"` — `"blocked"` and `"unknown"` are filtered out by `collect_selected`. Re-validated at clean time. |
+| `category` | `"deps"` \| `"build"` \| `"cache"` \| `"test"` | Candidate category captured from the scan report. |
+| `riskScore` | `f32` | Advisory risk score captured from the scan report. It does not gate deletion. |
 
 ### `summary`
 
@@ -158,18 +164,18 @@ nothing is deleted partially.
   classifier and filesystem revalidation steps above are what
   actually gate deletion.
 - **Cross-version compatibility forever.** `schemaVersion` is the
-  versioning hook. v0.1.x is `1`. Future major schemas bump this
+  versioning hook. Current plans use `2`. Future schemas bump this
   field and may not be replayable by older binaries.
 
 ## Versioning policy
 
-- v0.1.x ships `schemaVersion: 1`. A plan written by any v0.1.x is
-  replayable by any v0.1.x.
+- Current builds write `schemaVersion: 2`. Schema 1 plans are rejected
+  with a message telling the user to re-run `rclean scan --write-plan`.
 - New additive fields land with explicit `serde(default)` to keep
   forward-compat within the same `schemaVersion`.
 - Renames or removals require a `schemaVersion` bump.
-- The schema number is independent of the tool version; a v0.2 that
-  doesn't change the file format keeps `schemaVersion: 1`.
+- The schema number is independent of the tool version; a later release
+  that doesn't change the file format keeps `schemaVersion: 2`.
 
 ## Integration patterns
 
