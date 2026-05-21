@@ -1,3 +1,4 @@
+mod agent;
 mod clean;
 mod cli;
 mod doctor;
@@ -56,6 +57,35 @@ fn run() -> Result<ExitCode, RcleanError> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Agent(args) => match args.command {
+            cli::AgentCommands::Doctor(doctor_args) => {
+                let report = agent::diagnose_agent(doctor_args.tool);
+                if doctor_args.json {
+                    let json = serde_json::to_string_pretty(&report)
+                        .map_err(error::RcleanError::Output)?;
+                    println!("{json}");
+                } else {
+                    output::print_agent_report(&report);
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+            cli::AgentCommands::Optimize(optimize_args) => {
+                let result = agent::optimize(agent::OptimizeOptions {
+                    tool: optimize_args.tool,
+                    disable_auto_update: optimize_args.disable_auto_update,
+                    apply: optimize_args.yes,
+                    codex_defaults_domain: optimize_args.defaults_domain,
+                })?;
+                if optimize_args.json {
+                    let json = serde_json::to_string_pretty(&result)
+                        .map_err(error::RcleanError::Output)?;
+                    println!("{json}");
+                } else {
+                    output::print_agent_optimize_result(&result);
+                }
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Commands::Scan(args) => {
             let options = args.to_scan_options()?;
             let report = scan::scan(&args.paths_or_current_dir(), &options)?;

@@ -92,6 +92,99 @@ fn help_prints_usage() {
 }
 
 #[test]
+fn agent_doctor_json_runs_for_codex() {
+    let temp = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .env("TMPDIR", temp.path())
+        .args(["agent", "doctor", "codex", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"tool\": \"codex\""))
+        .stdout(predicate::str::contains("\"disk\""));
+}
+
+#[test]
+fn agent_optimize_dry_run_prints_codex_update_commands() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["agent", "optimize", "codex", "--disable-auto-update"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Mode: dry-run"))
+        .stdout(predicate::str::contains(
+            "defaults write com.openai.codex SUAutomaticallyUpdate -bool false",
+        ));
+}
+
+#[test]
+fn agent_optimize_requires_an_action_flag() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["agent", "optimize", "codex"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "select at least one agent optimization flag",
+        ));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn agent_optimize_yes_can_apply_to_sandbox_defaults_domain() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let domain = format!("com.openai.rclean-sandbox-{}-{suffix}", std::process::id());
+
+    let _ = std::process::Command::new("defaults")
+        .args(["delete", &domain])
+        .output();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "agent",
+        "optimize",
+        "codex",
+        "--disable-auto-update",
+        "--yes",
+        "--defaults-domain",
+        &domain,
+        "--json",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"applied\": true"))
+    .stdout(predicate::str::contains(&domain));
+
+    let automatically_update = defaults_read(&domain, "SUAutomaticallyUpdate");
+    let automatic_checks = defaults_read(&domain, "SUEnableAutomaticChecks");
+
+    let _ = std::process::Command::new("defaults")
+        .args(["delete", &domain])
+        .output();
+
+    assert_eq!(automatically_update.trim(), "0");
+    assert_eq!(automatic_checks.trim(), "0");
+}
+
+#[cfg(target_os = "macos")]
+fn defaults_read(domain: &str, key: &str) -> String {
+    let output = std::process::Command::new("defaults")
+        .args(["read", domain, key])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "defaults read failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+#[test]
 fn watch_help_exposes_poll_interval() {
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.args(["watch", "--help"])

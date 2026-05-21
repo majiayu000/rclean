@@ -77,6 +77,8 @@ impl From<String> for ParseError {
 #[derive(Debug, Error)]
 pub enum RcleanError {
     #[error(transparent)]
+    Agent(#[from] crate::agent::AgentError),
+    #[error(transparent)]
     Scan(#[from] ScanError),
     #[error(transparent)]
     Plan(#[from] PlanError),

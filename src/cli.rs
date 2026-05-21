@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::agent::AgentTool;
 use crate::model::Category;
 use crate::parse::{parse_duration, parse_size};
 use crate::scan::ScanOptions;
@@ -17,6 +18,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Diagnose and one-shot optimize local AI agent tools.
+    Agent(AgentArgs),
     /// Scan for cleanable development artifacts. This never deletes files.
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
@@ -39,6 +42,54 @@ pub enum Commands {
     /// Inspect or maintain the rclean graveyard.
     #[cfg(feature = "graveyard")]
     Graveyard(GraveyardArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentArgs {
+    #[command(subcommand)]
+    pub command: AgentCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCommands {
+    /// Report local process, disk, power, and update signals for an agent tool.
+    Doctor(AgentDoctorArgs),
+    /// Apply explicit one-shot settings for an agent tool.
+    Optimize(AgentOptimizeArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDoctorArgs {
+    /// Agent tool to inspect.
+    #[arg(value_enum, default_value_t = AgentTool::Codex)]
+    pub tool: AgentTool,
+
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentOptimizeArgs {
+    /// Agent tool to optimize.
+    #[arg(value_enum, default_value_t = AgentTool::Codex)]
+    pub tool: AgentTool,
+
+    /// Disable app-managed automatic update checks where supported.
+    #[arg(long)]
+    pub disable_auto_update: bool,
+
+    /// Apply the selected changes. Without this, optimize is a dry run.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Emit machine-readable JSON instead of text.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Internal test hook: override the macOS defaults domain.
+    #[arg(long = "defaults-domain", hide = true)]
+    pub defaults_domain: Option<String>,
 }
 
 #[cfg(feature = "graveyard")]
