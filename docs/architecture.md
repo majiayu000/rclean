@@ -17,17 +17,24 @@ src/
 ├── error.rs         thiserror types: ScanError, PlanError, CleanError,
 │                    ParseError, RcleanError (top-level union).
 ├── model.rs         Domain types: Safety, Category, Candidate,
-│                    CandidateDraft, ScanReport, ActionPlan, Summary.
+│                    CandidateDraft, ScanReport, Summary.
 ├── parse.rs         CLI value parsers: size strings ("100mb"),
 │                    duration strings ("6m", "30d").
-├── scan.rs          The scan phase. scan() + explain_path() entry points.
-│                    Owns GitCache, IgnoreMatcher, ScanContext.
-├── scan_tests.rs    Co-located tests for scan.rs.
+├── doctor.rs        Per-machine global-cache applicability report.
+├── scan/            The scan phase. scan() + explain_path() entry points.
+│   ├── mod.rs       Public scan API, ScanOptions, IgnoreMatcher.
+│   ├── walker.rs    Parallel ignore::Walk traversal and draft grouping.
+│   ├── project.rs   ProjectReport materialization, activity, risk score.
+│   ├── safety.rs    Symlink, runtime/system, root-boundary checks.
+│   ├── sizer.rs     Candidate/source byte accounting.
+│   ├── git_cache.rs Shared per-repo git status cache.
+│   └── tests.rs     Co-located scan tests.
 ├── user_rules.rs    .rclean.toml loader: globset-based custom rules.
 ├── rules/           Built-in classification rules, one file per ecosystem.
 │   ├── mod.rs       Public surface: classify_candidate(), rule_catalog().
 │   ├── catalog.rs   Per-ecosystem rule registration (the dispatch list).
 │   ├── markers.rs   Shared marker-detection helpers (parent must contain X).
+│   ├── project.rs   Candidate-name and project-kind helpers.
 │   ├── node.rs      node_modules, .next, .turbo, .vite, .parcel-cache, ...
 │   ├── python.rs    .venv, __pycache__, .pytest_cache, .ruff_cache, .tox, ...
 │   ├── rust.rs      target (with Cargo.toml marker)
@@ -37,12 +44,17 @@ src/
 │   ├── dotnet.rs    bin, obj
 │   ├── ruby.rs      .bundle, vendor/bundle
 │   ├── ios.rs       Pods
+│   ├── cargo_global.rs, node_global.rs, pip.rs, gradle.rs, maven.rs, xcode.rs
+│   │                Global toolchain-cache rules used by scan --home.
 │   └── generic.rs   build, dist, out (need project marker; never bare-name)
 ├── plan.rs          ActionPlan write/read/revalidate.
 ├── clean.rs         The clean phase. select_candidates(),
 │                    delete_selected(), broad-root and symlink guards.
+├── graveyard/       Recoverable delete store, manifest, restore/gc helpers.
+├── tui/             Optional ratatui selector and fuzzy search.
+├── watch/           Lockfile watcher and timestamped plan writer.
 └── output.rs        Human table renderer, JSON renderer, explain printer,
-                     rules printer.
+                     rules/doctor/graveyard printers.
 ```
 
 ## Pipelines per command
@@ -136,14 +148,14 @@ rules::rule_catalog() ──► Vec<RuleInfo>
 
 | Boundary | Where | What it guarantees |
 |---|---|---|
-| **`scan` is read-only** | `src/scan.rs` | No fs writes anywhere in the call graph. |
+| **`scan` is read-only** | `src/scan/` | No fs writes anywhere in the call graph. |
 | **`Blocked` is non-selectable** | `src/clean.rs::select_candidates` | `--all`, interactive, and `--plan` all skip `Safety::Blocked`. `--include-blocked` only affects *visibility* in the report. |
-| **Symlink → Blocked** | `src/scan.rs::apply_path_safety` | Any classified candidate that is a symlink at the time of scan is marked Blocked. |
+| **Symlink → Blocked** | `src/scan/safety.rs::apply_path_safety` | Any classified candidate that is a symlink at the time of scan is marked Blocked. |
 | **Generic names need markers** | `src/rules/generic.rs`, `src/rules/markers.rs` | `build`, `dist`, `out`, `target`, `vendor` only classify when an ecosystem marker exists in the parent. |
 | **User rules can't produce Blocked** | `src/user_rules.rs::parse_safety` | `.rclean.toml` `safety = "blocked"` is rejected at load time. |
 | **Broad roots gated** | `src/clean.rs::check_broad_roots` | `clean` on `/`, `$HOME`, `/etc`, `/usr` requires `--allow-broad-root`. |
 | **Plan revalidation** | `src/plan.rs::revalidate_selected` | A stale plan cannot delete paths whose safety, root, or symlink shape has changed since `scan`. |
-| **Dirty git → Caution** | `src/scan.rs` + `GitCache` | A candidate inside a dirty repo cannot be `Safe`. |
+| **Dirty git → Caution** | `src/scan/project.rs` + `GitCache` | A candidate inside a dirty repo cannot be `Safe`. |
 | **`clean --all` excludes Caution by default** | `src/clean.rs::select_candidates` | `--include-caution` is opt-in. |
 
 A change that loosens any of these requires a SPEC note before code.
@@ -154,8 +166,8 @@ All `--json` output is versioned via `schema_version: 1` on
 `ScanReport`. New fields land additively; renames and removals bump
 the schema.
 
-`ActionPlan` carries the same `schema_version` for the same reason:
-a plan written by v0.1.x is replayable by any later v0.1.x.
+`ActionPlan` has its own `schema_version`. Current builds write and
+read schema `2`; schema `1` plans are rejected with a rescan hint.
 
 ## Performance shape
 
@@ -184,7 +196,7 @@ accumulation, or `sum_subtree_bytes`.
   register it in `catalog.rs`, add positive + negative tests in
   `tests/rules.rs`, update the README table.
 - **New filter flag**: extend `cli.rs`, thread through `ScanOptions`,
-  apply in `should_include` (`src/scan.rs`). Document the flag in
+  apply in `should_include` (`src/scan/mod.rs`). Document the flag in
   README under **Filtering**.
 - **New output format**: add a renderer in `src/output.rs` and wire
   it from `main.rs`. Don't add a new public field to `ScanReport`

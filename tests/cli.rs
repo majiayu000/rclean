@@ -111,14 +111,11 @@ fn tui_falls_back_to_text_selection_when_alt_screen_unavailable() {
 
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.env("TERM", "dumb")
-        .args([
-            "tui",
-            temp.path().to_str().unwrap(),
-            "--write-plan",
-            plan.to_str().unwrap(),
-            "--min-size",
-            "0",
-        ])
+        .arg("tui")
+        .arg(temp.path())
+        .arg("--write-plan")
+        .arg(&plan)
+        .args(["--min-size", "0"])
         .write_stdin("a\n")
         .assert()
         .success()
@@ -126,6 +123,16 @@ fn tui_falls_back_to_text_selection_when_alt_screen_unavailable() {
         .stderr(predicate::str::contains("falling back to text selection"));
 
     assert!(plan.exists());
+
+    let mut clean = Command::cargo_bin("rclean").unwrap();
+    clean
+        .arg("clean")
+        .arg("--plan")
+        .arg(&plan)
+        .arg("--dry-run")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
 }
 
 #[test]

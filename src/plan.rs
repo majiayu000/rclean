@@ -79,7 +79,7 @@ pub fn write_selected_action_plan(
     let selected = collect_selected_paths(report, selected);
     let summary = summarize_selected(&selected, &report.summary);
     let plan = ActionPlan {
-        schema_version: 1,
+        schema_version: ACTION_PLAN_SCHEMA_VERSION,
         tool_version: report.tool_version.clone(),
         generated_at: Utc::now().to_rfc3339(),
         delete_mode: delete_mode.to_string(),
