@@ -196,6 +196,18 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Cargo will re-clone git dependencies on the next build",
     },
     RuleInfo {
+        rule_id: "go.module_download_cache",
+        category: Category::Cache,
+        candidate: "download",
+        restore_hint: "Go will redownload modules on the next build or test",
+    },
+    RuleInfo {
+        rule_id: "go.build_cache",
+        category: Category::Cache,
+        candidate: "go-build",
+        restore_hint: "Go will rebuild cached objects on the next build or test",
+    },
+    RuleInfo {
         rule_id: "node.npm_cacache",
         category: Category::Cache,
         candidate: "_cacache",

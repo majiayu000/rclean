@@ -34,7 +34,9 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "out"
             | "DerivedData"
             | "cache"
+            | "download"
             | "db"
+            | "go-build"
             | "_cacache"
             | "Yarn"
             | "pip"
@@ -59,6 +61,8 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "gradle.caches"
             | "maven.local_repo"
             | "xcode.simulators"
+            | "go.module_download_cache"
+            | "go.build_cache"
     )
 }
 

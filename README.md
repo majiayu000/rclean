@@ -38,9 +38,10 @@ This is a from-scratch Rust CLI. It already supports:
 - per-machine diagnostic (`doctor`)
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
-- **global toolchain caches**: Cargo registry, npm `_cacache`,
-  yarn cache, pip cache, Gradle caches, Maven local repo, Xcode
-  `DerivedData`, iOS Simulators (via `scan --home`)
+- **global toolchain caches**: Cargo registry, Go module/build
+  cache, npm `_cacache`, yarn cache, pip cache, Gradle caches,
+  Maven local repo, Xcode `DerivedData`, iOS Simulators (via
+  `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
 - root-project scanning
 - symlink blocking
@@ -107,9 +108,10 @@ rclean clean --plan plan.json --dry-run      # preview
 rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 ```
 
-`--home` expands to `~/.cargo`, `~/.gradle`, `~/.m2`, `~/.npm`,
-`~/.pnpm-store`, plus `~/Library/Caches` and `~/Library/Developer`
-on macOS or `~/.cache` on Linux. Paths that don't exist are
+`--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
+`~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches` and
+`~/Library/Developer` on macOS or `~/.cache` on Linux. Existing
+`GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
 [Global Toolchain Caches](#global-toolchain-caches) table below
 for the full rule list.
@@ -173,6 +175,8 @@ let rclean find every applicable cache automatically:
 | --- | --- | --- | --- |
 | `cargo.registry_cache` | `~/.cargo/registry/cache` | safe | next `cargo build` |
 | `cargo.git_db` | `~/.cargo/git/db` | safe | next `cargo build` |
+| `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
+| `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
 | `node.npm_cacache` | `~/.npm/_cacache` | safe | next `npm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
@@ -191,6 +195,8 @@ Rule                       Status     Anchor / Reason
 ----------------------------------------------------------------------------
 cargo.registry_cache       applicable ~/.cargo/registry
 cargo.git_db               applicable ~/.cargo/git
+go.module_download_cache   applicable ~/go/pkg/mod/cache
+go.build_cache             applicable ~/Library/Caches/go-build
 node.npm_cacache           applicable ~/.npm
 pip.cache                  applicable ~/Library/Caches
 node.yarn_cache            applicable ~/Library/Caches
@@ -199,8 +205,12 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-7 of 9 rules applicable on this machine.
+9 of 11 rules applicable on this machine.
 ```
+
+User records are not cleanup candidates. In particular,
+`~/.codex/sessions` and `~/.codex/memories` are treated as protected
+user data even if a custom rule or tampered ActionPlan points at them.
 
 ## Custom Rules (`.rclean.toml`)
 

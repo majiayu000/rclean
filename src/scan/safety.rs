@@ -8,6 +8,8 @@
 //!   root → Blocked.
 //! - [`is_skip_dir`] / [`is_skip_name`]: directories we never descend
 //!   into (`.git`, toolchain caches, the Trash, the macOS Library).
+//! - [`is_protected_user_data_path`]: user-owned records that are never
+//!   cleanable, even if a rule or plan points at them.
 //! - [`is_runtime_or_system_path`]: same allowlist applied as an
 //!   any-component check on the candidate path.
 
@@ -26,6 +28,14 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
     {
         draft.safety = Safety::Blocked;
         draft.warnings.push("candidate is a symlink".to_string());
+        return;
+    }
+
+    if is_protected_user_data_path(&draft.path) {
+        draft.safety = Safety::Blocked;
+        draft
+            .warnings
+            .push("candidate is inside protected user data".to_string());
         return;
     }
 
@@ -105,4 +115,19 @@ pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
             .to_str()
             .is_some_and(|name| protected.contains(name))
     })
+}
+
+pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
+    let mut previous = None;
+    for name in path.components().filter_map(component_name) {
+        if previous == Some(".codex") && matches!(name, "sessions" | "memories") {
+            return true;
+        }
+        previous = Some(name);
+    }
+    false
+}
+
+fn component_name(component: std::path::Component<'_>) -> Option<&str> {
+    component.as_os_str().to_str()
 }

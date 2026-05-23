@@ -53,6 +53,38 @@ fn home_flag_expands_to_cargo_root_when_present() {
 }
 
 #[test]
+fn home_flag_expands_to_go_cache_roots_when_present() {
+    let temp = TempDir::new().unwrap();
+    let module_download = temp
+        .path()
+        .join("go")
+        .join("pkg")
+        .join("mod")
+        .join("cache")
+        .join("download");
+    std::fs::create_dir_all(&module_download).unwrap();
+    std::fs::write(module_download.join("blob"), "x").unwrap();
+
+    #[cfg(target_os = "macos")]
+    let build_cache = temp.path().join("Library").join("Caches").join("go-build");
+    #[cfg(not(target_os = "macos"))]
+    let build_cache = temp.path().join(".cache").join("go-build");
+    std::fs::create_dir_all(&build_cache).unwrap();
+    std::fs::write(build_cache.join("blob"), "x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"go.module_download_cache\"",
+        ))
+        .stdout(predicate::str::contains("\"ruleId\": \"go.build_cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -63,8 +95,9 @@ fn doctor_prints_rule_status_table() {
         .assert()
         .code(3) // 0 rules applicable → exit 3
         .stdout(predicate::str::contains("cargo.registry_cache"))
+        .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 9 rules applicable"));
+        .stdout(predicate::str::contains("of 11 rules applicable"));
 }
 
 #[test]

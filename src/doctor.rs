@@ -66,6 +66,11 @@ pub fn diagnose() -> DoctorReport {
             "no Cargo git deps detected",
         ),
         check_anchor(
+            "go.module_download_cache",
+            home.join("go").join("pkg").join("mod").join("cache"),
+            "no Go module cache detected",
+        ),
+        check_anchor(
             "gradle.caches",
             home.join(".gradle"),
             "no Gradle install detected",
@@ -90,6 +95,11 @@ pub fn diagnose() -> DoctorReport {
             home.join("Library").join("Caches"),
             "no Library/Caches directory",
         ));
+        entries.push(check_anchor(
+            "go.build_cache",
+            home.join("Library").join("Caches").join("go-build"),
+            "no Go build cache detected",
+        ));
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -97,6 +107,11 @@ pub fn diagnose() -> DoctorReport {
             "pip.cache",
             home.join(".cache"),
             "no XDG cache directory",
+        ));
+        entries.push(check_anchor(
+            "go.build_cache",
+            home.join(".cache").join("go-build"),
+            "no Go build cache detected",
         ));
     }
 
@@ -189,10 +204,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 6 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 9 total,
+        // 8 cross-platform + 3 macOS-only entries (or 3 stubbed
+        // skipped entries on non-macOS). Either way: 11 total,
         // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 9);
+        assert_eq!(report.total_count(), 11);
     }
 
     #[test]
