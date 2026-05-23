@@ -1,3 +1,4 @@
+use crate::agent::{AgentReport, OptimizeResult};
 use crate::doctor::{DoctorReport, Status};
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
@@ -6,6 +7,137 @@ pub fn print_json(report: &ScanReport) -> Result<(), serde_json::Error> {
     let json = serde_json::to_string_pretty(report)?;
     println!("{json}");
     Ok(())
+}
+
+pub fn print_agent_report(report: &AgentReport) {
+    println!("Agent: {}", report.tool);
+    println!("Generated: {}", report.generated_at);
+
+    println!();
+    println!("Power:");
+    if report.power.supported {
+        println!(
+            "  display sleep assertion: {}",
+            format_bool(report.power.prevent_user_idle_display_sleep)
+        );
+        println!(
+            "  idle system sleep assertion: {}",
+            format_bool(report.power.prevent_user_idle_system_sleep)
+        );
+        println!(
+            "  agent blocks display sleep: {}",
+            if report.power.agent_blocks_display_sleep {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        for assertion in &report.power.assertions {
+            println!(
+                "  - pid {} {} {}{}",
+                assertion.pid,
+                assertion.process,
+                assertion.kind,
+                assertion
+                    .name
+                    .as_ref()
+                    .map(|name| format!(" ({name})"))
+                    .unwrap_or_default()
+            );
+        }
+    } else {
+        println!("  unsupported on this platform");
+    }
+
+    println!();
+    println!("Disk:");
+    for entry in &report.disk {
+        let size = if entry.exists {
+            format_bytes(entry.bytes)
+        } else {
+            "missing".to_string()
+        };
+        println!("  {:<28} {:>8}  {}", entry.label, size, entry.path);
+    }
+
+    println!();
+    println!("Processes:");
+    if report.processes.is_empty() {
+        println!("  none detected");
+    } else {
+        let visible_processes = 20;
+        for process in report.processes.iter().take(visible_processes) {
+            println!("  - pid {} {}", process.pid, process.command);
+        }
+        if report.processes.len() > visible_processes {
+            println!(
+                "  ... and {} more process(es)",
+                report.processes.len() - visible_processes
+            );
+        }
+    }
+
+    println!();
+    println!("Auto update:");
+    if report.auto_update.supported {
+        println!(
+            "  automatically update: {}",
+            format_bool(report.auto_update.automatically_update)
+        );
+        println!(
+            "  automatic checks: {}",
+            format_bool(report.auto_update.automatic_checks)
+        );
+        if let Some(last_check) = &report.auto_update.last_check_time {
+            println!("  last check: {last_check}");
+        }
+    } else {
+        println!("  unsupported on this platform");
+    }
+
+    if !report.warnings.is_empty() {
+        println!();
+        println!("Warnings:");
+        for warning in &report.warnings {
+            println!("  - {warning}");
+        }
+    }
+
+    if !report.recommendations.is_empty() {
+        println!();
+        println!("Recommendations:");
+        for recommendation in &report.recommendations {
+            println!("  - {recommendation}");
+        }
+    }
+}
+
+pub fn print_agent_optimize_result(result: &OptimizeResult) {
+    println!("Agent: {}", result.tool);
+    println!(
+        "Mode: {}",
+        if result.applied { "applied" } else { "dry-run" }
+    );
+    for action in &result.actions {
+        println!();
+        println!("{}: {}", action.id, action.status);
+        println!("  {}", action.description);
+        for command in &action.commands {
+            println!("  $ {command}");
+        }
+    }
+    if !result.applied {
+        println!();
+        println!("Re-run with --yes to apply the selected changes.");
+    }
+}
+
+fn format_bool(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "on",
+        Some(false) => "off",
+        None => "unknown",
+    }
 }
 
 pub fn print_table(report: &ScanReport) {

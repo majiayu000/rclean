@@ -47,6 +47,8 @@ This is a from-scratch Rust CLI. It already supports:
 - dirty git worktree caution
 - ActionPlan write/read
 - numbered interactive selection
+- `agent doctor codex` for local Codex process, disk, power, and update diagnostics
+- `agent optimize codex --disable-auto-update` as a dry-run-first one-shot setting helper
 
 ## Why rclean
 
@@ -87,6 +89,8 @@ cargo run --bin rclean -- explain ~/code/app/target
 cargo run --bin rclean -- rules
 cargo run --bin rclean -- doctor
 cargo run --bin rclean -- scan --home
+cargo run --bin rclean -- agent doctor codex
+cargo run --bin rclean -- agent optimize codex --disable-auto-update
 ```
 
 ### Whole-machine cleanup
