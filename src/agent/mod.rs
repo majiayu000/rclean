@@ -407,7 +407,7 @@ fn codex_recommendations(report: &AgentReport) -> Vec<String> {
 fn parse_agent_processes(tool: AgentTool, output: &str) -> Vec<AgentProcess> {
     output
         .lines()
-        .filter_map(|line| parse_process_line(line))
+        .filter_map(parse_process_line)
         .filter(|process| process_matches_tool(tool, &process.command))
         .map(|process| AgentProcess {
             pid: process.pid,
