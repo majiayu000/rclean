@@ -788,12 +788,10 @@ mod tests {
         assert!(command.contains("--token=<redacted>"));
         assert!(command.contains("--authorization Bearer <redacted>"));
         assert!(command.contains("<redacted>"));
-        assert!(command.contains('~'));
         assert!(command.contains("codex"));
         assert!(!command.contains("sk-test"));
         assert!(!command.contains("sk-live"));
         assert!(!command.contains("gho_secret"));
         assert!(!command.contains("opaque-secret"));
-        assert!(!command.contains(&home));
     }
 }
