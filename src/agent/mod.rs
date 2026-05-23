@@ -338,7 +338,7 @@ fn disk_entry(label: &str, path: PathBuf, warnings: &mut Vec<String>) -> DiskEnt
 
     DiskEntry {
         label: label.to_string(),
-        path: path.display().to_string(),
+        path: redact_home_path(&path.display().to_string()),
         exists,
         bytes,
     }
@@ -349,7 +349,10 @@ fn path_size(path: &Path, warnings: &mut Vec<String>) -> u64 {
         return match std::fs::symlink_metadata(path) {
             Ok(metadata) => metadata.len(),
             Err(err) => {
-                warnings.push(format!("cannot stat {}: {err}", path.display()));
+                warnings.push(format!(
+                    "cannot stat {}: {err}",
+                    redact_home_path(&path.display().to_string())
+                ));
                 0
             }
         };
@@ -361,9 +364,15 @@ fn path_size(path: &Path, warnings: &mut Vec<String>) -> u64 {
             Ok(entry) => match std::fs::symlink_metadata(entry.path()) {
                 Ok(metadata) if metadata.is_file() => total += metadata.len(),
                 Ok(_) => {}
-                Err(err) => warnings.push(format!("cannot stat {}: {err}", entry.path().display())),
+                Err(err) => warnings.push(format!(
+                    "cannot stat {}: {err}",
+                    redact_home_path(&entry.path().display().to_string())
+                )),
             },
-            Err(err) => warnings.push(format!("cannot read {}: {err}", path.display())),
+            Err(err) => warnings.push(format!(
+                "cannot read {}: {err}",
+                redact_home_path(&path.display().to_string())
+            )),
         }
     }
     total
@@ -411,7 +420,7 @@ fn parse_agent_processes(tool: AgentTool, output: &str) -> Vec<AgentProcess> {
         .filter(|process| process_matches_tool(tool, &process.command))
         .map(|process| AgentProcess {
             pid: process.pid,
-            command: compact_command(&process.command),
+            command: compact_command(&redact_command(&process.command)),
         })
         .collect()
 }
@@ -454,6 +463,95 @@ fn compact_command(command: &str) -> String {
     } else {
         prefix
     }
+}
+
+fn redact_command(command: &str) -> String {
+    let mut tokens = Vec::new();
+    let mut redact_next = false;
+
+    for token in command.split_whitespace() {
+        if redact_next {
+            if normalize_secret_key(token) == "bearer" {
+                tokens.push(token.to_string());
+            } else {
+                tokens.push("<redacted>".to_string());
+                redact_next = false;
+            }
+            continue;
+        }
+
+        let (redacted, expects_value) = redact_command_token(token);
+        tokens.push(redacted);
+        redact_next = expects_value;
+    }
+
+    redact_home_path(&tokens.join(" "))
+}
+
+fn redact_command_token(token: &str) -> (String, bool) {
+    if is_secret_value(token) {
+        return ("<redacted>".to_string(), false);
+    }
+
+    if let Some((key, _value)) = token.split_once('=')
+        && is_sensitive_key(key)
+    {
+        return (format!("{key}=<redacted>"), false);
+    }
+
+    if expects_sensitive_value(token) {
+        return (token.to_string(), true);
+    }
+
+    (redact_home_path(token), false)
+}
+
+fn expects_sensitive_value(token: &str) -> bool {
+    let key = normalize_secret_key(token);
+    key == "bearer" || is_sensitive_key(&key)
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = normalize_secret_key(key);
+    key.contains("api-key")
+        || key.contains("apikey")
+        || key.contains("authorization")
+        || key.contains("credential")
+        || key.contains("password")
+        || key.contains("secret")
+        || key.contains("session")
+        || key.contains("token")
+        || key == "auth"
+        || key == "cookie"
+}
+
+fn normalize_secret_key(key: &str) -> String {
+    key.trim_start_matches('-')
+        .trim_matches(|c: char| matches!(c, '"' | '\'' | ':' | ';'))
+        .to_ascii_lowercase()
+        .replace('_', "-")
+}
+
+fn is_secret_value(value: &str) -> bool {
+    let value = value.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';'));
+    value.starts_with("sk-")
+        || value.starts_with("gho_")
+        || value.starts_with("ghp_")
+        || value.starts_with("github_pat_")
+        || value.starts_with("glpat-")
+        || value.starts_with("xoxb-")
+        || value.starts_with("xoxp-")
+}
+
+fn redact_home_path(value: &str) -> String {
+    let Some(home) = env::var_os("HOME")
+        .and_then(|home| home.into_string().ok())
+        .filter(|home| !home.is_empty())
+    else {
+        return value.to_string();
+    };
+
+    value.replace(&home, "~")
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -672,5 +770,29 @@ mod tests {
         assert_eq!(processes[0].pid, 100);
         assert_eq!(processes[1].pid, 102);
         assert_eq!(processes[2].pid, 104);
+    }
+
+    #[test]
+    fn redacts_agent_process_command_secrets() {
+        let home = env::var("HOME").unwrap_or_else(|_| "/Users/example".to_string());
+        let output = format!(
+            "  104 OPENAI_API_KEY=sk-test node {home}/.local/bin/codex --api-key sk-live --token=gho_secret --authorization Bearer opaque-secret\n"
+        );
+
+        let processes = parse_agent_processes(AgentTool::Codex, &output);
+
+        assert_eq!(processes.len(), 1);
+        let command = &processes[0].command;
+        assert!(command.contains("OPENAI_API_KEY=<redacted>"));
+        assert!(command.contains("--api-key <redacted>"));
+        assert!(command.contains("--token=<redacted>"));
+        assert!(command.contains("--authorization Bearer <redacted>"));
+        assert!(command.contains("<redacted>"));
+        assert!(command.contains("~/.local/bin/codex"));
+        assert!(!command.contains("sk-test"));
+        assert!(!command.contains("sk-live"));
+        assert!(!command.contains("gho_secret"));
+        assert!(!command.contains("opaque-secret"));
+        assert!(!command.contains(&home));
     }
 }
