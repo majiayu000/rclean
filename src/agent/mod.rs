@@ -456,6 +456,7 @@ fn compact_command(command: &str) -> String {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_pmset_assertions(tool: AgentTool, output: &str) -> PowerReport {
     let all_assertions: Vec<PowerAssertion> = output
         .lines()
@@ -484,6 +485,7 @@ fn parse_pmset_assertions(tool: AgentTool, output: &str) -> PowerReport {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_pmset_summary_bool(output: &str, key: &str) -> Option<bool> {
     output.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -494,6 +496,7 @@ fn parse_pmset_summary_bool(output: &str, key: &str) -> Option<bool> {
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_pmset_assertion_line(line: &str) -> Option<PowerAssertion> {
     let trimmed = line.trim();
     let rest = trimmed.strip_prefix("pid ")?;
@@ -521,6 +524,7 @@ fn parse_pmset_assertion_line(line: &str) -> Option<PowerAssertion> {
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_defaults_bool(output: &str, key: &str) -> Option<bool> {
     output.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -536,6 +540,7 @@ fn parse_defaults_bool(output: &str, key: &str) -> Option<bool> {
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_defaults_string(output: &str, key: &str) -> Option<String> {
     output.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -572,6 +577,7 @@ fn run_output(program: &str, args: &[&str]) -> Result<String, AgentError> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn run_status(program: &str, args: &[&str]) -> Result<(), AgentError> {
     let output = Command::new(program)
         .args(args)
