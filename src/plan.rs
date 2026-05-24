@@ -13,7 +13,7 @@ use crate::model::{
     Candidate, CandidateDraft, Category, ProjectReport, Safety, ScanReport, Summary,
 };
 use crate::rules;
-use crate::scan::is_runtime_or_system_path;
+use crate::scan::{is_protected_user_data_path, is_runtime_or_system_path};
 use crate::user_rules::UserRuleSet;
 
 pub const ACTION_PLAN_SCHEMA_VERSION: u32 = 2;
@@ -146,6 +146,12 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
     let mut selected = Vec::with_capacity(plan.selected.len());
     for candidate in &plan.selected {
         let path = PathBuf::from(&candidate.path);
+        if is_protected_user_data_path(&path) {
+            return Err(PlanError::Generic(format!(
+                "{} is protected user data; refusing to clean",
+                candidate.path
+            )));
+        }
 
         let draft = classify_plan_candidate(plan, candidate, &path).ok_or_else(|| {
             PlanError::Generic(format!(
@@ -291,6 +297,12 @@ pub fn revalidate_selected(
                 path: candidate.path.clone(),
                 source,
             })?;
+        if is_protected_user_data_path(&canonical) {
+            return Err(PlanError::Generic(format!(
+                "{} resolves to protected user data",
+                candidate.path.display()
+            )));
+        }
         if !roots.iter().any(|root| canonical.starts_with(root)) {
             return Err(PlanError::Generic(format!(
                 "{} resolves outside the action plan roots",
@@ -580,6 +592,34 @@ mod tests {
             .to_string();
         assert!(
             err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn tampered_plan_pointing_at_codex_sessions_is_rejected() {
+        let temp = TempDir::new().unwrap();
+        let candidate = create_node_project(temp.path());
+        let sessions = temp.path().join(".codex").join("sessions");
+        fs::create_dir_all(&sessions).unwrap();
+        let plan_path = temp.path().join("plan.json");
+        let report = report(temp.path(), &candidate);
+
+        write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+
+        let raw = fs::read_to_string(&plan_path).unwrap();
+        let mut plan: ActionPlan = serde_json::from_str(&raw).unwrap();
+        plan.selected[0].path = sessions.display().to_string();
+        let tampered_json = serde_json::to_string_pretty(&plan).unwrap();
+        fs::write(&plan_path, tampered_json).unwrap();
+
+        let plan = read_action_plan(&plan_path).unwrap();
+        let err = selected_from_action_plan(&plan)
+            .expect_err("Codex session history must never be selected from a plan")
+            .to_string();
+
+        assert!(
+            err.contains("protected user data"),
             "unexpected error: {err}"
         );
     }

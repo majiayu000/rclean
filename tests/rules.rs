@@ -354,6 +354,50 @@ fn yarn_cache_is_classified_under_library_caches() {
 }
 
 #[test]
+fn pnpm_legacy_store_is_classified_under_dot_pnpm_store() -> Result<(), Box<dyn std::error::Error>>
+{
+    let temp = TempDir::new()?;
+    let pnpm_store = temp.path().join(".pnpm-store");
+    fs::create_dir_all(&pnpm_store)?;
+    let version_dir = pnpm_store.join("v3");
+    fs::create_dir(&version_dir)?;
+    fs::write(version_dir.join("placeholder"), b"x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.arg("scan")
+        .arg(&pnpm_store)
+        .args(["--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"node.pnpm_store\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""))
+        .stdout(predicate::str::contains("\"category\": \"cache\""));
+
+    Ok(())
+}
+
+#[test]
+fn pnpm_store_is_classified_under_platform_data_dir() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let pnpm_parent = temp.path().join("Library").join("pnpm");
+    fs::create_dir_all(&pnpm_parent)?;
+    let store = pnpm_parent.join("store");
+    fs::create_dir(&store)?;
+    fs::write(store.join("placeholder"), b"x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.arg("scan")
+        .arg(&pnpm_parent)
+        .args(["--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"node.pnpm_store\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+
+    Ok(())
+}
+
+#[test]
 fn pip_cache_is_classified_under_macos_library_caches() {
     let temp = TempDir::new().unwrap();
     let caches = temp.path().join("Library").join("Caches");

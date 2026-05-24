@@ -188,14 +188,16 @@ pub struct CommonScanArgs {
     pub ignore: Vec<String>,
 
     /// Expand to all developer toolchain cache locations under $HOME
-    /// (~/.cargo, ~/.gradle, ~/.m2, ~/.npm, plus platform-specific
-    /// paths like ~/Library/Caches and ~/Library/Developer on macOS,
-    /// ~/.cache on Linux). Conflicts with positional `paths`.
+    /// (~/.cargo, ~/go, ~/.gradle, ~/.m2, ~/.npm, ~/.pnpm-store,
+    /// plus platform-specific paths like ~/Library/Caches,
+    /// ~/Library/pnpm and ~/Library/Developer on macOS, ~/.cache
+    /// and ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
     ///
     /// This is the entry point for the v0.2 "developer-grade mole"
     /// flow — it activates the global cache rules
-    /// (xcode.derived_data, cargo.registry_cache, gradle.caches,
-    /// maven.local_repo, node.npm_cacache, node.yarn_cache,
+    /// (xcode.derived_data, cargo.registry_cache, go.build_cache,
+    /// go.module_download_cache, gradle.caches, maven.local_repo,
+    /// node.npm_cacache, node.pnpm_store, node.yarn_cache,
     /// pip.cache, xcode.simulators) without forcing the user to
     /// remember every path.
     #[arg(long, conflicts_with = "paths")]
@@ -312,23 +314,37 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
 
     let mut candidates: Vec<PathBuf> = vec![
         home.join(".cargo"),
+        home.join("go"),
         home.join(".gradle"),
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
     ];
+    if let Some(gopath) = std::env::var_os("GOPATH") {
+        candidates.extend(std::env::split_paths(&gopath));
+    }
 
     #[cfg(target_os = "macos")]
     {
         candidates.push(home.join("Library").join("Caches"));
+        candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         candidates.push(home.join(".cache"));
+        candidates.push(home.join(".local").join("share").join("pnpm"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        candidates.push(home.join(".cache"));
+        candidates.push(home.join("AppData").join("Local").join("pnpm"));
     }
 
     candidates.retain(|p| p.is_dir());
+    candidates.sort();
+    candidates.dedup();
     candidates
 }

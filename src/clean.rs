@@ -6,7 +6,7 @@ use crate::cli::CleanArgs;
 use crate::error::CleanError;
 use crate::model::{Candidate, Category, Safety, ScanReport, format_bytes};
 use crate::rules;
-use crate::scan::is_runtime_or_system_path;
+use crate::scan::{is_protected_user_data_path, is_runtime_or_system_path};
 
 #[derive(Debug, Clone, Copy)]
 struct SelectableCandidate<'a> {
@@ -401,6 +401,12 @@ fn validate_for_deletion_with_rule(path: &Path, rule_id: Option<&str>) -> Result
     let canonical = path.canonicalize().map_err(|err| {
         CleanError::Generic(format!("failed to canonicalize {}: {err}", path.display()))
     })?;
+    if is_protected_user_data_path(&canonical) {
+        return Err(CleanError::Generic(format!(
+            "refusing to delete {}: resolves to protected user data",
+            path.display()
+        )));
+    }
     let allowed_global_rule = rule_id.is_some_and(rules::is_global_rule);
     if is_runtime_or_system_path(&canonical) && !allowed_global_rule {
         return Err(CleanError::Generic(format!(
@@ -607,5 +613,21 @@ mod tests {
         assert!(result.cleaned.is_empty());
         assert_eq!(result.failed.len(), 1);
         assert!(real.is_dir(), "symlink target must not be deleted");
+    }
+
+    #[test]
+    fn validate_rejects_codex_sessions_even_for_global_rule() {
+        let temp = TempDir::new().unwrap();
+        let sessions = temp.path().join(".codex").join("sessions");
+        fs::create_dir_all(&sessions).unwrap();
+
+        let err = validate_for_deletion_with_rule(&sessions, Some("go.build_cache"))
+            .expect_err("Codex session history must never be cleanable")
+            .to_string();
+
+        assert!(
+            err.contains("protected user data"),
+            "unexpected error: {err}"
+        );
     }
 }
