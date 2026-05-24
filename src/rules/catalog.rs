@@ -214,6 +214,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "npm will rebuild the cache on the next install",
     },
     RuleInfo {
+        rule_id: "node.pnpm_store",
+        category: Category::Cache,
+        candidate: "store",
+        restore_hint: "pnpm will rebuild the store on the next install",
+    },
+    RuleInfo {
         rule_id: "node.yarn_cache",
         category: Category::Cache,
         candidate: "Yarn",

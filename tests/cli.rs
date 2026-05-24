@@ -85,6 +85,42 @@ fn home_flag_expands_to_go_cache_roots_when_present() {
 }
 
 #[test]
+fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let legacy_store = temp.path().join(".pnpm-store").join("v3");
+    std::fs::create_dir_all(&legacy_store)?;
+    std::fs::write(legacy_store.join("blob"), "x")?;
+
+    #[cfg(target_os = "macos")]
+    let platform_store = temp.path().join("Library").join("pnpm").join("store");
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let platform_store = temp
+        .path()
+        .join(".local")
+        .join("share")
+        .join("pnpm")
+        .join("store");
+    #[cfg(target_os = "windows")]
+    let platform_store = temp
+        .path()
+        .join("AppData")
+        .join("Local")
+        .join("pnpm")
+        .join("store");
+    std::fs::create_dir_all(&platform_store)?;
+    std::fs::write(platform_store.join("blob"), "x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"node.pnpm_store\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+    Ok(())
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -96,8 +132,9 @@ fn doctor_prints_rule_status_table() {
         .code(3) // 0 rules applicable → exit 3
         .stdout(predicate::str::contains("cargo.registry_cache"))
         .stdout(predicate::str::contains("go.module_download_cache"))
+        .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 11 rules applicable"));
+        .stdout(predicate::str::contains("of 12 rules applicable"));
 }
 
 #[test]

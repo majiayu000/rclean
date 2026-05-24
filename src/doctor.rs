@@ -87,6 +87,36 @@ pub fn diagnose() -> DoctorReport {
         ),
     ];
 
+    let mut pnpm_anchors = vec![home.join(".pnpm-store")];
+    #[cfg(target_os = "macos")]
+    {
+        pnpm_anchors.push(home.join("Library").join("pnpm").join("store"));
+        pnpm_anchors.push(
+            home.join("Library")
+                .join("Caches")
+                .join("pnpm")
+                .join("store"),
+        );
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        pnpm_anchors.push(home.join(".local").join("share").join("pnpm").join("store"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        pnpm_anchors.push(
+            home.join("AppData")
+                .join("Local")
+                .join("pnpm")
+                .join("store"),
+        );
+    }
+    entries.push(check_any_anchor(
+        "node.pnpm_store",
+        pnpm_anchors,
+        "no pnpm store detected",
+    ));
+
     // pip uses different anchors per platform.
     #[cfg(target_os = "macos")]
     {
@@ -185,6 +215,31 @@ fn check_anchor(
     }
 }
 
+fn check_any_anchor(
+    rule_id: &'static str,
+    anchors: Vec<PathBuf>,
+    missing_reason: &'static str,
+) -> DoctorEntry {
+    if let Some(anchor) = anchors.iter().find(|anchor| anchor.is_dir()) {
+        return DoctorEntry {
+            rule_id,
+            anchor: anchor.clone(),
+            status: Status::Applicable,
+        };
+    }
+
+    DoctorEntry {
+        rule_id,
+        anchor: anchors
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| PathBuf::from("(unknown)")),
+        status: Status::Skipped {
+            reason: missing_reason,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,10 +259,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 8 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 11 total,
+        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
+        // skipped entries on non-macOS). Either way: 12 total,
         // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 11);
+        assert_eq!(report.total_count(), 12);
     }
 
     #[test]

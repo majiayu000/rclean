@@ -4,6 +4,7 @@ use super::markers::{
     has_marker, has_prefixed_marker, is_dotnet_project, is_python_project, is_ruby_project,
     package_mentions,
 };
+use super::node_global::is_pnpm_store_version_name;
 
 pub fn is_candidate_name(name: &str) -> bool {
     matches!(
@@ -37,13 +38,14 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "download"
             | "db"
             | "go-build"
+            | "store"
             | "_cacache"
             | "Yarn"
             | "pip"
             | "caches"
             | "repository"
             | "CoreSimulator"
-    )
+    ) || is_pnpm_store_version_name(name)
 }
 
 /// Returns true for rule ids whose classifier intentionally targets
@@ -57,6 +59,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "cargo.git_db"
             | "node.npm_cacache"
             | "node.yarn_cache"
+            | "node.pnpm_store"
             | "pip.cache"
             | "gradle.caches"
             | "maven.local_repo"

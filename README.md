@@ -39,7 +39,7 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, yarn cache, pip cache, Gradle caches,
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Gradle caches,
   Maven local repo, Xcode `DerivedData`, iOS Simulators (via
   `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
@@ -109,8 +109,9 @@ rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 ```
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
-`~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches` and
-`~/Library/Developer` on macOS or `~/.cache` on Linux. Existing
+`~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches`,
+`~/Library/pnpm`, and `~/Library/Developer` on macOS or `~/.cache`
+and `~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
 [Global Toolchain Caches](#global-toolchain-caches) table below
@@ -178,6 +179,7 @@ let rclean find every applicable cache automatically:
 | `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
 | `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
 | `node.npm_cacache` | `~/.npm/_cacache` | safe | next `npm install` |
+| `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
@@ -198,6 +200,7 @@ cargo.git_db               applicable ~/.cargo/git
 go.module_download_cache   applicable ~/go/pkg/mod/cache
 go.build_cache             applicable ~/Library/Caches/go-build
 node.npm_cacache           applicable ~/.npm
+node.pnpm_store            skipped    no pnpm store detected
 pip.cache                  applicable ~/Library/Caches
 node.yarn_cache            applicable ~/Library/Caches
 xcode.derived_data         applicable ~/Library/Developer/Xcode
@@ -205,7 +208,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 11 rules applicable on this machine.
+9 of 12 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. In particular,
