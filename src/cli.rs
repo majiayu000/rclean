@@ -339,7 +339,6 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
-        candidates.push(home.join(".cache"));
         candidates.push(home.join("AppData").join("Local").join("pnpm"));
     }
 
