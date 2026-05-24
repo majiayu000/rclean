@@ -211,9 +211,15 @@ maven.local_repo           skipped    no Maven install detected
 9 of 12 rules applicable on this machine.
 ```
 
-User records are not cleanup candidates. In particular,
-`~/.codex/sessions` and `~/.codex/memories` are treated as protected
-user data even if a custom rule or tampered ActionPlan points at them.
+User records are not cleanup candidates. The following paths are
+treated as protected user data and refused at scan, plan replay, and
+delete time — even if a custom rule or tampered ActionPlan points at
+them:
+
+- `~/.codex/sessions`, `~/.codex/memories`
+- `~/.claude/projects`, `~/.claude/sessions`, `~/.claude/history.jsonl`,
+  `~/.claude/shell-snapshots`, `~/.claude/file-history`,
+  `~/.claude/todos`
 
 ## Custom Rules (`.rclean.toml`)
 

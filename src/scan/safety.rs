@@ -120,8 +120,14 @@ pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
 pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
     let mut previous = None;
     for name in path.components().filter_map(component_name) {
-        if previous == Some(".codex") && matches!(name, "sessions" | "memories") {
-            return true;
+        match (previous, name) {
+            (Some(".codex"), "sessions" | "memories") => return true,
+            (
+                Some(".claude"),
+                "projects" | "sessions" | "history.jsonl" | "shell-snapshots" | "file-history"
+                | "todos",
+            ) => return true,
+            _ => {}
         }
         previous = Some(name);
     }
@@ -130,4 +136,61 @@ pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
 
 fn component_name(component: std::path::Component<'_>) -> Option<&str> {
     component.as_os_str().to_str()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_protected_user_data_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn protects_codex_user_records() {
+        assert!(is_protected_user_data_path(&PathBuf::from(
+            "/Users/me/.codex/sessions"
+        )));
+        assert!(is_protected_user_data_path(&PathBuf::from(
+            "/Users/me/.codex/memories/note.md"
+        )));
+    }
+
+    #[test]
+    fn protects_claude_code_user_records() {
+        for path in [
+            "/Users/me/.claude/projects/-some-encoded-path/abc.jsonl",
+            "/Users/me/.claude/sessions/2026-05-24",
+            "/Users/me/.claude/history.jsonl",
+            "/Users/me/.claude/shell-snapshots/snap-1.json",
+            "/Users/me/.claude/file-history/foo.diff",
+            "/Users/me/.claude/todos/today.md",
+        ] {
+            assert!(
+                is_protected_user_data_path(&PathBuf::from(path)),
+                "expected {path} to be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_protect_rebuildable_claude_subdirs() {
+        for path in [
+            "/Users/me/.claude/cache/x",
+            "/Users/me/.claude/paste-cache/y",
+            "/Users/me/.claude/downloads/z",
+        ] {
+            assert!(
+                !is_protected_user_data_path(&PathBuf::from(path)),
+                "did not expect {path} to be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn does_not_protect_unrelated_paths() {
+        assert!(!is_protected_user_data_path(&PathBuf::from(
+            "/Users/me/work/projects/foo"
+        )));
+        assert!(!is_protected_user_data_path(&PathBuf::from(
+            "/Users/me/.config/sessions/foo"
+        )));
+    }
 }
