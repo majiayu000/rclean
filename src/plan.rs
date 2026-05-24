@@ -625,6 +625,44 @@ mod tests {
     }
 
     #[test]
+    fn tampered_plan_pointing_at_claude_user_records_is_rejected() {
+        for protected in [
+            ".claude/projects/encoded-path/abc.jsonl",
+            ".claude/sessions/2026-05-24",
+            ".claude/history.jsonl",
+            ".claude/shell-snapshots/snap.json",
+            ".claude/file-history/foo.diff",
+            ".claude/todos/today.md",
+        ] {
+            let temp = TempDir::new().unwrap();
+            let candidate = create_node_project(temp.path());
+            let target = temp.path().join(protected);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&target, "x").unwrap();
+            let plan_path = temp.path().join("plan.json");
+            let report = report(temp.path(), &candidate);
+
+            write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+
+            let raw = fs::read_to_string(&plan_path).unwrap();
+            let mut plan: ActionPlan = serde_json::from_str(&raw).unwrap();
+            plan.selected[0].path = target.display().to_string();
+            let tampered_json = serde_json::to_string_pretty(&plan).unwrap();
+            fs::write(&plan_path, tampered_json).unwrap();
+
+            let plan = read_action_plan(&plan_path).unwrap();
+            let err = selected_from_action_plan(&plan).unwrap_err().to_string();
+
+            assert!(
+                err.contains("protected user data"),
+                "expected {protected} to be rejected with protected-user-data error, got: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn summary_reflects_selected_not_full_scan() {
         let temp = TempDir::new().unwrap();
         let candidate = create_node_project(temp.path());
