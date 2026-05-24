@@ -96,7 +96,11 @@ fn pnpm_store_draft(path: &Path, name: &str) -> CandidateDraft {
         category: Category::Cache,
         safety: Safety::Safe,
         reasons: vec!["pnpm content-addressable store".to_string()],
-        warnings: Vec::new(),
+        warnings: vec![
+            "node_modules in existing projects use hardlinks into this store; \
+             they will need a fresh `pnpm install` after deletion"
+                .to_string(),
+        ],
         restore_hint: "pnpm will rebuild the store on the next install".to_string(),
     }
 }
@@ -139,6 +143,11 @@ mod tests {
         assert_eq!(draft.category, Category::Cache);
         assert_eq!(draft.safety, Safety::Safe);
         assert!(draft.restore_hint.contains("pnpm"));
+        assert!(
+            draft.warnings.iter().any(|w| w.contains("hardlinks")),
+            "pnpm_store draft should warn about hardlinks; got {:?}",
+            draft.warnings
+        );
     }
 
     #[test]
