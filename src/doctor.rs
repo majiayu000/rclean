@@ -145,6 +145,25 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
+    // Python global tooling caches (#101). uv, Poetry, and pipx each
+    // resolve to either the native macOS path or the XDG override —
+    // real users hit both, so doctor accepts either anchor.
+    entries.push(check_any_anchor(
+        "python.uv_cache",
+        python_cache_anchors(&home, "uv"),
+        "no uv install detected",
+    ));
+    entries.push(check_any_anchor(
+        "python.poetry_cache",
+        python_cache_anchors(&home, "pypoetry"),
+        "no Poetry install detected",
+    ));
+    entries.push(check_any_anchor(
+        "python.pipx_cache",
+        python_cache_anchors(&home, "pipx"),
+        "no pipx install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -215,6 +234,34 @@ fn check_anchor(
     }
 }
 
+/// Canonical anchors for a Python toolchain cache directory.
+///
+/// macOS hosts may resolve to either the native `~/Library/Caches/<tool>`
+/// or the XDG override `~/.cache/<tool>` — the empirical dev box behind
+/// issue #101 had uv at `~/.cache/uv` while the platformdirs default is
+/// `~/Library/Caches/uv`. Linux and Windows have a single canonical path.
+fn python_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join(tool)]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home
+            .join("AppData")
+            .join("Local")
+            .join(tool)
+            .join("Cache")]
+    }
+}
+
 fn check_any_anchor(
     rule_id: &'static str,
     anchors: Vec<PathBuf>,
@@ -259,10 +306,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 12 total,
-        // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 12);
+        // 9 cross-platform + 3 Python (uv / poetry / pipx) + 3 macOS-only
+        // (or 3 stubbed skipped entries on non-macOS). Either way: 15
+        // total, matching the v0.2 ruleset including issue #101.
+        assert_eq!(report.total_count(), 15);
     }
 
     #[test]

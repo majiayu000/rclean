@@ -232,6 +232,24 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "pip will repopulate the cache on the next install",
     },
     RuleInfo {
+        rule_id: "python.uv_cache",
+        category: Category::Cache,
+        candidate: "uv",
+        restore_hint: "Run `uv cache clean`; uv will repopulate on the next sync",
+    },
+    RuleInfo {
+        rule_id: "python.poetry_cache",
+        category: Category::Cache,
+        candidate: "pypoetry",
+        restore_hint: "Poetry will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "python.pipx_cache",
+        category: Category::Cache,
+        candidate: "pipx",
+        restore_hint: "pipx will repopulate the cache on the next `pipx run`",
+    },
+    RuleInfo {
         rule_id: "gradle.caches",
         category: Category::Cache,
         candidate: "caches",
