@@ -121,6 +121,38 @@ fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn st
 }
 
 #[test]
+fn home_flag_expands_to_bun_install_cache_not_runtime_root(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Issue #103 safety invariant: the rule MUST target
+    // ~/.bun/install/cache, NEVER ~/.bun itself (which holds the
+    // Bun runtime binary). This test enforces both halves.
+    let temp = TempDir::new()?;
+    let install_cache = temp.path().join(".bun").join("install").join("cache");
+    std::fs::create_dir_all(&install_cache)?;
+    std::fs::write(install_cache.join("blob"), "x")?;
+    // Synthesize a Bun runtime binary alongside install/ to prove
+    // it stays untouched.
+    let bin = temp.path().join(".bun").join("bin");
+    std::fs::create_dir_all(&bin)?;
+    std::fs::write(bin.join("bun"), "fake binary")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        // install/cache is matched.
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"js.bun_install_cache\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        // The Bun runtime root must NOT appear as a candidate path.
+        .stdout(predicate::str::contains("/.bun\",").not())
+        .stdout(predicate::str::contains("/.bun/bin").not());
+    Ok(())
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -134,7 +166,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 12 rules applicable"));
+        .stdout(predicate::str::contains("of 14 rules applicable"));
 }
 
 #[test]

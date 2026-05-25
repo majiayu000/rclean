@@ -39,9 +39,9 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Gradle caches,
-  Maven local repo, Xcode `DerivedData`, iOS Simulators (via
-  `scan --home`)
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Bun install
+  cache, Deno cache, Gradle caches, Maven local repo, Xcode
+  `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
 - root-project scanning
 - symlink blocking
@@ -182,6 +182,8 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `js.bun_install_cache` | `~/.bun/install/cache` (sub-path only — `~/.bun` itself is never selected) | caution | `bun pm cache rm` |
+| `js.deno_cache` | `~/Library/Caches/deno` (macOS) / `~/.cache/deno` (Linux) | caution | `deno cache --reload` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
@@ -208,7 +210,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 12 rules applicable on this machine.
+9 of 14 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

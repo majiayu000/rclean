@@ -226,6 +226,18 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Yarn will rebuild the cache on the next install",
     },
     RuleInfo {
+        rule_id: "js.bun_install_cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "Bun will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "js.deno_cache",
+        category: Category::Cache,
+        candidate: "deno",
+        restore_hint: "Run `deno cache --reload`; Deno will refetch on the next run",
+    },
+    RuleInfo {
         rule_id: "pip.cache",
         category: Category::Cache,
         candidate: "pip",

@@ -145,6 +145,19 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
+    // JS runtime caches (#103). Bun anchors on install/cache (NOT ~/.bun).
+    entries.push(check_anchor(
+        "js.bun_install_cache",
+        home.join(".bun").join("install").join("cache"),
+        "no Bun install detected",
+    ));
+    let deno_anchors = deno_cache_anchors(&home);
+    entries.push(check_any_anchor(
+        "js.deno_cache",
+        deno_anchors,
+        "no Deno install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -215,6 +228,27 @@ fn check_anchor(
     }
 }
 
+/// Canonical anchors for Deno's remote-dependency cache. macOS native
+/// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
+/// uses `%LOCALAPPDATA%\deno`.
+fn deno_cache_anchors(home: &std::path::Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join("deno"),
+            home.join(".cache").join("deno"),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join("deno")]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join("deno")]
+    }
+}
+
 fn check_any_anchor(
     rule_id: &'static str,
     anchors: Vec<PathBuf>,
@@ -259,10 +293,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 12 total,
-        // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 12);
+        // 9 cross-platform + 2 JS-runtime (Bun / Deno) + 3 macOS-only
+        // (or 3 stubbed skipped entries on non-macOS). Either way:
+        // 14 total, matching the v0.2 ruleset including issue #103.
+        assert_eq!(report.total_count(), 14);
     }
 
     #[test]

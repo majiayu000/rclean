@@ -319,6 +319,11 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
+        // ~/.bun is needed so the walker can reach
+        // ~/.bun/install/cache (js.bun_install_cache). The classifier
+        // anchors on the install/ subdirectory, so the runtime
+        // binary at ~/.bun/bun is never selected as a candidate.
+        home.join(".bun"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
         candidates.extend(std::env::split_paths(&gopath));
