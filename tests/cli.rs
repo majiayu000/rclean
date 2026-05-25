@@ -121,8 +121,8 @@ fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn home_flag_reports_ollama_models_as_report_only_never_selected(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn home_flag_reports_ollama_models_as_report_only_never_selected()
+-> Result<(), Box<dyn std::error::Error>> {
     // Issue #102 safety invariant: ~/.ollama/models is user data,
     // not cache. It must be reported (so the user sees the size)
     // but never selected for cleanup, even with --include-blocked.
