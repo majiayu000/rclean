@@ -39,10 +39,11 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Gradle caches,
-  Maven local repo, Xcode `DerivedData`, iOS Simulators (via
-  `scan --home`)
-- conservative safety classification: `safe`, `caution`, `blocked`
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache,
+  HuggingFace Hub, PyTorch Hub, Ollama models (report-only),
+  Gradle caches, Maven local repo, Xcode `DerivedData`,
+  iOS Simulators (via `scan --home`)
+- conservative safety classification: `safe`, `caution`, `blocked`, `report-only`
 - root-project scanning
 - symlink blocking
 - dirty git worktree caution
@@ -56,7 +57,7 @@ This is a from-scratch Rust CLI. It already supports:
 Existing tools already clean `node_modules`, `target`, and other artifacts.
 `rclean` focuses on the part that makes people hesitate before deleting:
 
-- clear safety states: `safe`, `caution`, `blocked`
+- clear safety states: `safe`, `caution`, `blocked`, `report-only` (user data, never selected)
 - immediate top cleanup wins before the detailed table
 - reviewable ActionPlan JSON
 - symlink and root-boundary revalidation before plan-based cleanup
@@ -182,6 +183,9 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `ai.huggingface_hub` | `~/.cache/huggingface/hub` | caution | `huggingface-cli delete-cache` |
+| `ai.torch_hub` | `~/.cache/torch/hub` | safe | next `torch.hub.load()` |
+| `ai.ollama_models` | `~/.ollama/models` | **report-only** (user data, never selected) | `ollama pull <model>` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
@@ -208,7 +212,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 12 rules applicable on this machine.
+9 of 15 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

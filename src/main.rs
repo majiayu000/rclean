@@ -204,7 +204,10 @@ fn run() -> Result<ExitCode, RcleanError> {
             let explanation = scan::explain_path(&args.path)?;
             output::print_explanation(&explanation);
             match explanation.safety {
-                Safety::Blocked => Ok(ExitCode::from(4)),
+                // ReportOnly shares the "refuse to clean" semantic with
+                // Blocked; surface the same exit code so callers don't
+                // have to distinguish unless they want to.
+                Safety::Blocked | Safety::ReportOnly => Ok(ExitCode::from(4)),
                 Safety::Unknown => Ok(ExitCode::from(3)),
                 Safety::Safe | Safety::Caution => Ok(ExitCode::SUCCESS),
             }

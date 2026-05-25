@@ -219,6 +219,10 @@ pub(crate) fn should_include(draft: &CandidateDraft, options: &ScanOptions) -> b
         Safety::Safe => true,
         Safety::Caution => true,
         Safety::Blocked => options.include_blocked,
+        // ReportOnly is **always reported** so the user is aware of
+        // the path's size, but selection paths (clean.rs, plan.rs)
+        // refuse to act on it even with --include-blocked.
+        Safety::ReportOnly => true,
         Safety::Unknown => false,
     }
 }

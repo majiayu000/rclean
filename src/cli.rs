@@ -319,6 +319,11 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
+        // ~/.ollama is needed so the walker can reach
+        // ~/.ollama/models for the ai.ollama_models rule. The rule
+        // is ReportOnly, so the path is reported but never selected
+        // for cleanup.
+        home.join(".ollama"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
         candidates.extend(std::env::split_paths(&gopath));
@@ -329,6 +334,10 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
+        // HuggingFace and PyTorch hub caches live under ~/.cache on
+        // every platform per their respective docs. Include it on
+        // macOS so they're reachable from `scan --home`.
+        candidates.push(home.join(".cache"));
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]

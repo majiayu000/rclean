@@ -242,7 +242,9 @@ impl SelectorApp {
         let Some(index) = self.filtered.get(self.cursor).copied() else {
             return;
         };
-        if self.rows[index].safety == Safety::Blocked {
+        if self.rows[index].safety == Safety::Blocked
+            || self.rows[index].safety == Safety::ReportOnly
+        {
             return;
         }
         if !self.selected.insert(index) {
@@ -286,7 +288,7 @@ impl SelectorApp {
     fn reclaimable_bytes(&self) -> u64 {
         self.rows
             .iter()
-            .filter(|row| row.safety != Safety::Blocked)
+            .filter(|row| row.safety != Safety::Blocked && row.safety != Safety::ReportOnly)
             .map(|row| row.bytes)
             .sum()
     }
@@ -330,6 +332,8 @@ fn row_from_candidate(candidate: &Candidate) -> CandidateRow {
 fn glyph(safety: Safety, selected: bool) -> &'static str {
     if safety == Safety::Blocked {
         "[×]"
+    } else if safety == Safety::ReportOnly {
+        "[#]"
     } else if selected {
         "[x]"
     } else if safety == Safety::Caution {

@@ -167,7 +167,10 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
-        if draft.safety == Safety::Blocked || draft.safety == Safety::Unknown {
+        if draft.safety == Safety::Blocked
+            || draft.safety == Safety::Unknown
+            || draft.safety == Safety::ReportOnly
+        {
             return Err(PlanError::Generic(format!(
                 "{} is now classified as {:?} by rule {}; refusing to clean",
                 candidate.path, draft.safety, draft.rule_id
@@ -332,6 +335,10 @@ fn summarize_selected(selected: &[PlanCandidate], scan_summary: &Summary) -> Sum
             Safety::Safe => summary.safe_candidates += 1,
             Safety::Caution => summary.caution_candidates += 1,
             Safety::Blocked => summary.blocked_candidates += 1,
+            // ReportOnly candidates aren't counted as a separate
+            // summary bucket — they're surfaced via the candidate
+            // safety field and warnings; selection logic rejects them.
+            Safety::ReportOnly => {}
             Safety::Unknown => {}
         }
     }

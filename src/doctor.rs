@@ -145,6 +145,24 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
+    // AI / ML model caches (#102). All three rules anchor under
+    // `~/.cache/...` and `~/.ollama/...` on every platform.
+    entries.push(check_anchor(
+        "ai.huggingface_hub",
+        home.join(".cache").join("huggingface").join("hub"),
+        "no HuggingFace cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.torch_hub",
+        home.join(".cache").join("torch").join("hub"),
+        "no PyTorch hub cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.ollama_models",
+        home.join(".ollama").join("models"),
+        "no Ollama install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -259,10 +277,11 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 12 total,
-        // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 12);
+        // 9 cross-platform + 3 AI/ML (huggingface/torch/ollama) +
+        // 3 macOS-only (or 3 stubbed skipped entries on non-macOS).
+        // Either way: 15 total, matching the v0.2 ruleset including
+        // issue #102.
+        assert_eq!(report.total_count(), 15);
     }
 
     #[test]

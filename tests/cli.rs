@@ -121,6 +121,48 @@ fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn st
 }
 
 #[test]
+fn home_flag_reports_ollama_models_as_report_only_never_selected(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Issue #102 safety invariant: ~/.ollama/models is user data,
+    // not cache. It must be reported (so the user sees the size)
+    // but never selected for cleanup, even with --include-blocked.
+    let temp = TempDir::new()?;
+    let models = temp.path().join(".ollama").join("models");
+    std::fs::create_dir_all(&models)?;
+    std::fs::write(models.join("manifest.json"), "x")?;
+
+    // 1. Plain scan: must report the path with report-only safety.
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"ai.ollama_models\""))
+        .stdout(predicate::str::contains("\"safety\": \"report-only\""));
+
+    // 2. clean --all --include-caution --include-blocked must NOT
+    //    select the Ollama path. The plan must come back empty.
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args([
+            "clean",
+            "--home",
+            "--all",
+            "--include-caution",
+            "--include-blocked",
+            "--dry-run",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        // Exit code 3 = no candidates selected (because Ollama is
+        // ReportOnly and there's nothing else under the synthetic
+        // home).
+        .code(3);
+    Ok(())
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -134,7 +176,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 12 rules applicable"));
+        .stdout(predicate::str::contains("of 15 rules applicable"));
 }
 
 #[test]

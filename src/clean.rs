@@ -86,7 +86,10 @@ fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
     let mut candidates = Vec::new();
     for project in &report.projects {
         for candidate in &project.candidates {
-            if candidate.safety != Safety::Blocked {
+            // ReportOnly is excluded from selectable candidates at the
+            // same level as Blocked: never offered for cleanup even
+            // with `--include-blocked`.
+            if candidate.safety != Safety::Blocked && candidate.safety != Safety::ReportOnly {
                 candidates.push(SelectableCandidate {
                     project_path: &project.path,
                     candidate,

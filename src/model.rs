@@ -46,6 +46,13 @@ pub enum Safety {
     Safe,
     Caution,
     Blocked,
+    /// User data, not a rebuildable cache. Reported for awareness but
+    /// never selected for cleanup — even with `--include-blocked`.
+    /// Used for paths like `~/.ollama/models` where re-acquiring the
+    /// content costs hours of network time and the user must
+    /// explicitly opt in per path.
+    #[serde(rename = "report-only")]
+    ReportOnly,
     Unknown,
 }
 
@@ -55,6 +62,7 @@ impl fmt::Display for Safety {
             Safety::Safe => "safe",
             Safety::Caution => "caution",
             Safety::Blocked => "blocked",
+            Safety::ReportOnly => "report-only",
             Safety::Unknown => "unknown",
         })
     }

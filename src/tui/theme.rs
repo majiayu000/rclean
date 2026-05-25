@@ -27,6 +27,7 @@ fn base_color(safety: Safety) -> Color {
         Safety::Safe => Color::Green,
         Safety::Caution => Color::Yellow,
         Safety::Blocked => Color::DarkGray,
+        Safety::ReportOnly => Color::Magenta,
         Safety::Unknown => Color::Gray,
     }
 }

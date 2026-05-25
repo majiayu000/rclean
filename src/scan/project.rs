@@ -142,6 +142,9 @@ pub(crate) fn build_summary(projects: &[ProjectReport]) -> Summary {
                     summary.total_bytes += candidate.bytes;
                 }
                 Safety::Blocked => summary.blocked_candidates += 1,
+                // ReportOnly: user data, surfaced via candidate field
+                // but excluded from selectable totals.
+                Safety::ReportOnly => {}
                 Safety::Unknown => {}
             }
         }
