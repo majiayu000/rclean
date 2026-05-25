@@ -85,6 +85,16 @@ pub fn diagnose() -> DoctorReport {
             home.join(".npm"),
             "no npm install detected",
         ),
+        check_anchor(
+            "bun.cache",
+            home.join(".bun").join("install"),
+            "no bun install cache detected",
+        ),
+        check_anchor(
+            "pre_commit.cache",
+            home.join(".cache"),
+            "no XDG cache directory",
+        ),
     ];
 
     let mut pnpm_anchors = vec![home.join(".pnpm-store")];
@@ -192,6 +202,36 @@ pub fn diagnose() -> DoctorReport {
         });
     }
 
+    // Playwright lives in `~/Library/Caches/ms-playwright` on macOS
+    // and `~/.cache/ms-playwright` on Linux. On Windows the layout is
+    // different and v0.3 doesn't support it — report Skipped.
+    #[cfg(target_os = "macos")]
+    {
+        entries.push(check_anchor(
+            "playwright.browsers",
+            home.join("Library").join("Caches").join("ms-playwright"),
+            "no Playwright browsers detected",
+        ));
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        entries.push(check_anchor(
+            "playwright.browsers",
+            home.join(".cache").join("ms-playwright"),
+            "no Playwright browsers detected",
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        entries.push(DoctorEntry {
+            rule_id: "playwright.browsers",
+            anchor: PathBuf::from("(macOS / Linux only)"),
+            status: Status::Skipped {
+                reason: "rule only applies on macOS and Linux",
+            },
+        });
+    }
+
     DoctorReport { entries }
 }
 
@@ -259,10 +299,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 12 total,
-        // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 12);
+        // v0.3: 11 cross-platform + 3 macOS-only (or 3 stubbed) +
+        // 1 playwright (macOS/Linux, stubbed on Windows). Either way:
+        // 15 total.
+        assert_eq!(report.total_count(), 15);
     }
 
     #[test]

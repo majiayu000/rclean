@@ -319,6 +319,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
+        home.join(".bun"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
         candidates.extend(std::env::split_paths(&gopath));
@@ -329,6 +330,11 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
+        // v0.3: pre-commit hardcodes `~/.cache/pre-commit` on every
+        // platform (it does not follow the macOS Library/Caches
+        // convention). Without this, `--home` would miss pre-commit
+        // and Playwright's Linux-layout fallback on macOS.
+        candidates.push(home.join(".cache"));
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]

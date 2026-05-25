@@ -249,4 +249,22 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "CoreSimulator",
         restore_hint: "Xcode will recreate simulators on the next iOS app run",
     },
+    RuleInfo {
+        rule_id: "bun.cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "bun will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "pre_commit.cache",
+        category: Category::Cache,
+        candidate: "pre-commit",
+        restore_hint: "pre-commit will reinitialize hooks on the next run",
+    },
+    RuleInfo {
+        rule_id: "playwright.browsers",
+        category: Category::Cache,
+        candidate: "ms-playwright",
+        restore_hint: "Playwright will redownload browsers on next `npx playwright install`",
+    },
 ];

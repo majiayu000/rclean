@@ -66,6 +66,9 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "xcode.simulators"
             | "go.module_download_cache"
             | "go.build_cache"
+            | "bun.cache"
+            | "pre_commit.cache"
+            | "playwright.browsers"
     )
 }
 
