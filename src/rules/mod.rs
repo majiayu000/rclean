@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod app_caches;
+mod bun;
 mod cargo_global;
 mod catalog;
 mod dotnet;
@@ -16,6 +18,8 @@ mod maven;
 mod node;
 mod node_global;
 mod pip;
+mod playwright;
+mod pre_commit;
 mod project;
 mod python;
 mod ruby;
@@ -71,9 +75,13 @@ static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
 static MAVEN_RULES: RuleFn = RuleFn(maven::classify);
+static BUN_RULES: RuleFn = RuleFn(bun::classify);
+static PRE_COMMIT_RULES: RuleFn = RuleFn(pre_commit::classify);
+static PLAYWRIGHT_RULES: RuleFn = RuleFn(playwright::classify);
+static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 16] = [
+static BUILTIN_RULES: [&dyn RuleSet; 20] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -89,6 +97,10 @@ static BUILTIN_RULES: [&dyn RuleSet; 16] = [
     &PIP_RULES,
     &GRADLE_RULES,
     &MAVEN_RULES,
+    &BUN_RULES,
+    &PRE_COMMIT_RULES,
+    &PLAYWRIGHT_RULES,
+    &APP_CACHES_RULES,
     &GENERIC_RULES,
 ];
 

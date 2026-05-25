@@ -134,7 +134,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 12 rules applicable"));
+        .stdout(predicate::str::contains("of 18 rules applicable"));
 }
 
 #[test]

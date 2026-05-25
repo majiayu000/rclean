@@ -186,6 +186,12 @@ let rclean find every applicable cache automatically:
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
 | `xcode.simulators` | `~/Library/Developer/CoreSimulator` | caution | next iOS app run |
+| `bun.cache` | `~/.bun/install/cache` | safe | next `bun install` |
+| `pre_commit.cache` | `~/.cache/pre-commit` | safe | next `pre-commit run` |
+| `playwright.browsers` | `~/Library/Caches/ms-playwright` (macOS) / `~/.cache/ms-playwright` (Linux) | safe | next `npx playwright install` |
+| `app.shipit_caches` | `~/Library/Caches/*.ShipIt` (macOS, Squirrel.Mac apps like VSCode/Notion) | safe | none — leftover update packages |
+| `chrome.cache` | `~/Library/Caches/Google/Chrome` (macOS) | safe | next browsing |
+| `chrome.google_updater` | `~/Library/Application Support/Google/GoogleUpdater` (macOS) | safe | Chrome rebuilds it on launch |
 
 Run `rclean doctor` to see which of these apply on your machine
 right now:
