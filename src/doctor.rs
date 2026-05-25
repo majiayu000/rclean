@@ -254,11 +254,7 @@ fn python_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        vec![home
-            .join("AppData")
-            .join("Local")
-            .join(tool)
-            .join("Cache")]
+        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
     }
 }
 
