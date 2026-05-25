@@ -145,6 +145,27 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
+    // Browser automation + pre-commit caches (#100). Playwright lives
+    // under Library/Caches on macOS native; puppeteer and pre-commit
+    // both default to ~/.cache on every platform (per their docs and
+    // platformdirs). check_any_anchor accepts either layout on macOS.
+    let playwright_anchors = browser_cache_anchors(&home, "ms-playwright");
+    entries.push(check_any_anchor(
+        "browser.playwright",
+        playwright_anchors,
+        "no Playwright install detected",
+    ));
+    entries.push(check_anchor(
+        "browser.puppeteer",
+        home.join(".cache").join("puppeteer"),
+        "no Puppeteer install detected",
+    ));
+    entries.push(check_anchor(
+        "lint.pre_commit",
+        home.join(".cache").join("pre-commit"),
+        "no pre-commit install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -215,6 +236,27 @@ fn check_anchor(
     }
 }
 
+/// Canonical anchors for a browser-automation cache directory.
+/// Playwright on macOS defaults to `~/Library/Caches/<tool>` but
+/// honours `~/.cache/<tool>` as an XDG fallback.
+fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join(tool)]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join(tool)]
+    }
+}
+
 fn check_any_anchor(
     rule_id: &'static str,
     anchors: Vec<PathBuf>,
@@ -259,10 +301,11 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 macOS-only entries (or 3 stubbed
-        // skipped entries on non-macOS). Either way: 12 total,
-        // matching the v0.2 Phase 1 ruleset.
-        assert_eq!(report.total_count(), 12);
+        // 9 cross-platform + 3 browser/lint (playwright/puppeteer/
+        // pre-commit) + 3 macOS-only (or 3 stubbed skipped entries on
+        // non-macOS). Either way: 15 total, matching the v0.2 ruleset
+        // including issue #100.
+        assert_eq!(report.total_count(), 15);
     }
 
     #[test]

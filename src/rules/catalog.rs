@@ -232,6 +232,24 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "pip will repopulate the cache on the next install",
     },
     RuleInfo {
+        rule_id: "browser.playwright",
+        category: Category::Cache,
+        candidate: "ms-playwright",
+        restore_hint: "Run `npx playwright install` to re-download browser binaries",
+    },
+    RuleInfo {
+        rule_id: "browser.puppeteer",
+        category: Category::Cache,
+        candidate: "puppeteer",
+        restore_hint: "Run `npx puppeteer browsers install chrome` to re-download Chrome for Testing",
+    },
+    RuleInfo {
+        rule_id: "lint.pre_commit",
+        category: Category::Cache,
+        candidate: "pre-commit",
+        restore_hint: "pre-commit will rebuild hook environments on the next `git commit`",
+    },
+    RuleInfo {
         rule_id: "gradle.caches",
         category: Category::Cache,
         candidate: "caches",

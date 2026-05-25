@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod browser_global;
 mod cargo_global;
 mod catalog;
 mod dotnet;
@@ -68,12 +69,13 @@ static IOS_RULES: RuleFn = RuleFn(ios::classify);
 static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
+static BROWSER_GLOBAL_RULES: RuleFn = RuleFn(browser_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
 static MAVEN_RULES: RuleFn = RuleFn(maven::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 16] = [
+static BUILTIN_RULES: [&dyn RuleSet; 17] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -86,6 +88,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 16] = [
     &XCODE_RULES,
     &CARGO_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,
+    &BROWSER_GLOBAL_RULES,
     &PIP_RULES,
     &GRADLE_RULES,
     &MAVEN_RULES,

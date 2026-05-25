@@ -39,7 +39,8 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Gradle caches,
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Playwright
+  browsers, Puppeteer Chrome, pre-commit hooks, Gradle caches,
   Maven local repo, Xcode `DerivedData`, iOS Simulators (via
   `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
@@ -182,6 +183,9 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `browser.playwright` | `~/Library/Caches/ms-playwright` (macOS) / `~/.cache/ms-playwright` (Linux) | caution | `npx playwright install` |
+| `browser.puppeteer` | `~/.cache/puppeteer` | caution | `npx puppeteer browsers install chrome` |
+| `lint.pre_commit` | `~/.cache/pre-commit` | safe | next `git commit` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
@@ -208,7 +212,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 12 rules applicable on this machine.
+9 of 15 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

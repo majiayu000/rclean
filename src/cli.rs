@@ -329,6 +329,10 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
+        // Puppeteer and pre-commit honour XDG_CACHE_HOME on macOS
+        // and live under ~/.cache by default. Include it so `--home`
+        // covers both layouts.
+        candidates.push(home.join(".cache"));
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
