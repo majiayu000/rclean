@@ -232,6 +232,46 @@ pub fn diagnose() -> DoctorReport {
         });
     }
 
+    // v0.3 Phase 2: GUI app caches under ~/Library/* (macOS only).
+    // Each rule anchors on the candidate's parent directory, so
+    // doctor checks whether that parent exists at all.
+    #[cfg(target_os = "macos")]
+    {
+        entries.push(check_anchor(
+            "app.shipit_caches",
+            home.join("Library").join("Caches"),
+            "no Library/Caches directory",
+        ));
+        entries.push(check_anchor(
+            "chrome.cache",
+            home.join("Library").join("Caches").join("Google"),
+            "no Chrome cache detected",
+        ));
+        entries.push(check_anchor(
+            "chrome.google_updater",
+            home.join("Library")
+                .join("Application Support")
+                .join("Google"),
+            "no Google app data detected",
+        ));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        for rule_id in [
+            "app.shipit_caches",
+            "chrome.cache",
+            "chrome.google_updater",
+        ] {
+            entries.push(DoctorEntry {
+                rule_id,
+                anchor: PathBuf::from("(macOS only)"),
+                status: Status::Skipped {
+                    reason: "rule only applies on macOS",
+                },
+            });
+        }
+    }
+
     DoctorReport { entries }
 }
 
@@ -299,10 +339,10 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // v0.3: 11 cross-platform + 3 macOS-only (or 3 stubbed) +
-        // 1 playwright (macOS/Linux, stubbed on Windows). Either way:
-        // 15 total.
-        assert_eq!(report.total_count(), 15);
+        // v0.3 Phase 2: 11 cross-platform + 3 macOS-only (or stubbed)
+        // + 1 playwright (macOS/Linux, stubbed on Windows) + 3 GUI
+        // app caches (macOS only, or stubbed). Either way: 18 total.
+        assert_eq!(report.total_count(), 18);
     }
 
     #[test]

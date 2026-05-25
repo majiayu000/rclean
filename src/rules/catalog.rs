@@ -267,4 +267,22 @@ pub(super) static RULES: &[RuleInfo] = &[
         candidate: "ms-playwright",
         restore_hint: "Playwright will redownload browsers on next `npx playwright install`",
     },
+    RuleInfo {
+        rule_id: "app.shipit_caches",
+        category: Category::Cache,
+        candidate: "*.ShipIt",
+        restore_hint: "none — these are leftover update packages from completed app updates",
+    },
+    RuleInfo {
+        rule_id: "chrome.cache",
+        category: Category::Cache,
+        candidate: "Chrome",
+        restore_hint: "Chrome will repopulate the cache on next browsing",
+    },
+    RuleInfo {
+        rule_id: "chrome.google_updater",
+        category: Category::Cache,
+        candidate: "GoogleUpdater",
+        restore_hint: "Chrome's updater will recreate it on next launch",
+    },
 ];

@@ -69,6 +69,9 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "bun.cache"
             | "pre_commit.cache"
             | "playwright.browsers"
+            | "app.shipit_caches"
+            | "chrome.cache"
+            | "chrome.google_updater"
     )
 }
 
