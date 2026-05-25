@@ -257,11 +257,7 @@ pub fn diagnose() -> DoctorReport {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        for rule_id in [
-            "app.shipit_caches",
-            "chrome.cache",
-            "chrome.google_updater",
-        ] {
+        for rule_id in ["app.shipit_caches", "chrome.cache", "chrome.google_updater"] {
             entries.push(DoctorEntry {
                 rule_id,
                 anchor: PathBuf::from("(macOS only)"),
