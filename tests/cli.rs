@@ -121,8 +121,8 @@ fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn home_flag_expands_to_bun_install_cache_not_runtime_root(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn home_flag_expands_to_bun_install_cache_not_runtime_root()
+-> Result<(), Box<dyn std::error::Error>> {
     // Issue #103 safety invariant: the rule MUST target
     // ~/.bun/install/cache, NEVER ~/.bun itself (which holds the
     // Bun runtime binary). This test enforces both halves.
