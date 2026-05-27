@@ -177,18 +177,23 @@ read schema `2`; schema `1` plans are rejected with a rescan hint.
    entry: accumulate byte size into a per-directory `DirSizes`
    map, and if the directory name is a candidate, classify and
    stash the draft.
-2. **Sizing phase** — for each candidate kept after filtering, fold
-   the `DirSizes` map under that candidate's subtree
-   (`sum_subtree_bytes`) to compute its reclaimable bytes.
+2. **Sizing phase** — size candidate artifact directories with
+   `dir_size()` and compute project/source bytes from the `DirSizes`
+   data collected during the walk.
 
-The single-pass walk replaced an earlier per-candidate second walk
-that traversed every subtree twice. The v0.1.5 milestone in
+The single-pass walk replaced an earlier source-size pass that
+traversed every project tree twice. Candidate directories are pruned
+from the walk phase and sized separately, so large artifacts such as
+`target/` and `node_modules/` remain the main sizing hotspot. The
+current source-byte fold also scans `DirSizes` per project, so broad
+workspaces can pay `project_count * dir_count` work until that lookup
+is indexed. The v0.1.5 milestone in
 [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) targets
 3× the v0.1.0 throughput by parallelizing both phases — performance
 regressions there should be caught by the `benches/` suite that
 ships with that milestone. Until then, include a wall-clock
 before/after when a PR touches the walker, `DirSizes`
-accumulation, or `sum_subtree_bytes`.
+accumulation, candidate `dir_size()`, or source-byte lookup.
 
 ## Where to put a new feature
 
