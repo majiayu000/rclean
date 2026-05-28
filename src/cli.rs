@@ -190,8 +190,9 @@ pub struct CommonScanArgs {
     /// Expand to all developer toolchain cache locations under $HOME
     /// (~/.cargo, ~/go, ~/.gradle, ~/.m2, ~/.npm, ~/.pnpm-store,
     /// plus platform-specific paths like ~/Library/Caches,
-    /// ~/Library/pnpm and ~/Library/Developer on macOS, ~/.cache
-    /// and ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
+    /// ~/Library/pnpm, ~/Library/Developer, and
+    /// ~/Library/Application Support/Google on macOS, ~/.cache and
+    /// ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
     ///
     /// This is the entry point for the v0.2 "developer-grade mole"
     /// flow — it activates the global cache rules
@@ -330,6 +331,11 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
+        candidates.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Google"),
+        );
         // v0.3: pre-commit hardcodes `~/.cache/pre-commit` on every
         // platform (it does not follow the macOS Library/Caches
         // convention). Without this, `--home` would miss pre-commit
