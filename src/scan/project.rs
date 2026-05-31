@@ -26,7 +26,7 @@ use crate::rules;
 use super::ScanOptions;
 use super::git_cache::GitCache;
 use super::safety::is_skip_name;
-use super::sizer::{self, DirSizes};
+use super::sizer::{self, SourceSizeIndex};
 
 pub(crate) fn build_project_report(
     dir: &Path,
@@ -34,7 +34,7 @@ pub(crate) fn build_project_report(
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
     git_cache: &GitCache,
-    sizes: &DirSizes,
+    source_sizes: &SourceSizeIndex,
 ) -> Result<ProjectReport, ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_cache.info_for(dir);
@@ -59,7 +59,7 @@ pub(crate) fn build_project_report(
         });
     }
 
-    let size_summary = sizer::summarize(dir, &drafts, sizes, options.verbose);
+    let size_summary = sizer::summarize(dir, &drafts, source_sizes, options.verbose);
 
     let mut candidates = Vec::new();
     for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
