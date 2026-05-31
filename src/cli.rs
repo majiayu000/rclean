@@ -190,8 +190,9 @@ pub struct CommonScanArgs {
     /// Expand to all developer toolchain cache locations under $HOME
     /// (~/.cargo, ~/go, ~/.gradle, ~/.m2, ~/.npm, ~/.pnpm-store,
     /// plus platform-specific paths like ~/Library/Caches,
-    /// ~/Library/pnpm and ~/Library/Developer on macOS, ~/.cache
-    /// and ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
+    /// ~/Library/pnpm, ~/Library/Developer, and
+    /// ~/Library/Application Support/Google on macOS, ~/.cache and
+    /// ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
     ///
     /// This is the entry point for the v0.2 "developer-grade mole"
     /// flow — it activates the global cache rules
@@ -319,10 +320,6 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
-        // ~/.bun is needed so the walker can reach
-        // ~/.bun/install/cache (js.bun_install_cache). The classifier
-        // anchors on the install/ subdirectory, so the runtime
-        // binary at ~/.bun/bun is never selected as a candidate.
         home.join(".bun"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
@@ -334,6 +331,14 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
+        candidates.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Google"),
+        );
+        // Some global tools use XDG-style caches on macOS instead of
+        // `~/Library/Caches` (for example pre-commit and uv).
+        candidates.push(home.join(".cache"));
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]

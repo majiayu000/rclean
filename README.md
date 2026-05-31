@@ -39,8 +39,9 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Bun install
-  cache, Deno cache, Gradle caches, Maven local repo, Xcode
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, uv cache,
+  Poetry cache, pipx cache, Bun install cache, Deno cache, Gradle
+  caches, Maven local repo, Xcode
   `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
 - root-project scanning
@@ -110,8 +111,9 @@ rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches`,
-`~/Library/pnpm`, and `~/Library/Developer` on macOS or `~/.cache`
-and `~/.local/share/pnpm` on Linux. Existing
+`~/Library/pnpm`, `~/Library/Developer`, and
+`~/Library/Application Support/Google` on macOS or `~/.cache` and
+`~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
 [Global Toolchain Caches](#global-toolchain-caches) table below
@@ -182,12 +184,20 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
-| `js.bun_install_cache` | `~/.bun/install/cache` (sub-path only — `~/.bun` itself is never selected) | caution | `bun pm cache rm` |
+| `python.uv_cache` | `~/Library/Caches/uv` or `~/.cache/uv` (XDG override active on macOS too) | caution | `uv cache clean` |
+| `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
+| `python.pipx_cache` | `~/Library/Caches/pipx` (macOS) / `~/.cache/pipx` (Linux) | safe | next `pipx run <pkg>` |
 | `js.deno_cache` | `~/Library/Caches/deno` (macOS) / `~/.cache/deno` (Linux) | caution | `deno cache --reload` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
 | `xcode.simulators` | `~/Library/Developer/CoreSimulator` | caution | next iOS app run |
+| `bun.cache` | `~/.bun/install/cache` | safe | next `bun install` |
+| `pre_commit.cache` | `~/.cache/pre-commit` | safe | next `pre-commit run` |
+| `playwright.browsers` | `~/Library/Caches/ms-playwright` (macOS) / `~/.cache/ms-playwright` (Linux) | safe | next `npx playwright install` |
+| `app.shipit_caches` | `~/Library/Caches/*.ShipIt` (macOS, Squirrel.Mac apps like VSCode/Notion) | safe | none — leftover update packages |
+| `chrome.cache` | `~/Library/Caches/Google/Chrome` (macOS) | safe | next browsing |
+| `chrome.google_updater` | `~/Library/Application Support/Google/GoogleUpdater` (macOS) | safe | Chrome rebuilds it on launch |
 
 Run `rclean doctor` to see which of these apply on your machine
 right now:
@@ -204,13 +214,17 @@ go.build_cache             applicable ~/Library/Caches/go-build
 node.npm_cacache           applicable ~/.npm
 node.pnpm_store            skipped    no pnpm store detected
 pip.cache                  applicable ~/Library/Caches
+python.uv_cache            applicable ~/.cache/uv
+python.poetry_cache        skipped    no Poetry install detected
+python.pipx_cache          skipped    no pipx install detected
+js.deno_cache              skipped    no Deno install detected
 node.yarn_cache            applicable ~/Library/Caches
 xcode.derived_data         applicable ~/Library/Developer/Xcode
 xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 14 rules applicable on this machine.
+10 of 22 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are
