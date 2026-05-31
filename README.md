@@ -39,11 +39,13 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, uv cache,
-  Poetry cache, pipx cache, Bun install cache, Deno cache, Gradle
+  cache, npm `_cacache` and transient caches, pnpm store, yarn cache,
+  pip cache, uv cache, Poetry cache, pipx cache, Bun install cache,
+  Deno cache, Bundler compact index, Kubernetes/gcloud caches, Gradle
   caches, Maven local repo, Puppeteer Chrome, HuggingFace Hub,
-  PyTorch Hub, Ollama models (report-only), Xcode `DerivedData`,
-  iOS Simulators (via `scan --home`)
+  PyTorch Hub, Ollama models (report-only), VS Code/Cursor caches,
+  obsolete editor extensions, Claude Code old versions, Xcode
+  `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`, `report-only`
 - root-project scanning
 - symlink blocking
@@ -81,6 +83,11 @@ cargo install rclean-cli
 
 The Cargo package is `rclean-cli`; the installed command is `rclean`.
 
+If installation or first-run behavior is confusing, use the
+[feature request intake](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml)
+for packaging or documentation gaps. If scan or cleanup output looks
+unsafe, use the safety intake linked in [Support and Intake](#support-and-intake).
+
 ## Usage
 
 ```bash
@@ -111,10 +118,11 @@ rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 ```
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
-`~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches`,
-`~/Library/pnpm`, `~/Library/Developer`, and
-`~/Library/Application Support/Google` on macOS or `~/.cache` and
-`~/.local/share/pnpm` on Linux. Existing
+`~/.npm`, `~/.pnpm-store`, `~/.bundle`, `~/.kube`,
+`~/.config/gcloud`, editor extension/version roots, plus
+`~/Library/Caches`, `~/Library/pnpm`, `~/Library/Developer`, and
+selected `~/Library/Application Support/<app>` anchors on macOS or
+`~/.cache` and `~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
 [Global Toolchain Caches](#global-toolchain-caches) table below
@@ -126,6 +134,11 @@ After installation:
 rclean scan ~/code
 rclean clean ~/code --all --dry-run
 ```
+
+If this quickstart flags a path that should not be cleanup, open a
+[scan false positive report](https://github.com/majiayu000/rclean/issues/new?template=scan-false-positive.yml).
+If the dry run or ActionPlan selection looks risky, open a
+[cleanup safety concern](https://github.com/majiayu000/rclean/issues/new?template=cleanup-safety-concern.yml).
 
 Write and review an ActionPlan:
 
@@ -149,6 +162,20 @@ rclean clean --plan rclean-plan.json --dry-run
 
 See [`SECURITY.md`](SECURITY.md) for the threat model, in-scope issues,
 and how to report a vulnerability privately.
+
+## Support and Intake
+
+- [Scan false positives](https://github.com/majiayu000/rclean/issues/new?template=scan-false-positive.yml):
+  use when `scan` or `explain` classifies a path that should not be cleanup.
+- [Cleanup safety concerns](https://github.com/majiayu000/rclean/issues/new?template=cleanup-safety-concern.yml):
+  use when `clean --dry-run`, ActionPlan review, or cleanup execution looks
+  risky or surprising.
+- [Feature requests](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml):
+  use for new ecosystem rules, install/package requests, output modes, and
+  documentation gaps.
+
+Security or private trust-model issues should follow [`SECURITY.md`](SECURITY.md)
+instead of public issue intake.
 
 ## Supported Ecosystems
 
@@ -182,9 +209,13 @@ let rclean find every applicable cache automatically:
 | `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
 | `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
 | `node.npm_cacache` | `~/.npm/_cacache` | safe | next `npm install` |
+| `node.npm_transient` | `~/.npm/_npx`, `~/.npm/_logs`, `~/.npm/_prebuilds` | safe | npm recreates them as needed |
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `ruby.bundle_compact_index` | `~/.bundle/cache/compact_index` | safe | next `bundle install` |
+| `cloud.kube_cache` | `~/.kube/cache` | safe | next `kubectl` use |
+| `cloud.gcloud_logs` | `~/.config/gcloud/logs` | safe | gcloud recreates logs |
 | `ai.huggingface_hub` | `~/.cache/huggingface/hub` | caution | `huggingface-cli delete-cache` |
 | `ai.torch_hub` | `~/.cache/torch/hub` | safe | next `torch.hub.load()` |
 | `ai.ollama_models` | `~/.ollama/models` | **report-only** (user data, never selected) | `ollama pull <model>` |
@@ -203,6 +234,12 @@ let rclean find every applicable cache automatically:
 | `app.shipit_caches` | `~/Library/Caches/*.ShipIt` (macOS, Squirrel.Mac apps like VSCode/Notion) | safe | none — leftover update packages |
 | `chrome.cache` | `~/Library/Caches/Google/Chrome` (macOS) | safe | next browsing |
 | `chrome.google_updater` | `~/Library/Application Support/Google/GoogleUpdater` (macOS) | safe | Chrome rebuilds it on launch |
+| `editor.vscode_cache` | `~/Library/Application Support/Code/{logs,Cache,CachedData,Code Cache,GPUCache}` (macOS) | caution | close VS Code; it recreates caches |
+| `editor.cursor_cache` | `~/Library/Application Support/Cursor/{logs,Cache,CachedData,Code Cache,GPUCache}` (macOS) | caution | close Cursor; it recreates caches |
+| `editor.vscode_obsolete_extension` | `~/.vscode/extensions/<publisher>.<name>-<old-version>` | caution | Marketplace reinstall if needed |
+| `editor.cursor_obsolete_extension` | `~/.cursor/extensions/<publisher>.<name>-<old-version>` | caution | Marketplace reinstall if needed |
+| `claude.old_version` | `~/.local/share/claude/versions/<old-version>` | caution | Claude Code reinstalls if needed |
+| `app.electron_cache` | known macOS app support `Cache`, `Code Cache`, `GPUCache`, `Dawn*Cache` dirs | caution | close app; it recreates caches |
 
 Run `rclean doctor` to see which of these apply on your machine
 right now:

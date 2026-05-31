@@ -214,6 +214,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "npm will rebuild the cache on the next install",
     },
     RuleInfo {
+        rule_id: "node.npm_transient",
+        category: Category::Cache,
+        candidate: "_npx/_logs/_prebuilds",
+        restore_hint: "npm will recreate this transient cache when needed",
+    },
+    RuleInfo {
         rule_id: "node.pnpm_store",
         category: Category::Cache,
         candidate: "store",
@@ -332,5 +338,59 @@ pub(super) static RULES: &[RuleInfo] = &[
         category: Category::Cache,
         candidate: "GoogleUpdater",
         restore_hint: "Chrome's updater will recreate it on next launch",
+    },
+    RuleInfo {
+        rule_id: "ruby.bundle_compact_index",
+        category: Category::Cache,
+        candidate: "compact_index",
+        restore_hint: "Bundler will refetch the compact index on the next install",
+    },
+    RuleInfo {
+        rule_id: "cloud.kube_cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "kubectl will recreate the discovery cache on the next use",
+    },
+    RuleInfo {
+        rule_id: "cloud.gcloud_logs",
+        category: Category::Cache,
+        candidate: "logs",
+        restore_hint: "gcloud will recreate logs on the next run",
+    },
+    RuleInfo {
+        rule_id: "editor.vscode_cache",
+        category: Category::Cache,
+        candidate: "logs/Cache/CachedData/Code Cache/GPUCache",
+        restore_hint: "Close VS Code first; it will recreate this cache on launch",
+    },
+    RuleInfo {
+        rule_id: "editor.cursor_cache",
+        category: Category::Cache,
+        candidate: "logs/Cache/CachedData/Code Cache/GPUCache",
+        restore_hint: "Close Cursor first; it will recreate this cache on launch",
+    },
+    RuleInfo {
+        rule_id: "editor.vscode_obsolete_extension",
+        category: Category::Deps,
+        candidate: "<publisher>.<name>-<old-version>",
+        restore_hint: "Reinstall the extension from the marketplace if needed",
+    },
+    RuleInfo {
+        rule_id: "editor.cursor_obsolete_extension",
+        category: Category::Deps,
+        candidate: "<publisher>.<name>-<old-version>",
+        restore_hint: "Reinstall the extension from the marketplace if needed",
+    },
+    RuleInfo {
+        rule_id: "claude.old_version",
+        category: Category::Deps,
+        candidate: "<old-semver>",
+        restore_hint: "Claude Code can reinstall the version if it is needed again",
+    },
+    RuleInfo {
+        rule_id: "app.electron_cache",
+        category: Category::Cache,
+        candidate: "Cache/Code Cache/GPUCache/Dawn*Cache",
+        restore_hint: "Close the app first; it will recreate this cache on launch",
     },
 ];

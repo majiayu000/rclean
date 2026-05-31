@@ -5,6 +5,7 @@ use super::markers::{
     package_mentions,
 };
 use super::node_global::is_pnpm_store_version_name;
+use super::user_tool_caches::is_dynamic_candidate_name as is_user_tool_dynamic_candidate_name;
 
 pub fn is_candidate_name(name: &str) -> bool {
     matches!(
@@ -40,6 +41,9 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "go-build"
             | "store"
             | "_cacache"
+            | "_npx"
+            | "_logs"
+            | "_prebuilds"
             | "Yarn"
             | "pip"
             | "hub"
@@ -56,8 +60,15 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "ms-playwright"
             | "Chrome"
             | "GoogleUpdater"
+            | "compact_index"
+            | "logs"
+            | "Cache"
+            | "CachedData"
+            | "Code Cache"
+            | "GPUCache"
     ) || is_pnpm_store_version_name(name)
         || is_shipit_candidate_name(name)
+        || is_user_tool_dynamic_candidate_name(name)
 }
 
 fn is_shipit_candidate_name(name: &str) -> bool {
@@ -96,6 +107,16 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "app.shipit_caches"
             | "chrome.cache"
             | "chrome.google_updater"
+            | "node.npm_transient"
+            | "ruby.bundle_compact_index"
+            | "cloud.kube_cache"
+            | "cloud.gcloud_logs"
+            | "editor.vscode_cache"
+            | "editor.cursor_cache"
+            | "editor.vscode_obsolete_extension"
+            | "editor.cursor_obsolete_extension"
+            | "claude.old_version"
+            | "app.electron_cache"
     )
 }
 
@@ -194,6 +215,14 @@ mod tests {
             "com.microsoft.VSCode.ShipIt",
             "Chrome",
             "GoogleUpdater",
+            "compact_index",
+            "_npx",
+            "_logs",
+            "_prebuilds",
+            "Code Cache",
+            "DawnGraphiteCache",
+            "publisher.tool-1.2.0",
+            "1.2.3",
         ] {
             assert!(is_candidate_name(name), "{name} should pass prefilter");
         }

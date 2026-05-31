@@ -31,6 +31,20 @@ Binary name: `rclean`
 - [ ] Include SHA256 checksums.
 - [ ] Include safety model in release notes.
 - [ ] Include install commands.
+- [ ] If no latest release exists, create it in the GitHub UI:
+      repository page -> **Releases** -> **Draft a new release** ->
+      choose or create tag `vX.Y.Z` -> use the changelog as release
+      notes -> attach archives and `checksums.txt` -> **Publish release**.
+
+## GitHub Repository Metadata
+
+- [ ] Confirm issue forms render from **Issues** -> **New issue**:
+      scan false positive, cleanup safety concern, and feature request.
+- [ ] Confirm the PR template renders when opening a pull request.
+- [ ] Add repository topics in the GitHub UI: repository page ->
+      **About** gear icon -> **Topics** -> add `rust`, `cli`,
+      `developer-tools`, `disk-cleanup`, `cache-cleaner`,
+      `filesystem`, and `safe-delete` -> **Save changes**.
 
 ## Homebrew
 
