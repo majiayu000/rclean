@@ -362,8 +362,22 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
 
     #[cfg(target_os = "windows")]
     {
-        candidates.push(home.join(".cache"));
-        candidates.push(home.join("AppData").join("Local").join("pnpm"));
+        let local_app_data = home.join("AppData").join("Local");
+        let xdg_cache = home.join(".cache");
+        if ["huggingface", "pre-commit", "puppeteer", "torch"]
+            .iter()
+            .any(|name| xdg_cache.join(name).is_dir())
+        {
+            candidates.push(xdg_cache);
+        }
+        // The walker classifies child directories, so `go-build`
+        // needs its parent as the scan root. Keep pnpm targeted when
+        // the Go build cache is absent.
+        if local_app_data.join("go-build").is_dir() {
+            candidates.push(local_app_data);
+        } else {
+            candidates.push(local_app_data.join("pnpm"));
+        }
     }
 
     candidates.retain(|p| p.is_dir());

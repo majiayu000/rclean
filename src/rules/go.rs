@@ -47,7 +47,9 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
 }
 
 fn is_go_build_cache_parent(path: &Path) -> bool {
-    parent_ends_with(path, &["Library", "Caches"]) || parent_ends_with(path, &[".cache"])
+    parent_ends_with(path, &["Library", "Caches"])
+        || parent_ends_with(path, &[".cache"])
+        || parent_ends_with(path, &["AppData", "Local"])
 }
 
 #[cfg(test)]
@@ -80,6 +82,17 @@ mod tests {
     #[test]
     fn classifies_go_build_cache_under_xdg_cache() {
         let parent = PathBuf::from("/home/me/.cache");
+        let path = parent.join("go-build");
+        let draft = classify(&parent, "go-build", &path).expect("should classify");
+
+        assert_eq!(draft.rule_id, "go.build_cache");
+        assert_eq!(draft.category, Category::Cache);
+        assert_eq!(draft.safety, Safety::Safe);
+    }
+
+    #[test]
+    fn classifies_go_build_cache_under_windows_local_app_data() {
+        let parent = PathBuf::from("C:/Users/me/AppData/Local");
         let path = parent.join("go-build");
         let draft = classify(&parent, "go-build", &path).expect("should classify");
 

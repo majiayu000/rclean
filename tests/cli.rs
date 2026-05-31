@@ -78,8 +78,10 @@ fn home_flag_expands_to_go_cache_roots_when_present() {
 
     #[cfg(target_os = "macos")]
     let build_cache = temp.path().join("Library").join("Caches").join("go-build");
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let build_cache = temp.path().join(".cache").join("go-build");
+    #[cfg(target_os = "windows")]
+    let build_cache = temp.path().join("AppData").join("Local").join("go-build");
     std::fs::create_dir_all(&build_cache).unwrap();
     std::fs::write(build_cache.join("blob"), "x").unwrap();
 
