@@ -335,10 +335,7 @@ fn summarize_selected(selected: &[PlanCandidate], scan_summary: &Summary) -> Sum
             Safety::Safe => summary.safe_candidates += 1,
             Safety::Caution => summary.caution_candidates += 1,
             Safety::Blocked => summary.blocked_candidates += 1,
-            // ReportOnly candidates aren't counted as a separate
-            // summary bucket — they're surfaced via the candidate
-            // safety field and warnings; selection logic rejects them.
-            Safety::ReportOnly => {}
+            Safety::ReportOnly => summary.report_only_candidates += 1,
             Safety::Unknown => {}
         }
     }
@@ -444,6 +441,7 @@ mod tests {
                 safe_candidates: 1,
                 caution_candidates: 0,
                 blocked_candidates: 0,
+                report_only_candidates: 0,
                 total_bytes: 3,
             },
             projects: vec![ProjectReport {

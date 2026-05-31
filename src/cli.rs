@@ -190,8 +190,9 @@ pub struct CommonScanArgs {
     /// Expand to all developer toolchain cache locations under $HOME
     /// (~/.cargo, ~/go, ~/.gradle, ~/.m2, ~/.npm, ~/.pnpm-store,
     /// plus platform-specific paths like ~/Library/Caches,
-    /// ~/Library/pnpm and ~/Library/Developer on macOS, ~/.cache
-    /// and ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
+    /// ~/Library/pnpm, ~/Library/Developer, and
+    /// ~/Library/Application Support/Google on macOS, ~/.cache and
+    /// ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
     ///
     /// This is the entry point for the v0.2 "developer-grade mole"
     /// flow — it activates the global cache rules
@@ -319,11 +320,8 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
-        // ~/.ollama is needed so the walker can reach
-        // ~/.ollama/models for the ai.ollama_models rule. The rule
-        // is ReportOnly, so the path is reported but never selected
-        // for cleanup.
         home.join(".ollama"),
+        home.join(".bun"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
         candidates.extend(std::env::split_paths(&gopath));
@@ -334,9 +332,13 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
-        // HuggingFace and PyTorch hub caches live under ~/.cache on
-        // every platform per their respective docs. Include it on
-        // macOS so they're reachable from `scan --home`.
+        candidates.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Google"),
+        );
+        // Some global tools use XDG-style caches on macOS instead of
+        // `~/Library/Caches` (for example pre-commit and uv).
         candidates.push(home.join(".cache"));
     }
 

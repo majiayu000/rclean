@@ -1,6 +1,17 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+#[cfg(target_os = "macos")]
+use serde_json::Value;
+#[cfg(target_os = "macos")]
+use std::path::Path;
 use tempfile::TempDir;
+
+#[cfg(target_os = "macos")]
+fn make_non_empty_dir(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(path)?;
+    std::fs::write(path.join("blob"), b"x")?;
+    Ok(())
+}
 
 #[test]
 fn home_flag_conflicts_with_positional_paths() {
@@ -120,6 +131,146 @@ fn home_flag_expands_to_pnpm_cache_roots_when_present() -> Result<(), Box<dyn st
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn home_flag_reports_global_app_cache_rules() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let caches = temp.path().join("Library").join("Caches");
+    let app_support_google = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Google");
+
+    let playwright = caches.join("ms-playwright");
+    let shipit = caches.join("com.microsoft.VSCode.ShipIt");
+    let chrome_cache = caches.join("Google").join("Chrome");
+    let google_updater = app_support_google.join("GoogleUpdater");
+    let chrome_profile = app_support_google.join("Chrome");
+
+    make_non_empty_dir(&playwright)?;
+    make_non_empty_dir(&shipit)?;
+    make_non_empty_dir(&chrome_cache)?;
+    make_non_empty_dir(&google_updater)?;
+    make_non_empty_dir(&chrome_profile)?;
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    let scan_output = scan
+        .env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Value = serde_json::from_slice(&scan_output)?;
+    let candidates: Vec<&Value> = report["projects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|project| project["candidates"].as_array().into_iter().flatten())
+        .collect();
+
+    for (rule_id, path) in [
+        ("playwright.browsers", playwright),
+        ("app.shipit_caches", shipit),
+        ("chrome.cache", chrome_cache),
+        ("chrome.google_updater", google_updater),
+    ] {
+        let path = std::fs::canonicalize(path)?;
+        let path = path.display().to_string();
+        let scan_candidate = candidates.iter().find(|candidate| {
+            candidate["ruleId"].as_str() == Some(rule_id)
+                && candidate["path"].as_str() == Some(path.as_str())
+        });
+        assert!(
+            scan_candidate.is_some(),
+            "scan --home should report {rule_id} at {path}; candidates: {candidates:#?}"
+        );
+        assert_eq!(
+            scan_candidate.and_then(|candidate| candidate["safety"].as_str()),
+            Some("safe"),
+            "scan --home should report {rule_id} as safe"
+        );
+
+        let mut explain = Command::cargo_bin("rclean")?;
+        let explain_output = explain
+            .arg("explain")
+            .arg(&path)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let explain_output = String::from_utf8(explain_output)?;
+        assert!(explain_output.contains(&format!("Rule: {rule_id}")));
+        assert!(explain_output.contains("Safety: safe"));
+    }
+
+    let chrome_profile = std::fs::canonicalize(chrome_profile)?.display().to_string();
+    assert!(
+        !candidates.iter().any(|candidate| {
+            candidate["ruleId"].as_str() == Some("chrome.cache")
+                && candidate["path"].as_str() == Some(chrome_profile.as_str())
+        }),
+        "Application Support/Google/Chrome user data must not be classified as chrome.cache"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn home_flag_expands_to_bun_cache_not_runtime_root() -> Result<(), Box<dyn std::error::Error>> {
+    // Issue #103 safety invariant: the rule MUST target
+    // ~/.bun/install/cache, NEVER ~/.bun itself (which holds the
+    // Bun runtime binary). This test enforces both halves.
+    let temp = TempDir::new()?;
+    let install_cache = temp.path().join(".bun").join("install").join("cache");
+    std::fs::create_dir_all(&install_cache)?;
+    std::fs::write(install_cache.join("blob"), "x")?;
+    // Synthesize a Bun runtime binary alongside install/ to prove
+    // it stays untouched.
+    let bin = temp.path().join(".bun").join("bin");
+    std::fs::create_dir_all(&bin)?;
+    std::fs::write(bin.join("bun"), "fake binary")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        // install/cache is matched.
+        .stdout(predicate::str::contains("\"ruleId\": \"bun.cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""))
+        // The Bun runtime root must NOT appear as a candidate path.
+        .stdout(predicate::str::contains("/.bun\",").not())
+        .stdout(predicate::str::contains("/.bun/bin").not());
+    Ok(())
+}
+
+#[test]
+fn home_flag_reports_xdg_browser_and_lint_caches() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    for name in ["puppeteer", "pre-commit"] {
+        let path = temp.path().join(".cache").join(name);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("blob"), "x")?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"browser.puppeteer\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        .stdout(predicate::str::contains("\"ruleId\": \"pre_commit.cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+    Ok(())
+}
+
 #[test]
 fn home_flag_reports_ollama_models_as_report_only_never_selected()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -176,7 +327,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 15 rules applicable"));
+        .stdout(predicate::str::contains("of 26 rules applicable"));
 }
 
 #[test]

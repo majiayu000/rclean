@@ -226,6 +226,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Yarn will rebuild the cache on the next install",
     },
     RuleInfo {
+        rule_id: "js.deno_cache",
+        category: Category::Cache,
+        candidate: "deno",
+        restore_hint: "Run `deno cache --reload`; Deno will refetch on the next run",
+    },
+    RuleInfo {
         rule_id: "pip.cache",
         category: Category::Cache,
         candidate: "pip",
@@ -250,6 +256,30 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Run `ollama pull <model>` per model (user data, report-only)",
     },
     RuleInfo {
+        rule_id: "browser.puppeteer",
+        category: Category::Cache,
+        candidate: "puppeteer",
+        restore_hint: "Run `npx puppeteer browsers install chrome` to re-download Chrome for Testing",
+    },
+    RuleInfo {
+        rule_id: "python.uv_cache",
+        category: Category::Cache,
+        candidate: "uv",
+        restore_hint: "Run `uv cache clean`; uv will repopulate on the next sync",
+    },
+    RuleInfo {
+        rule_id: "python.poetry_cache",
+        category: Category::Cache,
+        candidate: "pypoetry",
+        restore_hint: "Poetry will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "python.pipx_cache",
+        category: Category::Cache,
+        candidate: "pipx",
+        restore_hint: "pipx will repopulate the cache on the next `pipx run`",
+    },
+    RuleInfo {
         rule_id: "gradle.caches",
         category: Category::Cache,
         candidate: "caches",
@@ -266,5 +296,41 @@ pub(super) static RULES: &[RuleInfo] = &[
         category: Category::Cache,
         candidate: "CoreSimulator",
         restore_hint: "Xcode will recreate simulators on the next iOS app run",
+    },
+    RuleInfo {
+        rule_id: "bun.cache",
+        category: Category::Cache,
+        candidate: "cache",
+        restore_hint: "bun will repopulate the cache on the next install",
+    },
+    RuleInfo {
+        rule_id: "pre_commit.cache",
+        category: Category::Cache,
+        candidate: "pre-commit",
+        restore_hint: "pre-commit will reinitialize hooks on the next run",
+    },
+    RuleInfo {
+        rule_id: "playwright.browsers",
+        category: Category::Cache,
+        candidate: "ms-playwright",
+        restore_hint: "Playwright will redownload browsers on next `npx playwright install`",
+    },
+    RuleInfo {
+        rule_id: "app.shipit_caches",
+        category: Category::Cache,
+        candidate: "*.ShipIt",
+        restore_hint: "none — these are leftover update packages from completed app updates",
+    },
+    RuleInfo {
+        rule_id: "chrome.cache",
+        category: Category::Cache,
+        candidate: "Chrome",
+        restore_hint: "Chrome will repopulate the cache on next browsing",
+    },
+    RuleInfo {
+        rule_id: "chrome.google_updater",
+        category: Category::Cache,
+        candidate: "GoogleUpdater",
+        restore_hint: "Chrome's updater will recreate it on next launch",
     },
 ];

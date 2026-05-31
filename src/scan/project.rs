@@ -26,7 +26,7 @@ use crate::rules;
 use super::ScanOptions;
 use super::git_cache::GitCache;
 use super::safety::is_skip_name;
-use super::sizer::{self, DirSizes};
+use super::sizer::{self, SourceSizeIndex};
 
 pub(crate) fn build_project_report(
     dir: &Path,
@@ -34,7 +34,7 @@ pub(crate) fn build_project_report(
     drafts: Vec<CandidateDraft>,
     options: &ScanOptions,
     git_cache: &GitCache,
-    sizes: &DirSizes,
+    source_sizes: &SourceSizeIndex,
 ) -> Result<ProjectReport, ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_cache.info_for(dir);
@@ -59,7 +59,7 @@ pub(crate) fn build_project_report(
         });
     }
 
-    let size_summary = sizer::summarize(dir, &drafts, sizes, options.verbose);
+    let size_summary = sizer::summarize(dir, &drafts, source_sizes, options.verbose);
 
     let mut candidates = Vec::new();
     for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
@@ -73,7 +73,10 @@ pub(crate) fn build_project_report(
                 .push("project has uncommitted git changes".to_string());
         }
 
-        if bytes < options.min_size && draft.safety != Safety::Blocked {
+        if bytes < options.min_size
+            && draft.safety != Safety::Blocked
+            && draft.safety != Safety::ReportOnly
+        {
             continue;
         }
 
@@ -95,7 +98,9 @@ pub(crate) fn build_project_report(
 
     let total_bytes = candidates
         .iter()
-        .filter(|candidate| candidate.safety != Safety::Blocked)
+        .filter(|candidate| {
+            candidate.safety != Safety::Blocked && candidate.safety != Safety::ReportOnly
+        })
         .map(|candidate| candidate.bytes)
         .sum();
     let source_bytes = size_summary.source_bytes;
@@ -142,9 +147,7 @@ pub(crate) fn build_summary(projects: &[ProjectReport]) -> Summary {
                     summary.total_bytes += candidate.bytes;
                 }
                 Safety::Blocked => summary.blocked_candidates += 1,
-                // ReportOnly: user data, surfaced via candidate field
-                // but excluded from selectable totals.
-                Safety::ReportOnly => {}
+                Safety::ReportOnly => summary.report_only_candidates += 1,
                 Safety::Unknown => {}
             }
         }

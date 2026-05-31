@@ -88,6 +88,8 @@ pub struct Summary {
     pub safe_candidates: usize,
     pub caution_candidates: usize,
     pub blocked_candidates: usize,
+    #[serde(default)]
+    pub report_only_candidates: usize,
     pub total_bytes: u64,
 }
 
