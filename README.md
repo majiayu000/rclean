@@ -39,9 +39,9 @@ This is a from-scratch Rust CLI. It already supports:
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
 - **global toolchain caches**: Cargo registry, Go module/build
-  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, Gradle caches,
-  Maven local repo, Xcode `DerivedData`, iOS Simulators (via
-  `scan --home`)
+  cache, npm `_cacache`, pnpm store, yarn cache, pip cache, uv cache,
+  Poetry cache, pipx cache, Gradle caches, Maven local repo, Xcode
+  `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
 - root-project scanning
 - symlink blocking
@@ -183,6 +183,9 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `python.uv_cache` | `~/Library/Caches/uv` or `~/.cache/uv` (XDG override active on macOS too) | caution | `uv cache clean` |
+| `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
+| `python.pipx_cache` | `~/Library/Caches/pipx` (macOS) / `~/.cache/pipx` (Linux) | safe | next `pipx run <pkg>` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
@@ -209,13 +212,16 @@ go.build_cache             applicable ~/Library/Caches/go-build
 node.npm_cacache           applicable ~/.npm
 node.pnpm_store            skipped    no pnpm store detected
 pip.cache                  applicable ~/Library/Caches
+python.uv_cache            applicable ~/.cache/uv
+python.poetry_cache        skipped    no Poetry install detected
+python.pipx_cache          skipped    no pipx install detected
 node.yarn_cache            applicable ~/Library/Caches
 xcode.derived_data         applicable ~/Library/Developer/Xcode
 xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-9 of 12 rules applicable on this machine.
+10 of 15 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

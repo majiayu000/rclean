@@ -336,10 +336,8 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
                 .join("Application Support")
                 .join("Google"),
         );
-        // v0.3: pre-commit hardcodes `~/.cache/pre-commit` on every
-        // platform (it does not follow the macOS Library/Caches
-        // convention). Without this, `--home` would miss pre-commit
-        // and Playwright's Linux-layout fallback on macOS.
+        // Some global tools use XDG-style caches on macOS instead of
+        // `~/Library/Caches` (for example pre-commit and uv).
         candidates.push(home.join(".cache"));
     }
 

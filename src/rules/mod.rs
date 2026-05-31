@@ -22,6 +22,7 @@ mod playwright;
 mod pre_commit;
 mod project;
 mod python;
+mod python_global;
 mod ruby;
 mod rust;
 mod xcode;
@@ -73,6 +74,7 @@ static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
+static PYTHON_GLOBAL_RULES: RuleFn = RuleFn(python_global::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
 static MAVEN_RULES: RuleFn = RuleFn(maven::classify);
 static BUN_RULES: RuleFn = RuleFn(bun::classify);
@@ -81,7 +83,7 @@ static PLAYWRIGHT_RULES: RuleFn = RuleFn(playwright::classify);
 static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 20] = [
+static BUILTIN_RULES: [&dyn RuleSet; 21] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -95,6 +97,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 20] = [
     &CARGO_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,
     &PIP_RULES,
+    &PYTHON_GLOBAL_RULES,
     &GRADLE_RULES,
     &MAVEN_RULES,
     &BUN_RULES,
