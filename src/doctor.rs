@@ -86,6 +86,11 @@ pub fn diagnose() -> DoctorReport {
             "no npm install detected",
         ),
         check_anchor(
+            "node.npm_transient",
+            home.join(".npm"),
+            "no npm install detected",
+        ),
+        check_anchor(
             "bun.cache",
             home.join(".bun").join("install"),
             "no bun install cache detected",
@@ -94,6 +99,39 @@ pub fn diagnose() -> DoctorReport {
             "pre_commit.cache",
             home.join(".cache"),
             "no XDG cache directory",
+        ),
+        check_anchor(
+            "ruby.bundle_compact_index",
+            home.join(".bundle").join("cache").join("compact_index"),
+            "no Bundler compact index detected",
+        ),
+        check_anchor(
+            "cloud.kube_cache",
+            home.join(".kube").join("cache"),
+            "no Kubernetes cache detected",
+        ),
+        check_anchor(
+            "cloud.gcloud_logs",
+            home.join(".config").join("gcloud").join("logs"),
+            "no gcloud logs detected",
+        ),
+        check_anchor(
+            "editor.vscode_obsolete_extension",
+            home.join(".vscode").join("extensions"),
+            "no VS Code extensions detected",
+        ),
+        check_anchor(
+            "editor.cursor_obsolete_extension",
+            home.join(".cursor").join("extensions"),
+            "no Cursor extensions detected",
+        ),
+        check_anchor(
+            "claude.old_version",
+            home.join(".local")
+                .join("share")
+                .join("claude")
+                .join("versions"),
+            "no Claude Code versions detected",
         ),
     ];
 
@@ -306,10 +344,39 @@ pub fn diagnose() -> DoctorReport {
                 .join("Google"),
             "no Google app data detected",
         ));
+        entries.push(check_anchor(
+            "editor.vscode_cache",
+            home.join("Library")
+                .join("Application Support")
+                .join("Code"),
+            "no VS Code app support detected",
+        ));
+        entries.push(check_anchor(
+            "editor.cursor_cache",
+            home.join("Library")
+                .join("Application Support")
+                .join("Cursor"),
+            "no Cursor app support detected",
+        ));
+        entries.push(check_any_anchor(
+            "app.electron_cache",
+            ["Notion", "Slack", "LarkInternational"]
+                .into_iter()
+                .map(|app| home.join("Library").join("Application Support").join(app))
+                .collect(),
+            "no known Electron app support detected",
+        ));
     }
     #[cfg(not(target_os = "macos"))]
     {
-        for rule_id in ["app.shipit_caches", "chrome.cache", "chrome.google_updater"] {
+        for rule_id in [
+            "app.shipit_caches",
+            "chrome.cache",
+            "chrome.google_updater",
+            "editor.vscode_cache",
+            "editor.cursor_cache",
+            "app.electron_cache",
+        ] {
             entries.push(DoctorEntry {
                 rule_id,
                 anchor: PathBuf::from("(macOS only)"),
@@ -453,9 +520,9 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // v0.3 Phase 2 + Python + Deno + Puppeteer has 23 entries;
-        // AI/ML adds HuggingFace, PyTorch, and Ollama for 26 total.
-        assert_eq!(report.total_count(), 26);
+        // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
+        // #116 conservative user/app cache coverage adds 10 more.
+        assert_eq!(report.total_count(), 36);
     }
 
     #[test]

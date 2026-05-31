@@ -314,6 +314,142 @@ fn home_flag_reports_ollama_models_as_report_only_never_selected()
 }
 
 #[test]
+fn home_flag_reports_user_tool_safe_caches() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    for path in [
+        temp.path().join(".npm").join("_npx"),
+        temp.path().join(".npm").join("_logs"),
+        temp.path().join(".npm").join("_prebuilds"),
+        temp.path()
+            .join(".bundle")
+            .join("cache")
+            .join("compact_index"),
+        temp.path().join(".kube").join("cache"),
+        temp.path().join(".config").join("gcloud").join("logs"),
+    ] {
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("blob"), "x")?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"node.npm_transient\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ruby.bundle_compact_index\"",
+        ))
+        .stdout(predicate::str::contains("\"ruleId\": \"cloud.kube_cache\""))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"cloud.gcloud_logs\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+    Ok(())
+}
+
+#[test]
+fn home_flag_reports_obsolete_editor_and_claude_versions_as_caution()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    for path in [
+        temp.path()
+            .join(".vscode")
+            .join("extensions")
+            .join("publisher.tool-1.0.0"),
+        temp.path()
+            .join(".vscode")
+            .join("extensions")
+            .join("publisher.tool-1.1.0"),
+        temp.path()
+            .join(".local")
+            .join("share")
+            .join("claude")
+            .join("versions")
+            .join("1.0.0"),
+        temp.path()
+            .join(".local")
+            .join("share")
+            .join("claude")
+            .join("versions")
+            .join("1.1.0"),
+    ] {
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("blob"), "x")?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"editor.vscode_obsolete_extension\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"claude.old_version\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""));
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn home_flag_reports_macos_editor_app_caches_without_user_state()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let code = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Code");
+    let cursor = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Cursor");
+    let notion = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("Notion");
+    for path in [
+        code.join("logs"),
+        code.join("Cache"),
+        code.join("User"),
+        code.join("globalStorage"),
+        cursor.join("CachedData"),
+        cursor.join("workspaceStorage"),
+        notion.join("GPUCache"),
+        notion.join("Partitions"),
+    ] {
+        make_non_empty_dir(&path)?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    let output = cmd
+        .env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output)?;
+    assert!(stdout.contains("\"ruleId\": \"editor.vscode_cache\""));
+    assert!(stdout.contains("\"ruleId\": \"editor.cursor_cache\""));
+    assert!(stdout.contains("\"ruleId\": \"app.electron_cache\""));
+    assert!(stdout.contains("\"safety\": \"caution\""));
+    assert!(!stdout.contains("/User\""));
+    assert!(!stdout.contains("/globalStorage\""));
+    assert!(!stdout.contains("/workspaceStorage\""));
+    assert!(!stdout.contains("/Partitions\""));
+    Ok(())
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -327,7 +463,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 26 rules applicable"));
+        .stdout(predicate::str::contains("of 36 rules applicable"));
 }
 
 #[test]
@@ -689,6 +825,16 @@ fn rules_lists_every_classifier_emitted_id() {
         "ruby.bundle",
         "ruby.vendor_bundle",
         "generic.coverage",
+        "node.npm_transient",
+        "ruby.bundle_compact_index",
+        "cloud.kube_cache",
+        "cloud.gcloud_logs",
+        "editor.vscode_cache",
+        "editor.cursor_cache",
+        "editor.vscode_obsolete_extension",
+        "editor.cursor_obsolete_extension",
+        "claude.old_version",
+        "app.electron_cache",
     ];
     let missing: Vec<&&str> = expected
         .iter()

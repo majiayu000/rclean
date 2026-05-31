@@ -7,6 +7,9 @@
 //! - `node.npm_cacache` — `<.npm>/_cacache/`. npm's
 //!   content-addressable cache of downloaded tarballs. Safe to
 //!   delete; npm rebuilds on the next install.
+//! - `node.npm_transient` — transient npm execution/log/prebuild
+//!   caches under `<.npm>/{_npx,_logs,_prebuilds}`. Safe to delete;
+//!   npm recreates them as needed.
 //! - `node.yarn_cache` — `Library/Caches/Yarn/` (macOS-style
 //!   path). Yarn 1 classic cache. Safe to delete; Yarn rebuilds
 //!   on the next install.
@@ -43,6 +46,19 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
             reasons: vec!["npm content-addressable cache".to_string()],
             warnings: Vec::new(),
             restore_hint: "npm will rebuild the cache on the next install".to_string(),
+        });
+    }
+
+    if matches!(name, "_npx" | "_logs" | "_prebuilds") && parent_file_name_is(project_dir, ".npm") {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "node.npm_transient".to_string(),
+            category: Category::Cache,
+            safety: Safety::Safe,
+            reasons: vec!["npm transient execution/log/prebuild cache".to_string()],
+            warnings: Vec::new(),
+            restore_hint: "npm will recreate this transient cache when needed".to_string(),
         });
     }
 
@@ -119,6 +135,25 @@ mod tests {
         assert_eq!(draft.category, Category::Cache);
         assert_eq!(draft.safety, Safety::Safe);
         assert!(draft.restore_hint.contains("npm"));
+    }
+
+    #[test]
+    fn classifies_npm_transient_caches() {
+        let parent = PathBuf::from("/Users/me/.npm");
+        for name in ["_npx", "_logs", "_prebuilds"] {
+            let path = parent.join(name);
+            let draft = classify(&parent, name, &path).expect("should classify");
+            assert_eq!(draft.rule_id, "node.npm_transient");
+            assert_eq!(draft.category, Category::Cache);
+            assert_eq!(draft.safety, Safety::Safe);
+        }
+    }
+
+    #[test]
+    fn rejects_npm_transient_names_outside_dot_npm() {
+        let parent = PathBuf::from("/Users/me/project");
+        let path = parent.join("_npx");
+        assert!(classify(&parent, "_npx", &path).is_none());
     }
 
     #[test]
@@ -205,7 +240,7 @@ mod tests {
     #[test]
     fn rejects_other_names_inside_npm() {
         let parent = PathBuf::from("/Users/me/.npm");
-        let path = parent.join("_logs");
-        assert!(classify(&parent, "_logs", &path).is_none());
+        let path = parent.join("_locks");
+        assert!(classify(&parent, "_locks", &path).is_none());
     }
 }

@@ -28,6 +28,7 @@ mod python;
 mod python_global;
 mod ruby;
 mod rust;
+mod user_tool_caches;
 mod xcode;
 
 pub use project::{detect_project_kind, is_candidate_name, is_global_rule, is_project_marker_name};
@@ -87,9 +88,10 @@ static BUN_RULES: RuleFn = RuleFn(bun::classify);
 static PRE_COMMIT_RULES: RuleFn = RuleFn(pre_commit::classify);
 static PLAYWRIGHT_RULES: RuleFn = RuleFn(playwright::classify);
 static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
+static USER_TOOL_CACHES_RULES: RuleFn = RuleFn(user_tool_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 24] = [
+static BUILTIN_RULES: [&dyn RuleSet; 25] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -113,6 +115,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 24] = [
     &PRE_COMMIT_RULES,
     &PLAYWRIGHT_RULES,
     &APP_CACHES_RULES,
+    &USER_TOOL_CACHES_RULES,
     &GENERIC_RULES,
 ];
 

@@ -322,6 +322,15 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".pnpm-store"),
         home.join(".ollama"),
         home.join(".bun"),
+        home.join(".bundle"),
+        home.join(".kube"),
+        home.join(".config").join("gcloud"),
+        home.join(".vscode").join("extensions"),
+        home.join(".cursor").join("extensions"),
+        home.join(".local")
+            .join("share")
+            .join("claude")
+            .join("versions"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {
         candidates.extend(std::env::split_paths(&gopath));
@@ -337,6 +346,9 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
                 .join("Application Support")
                 .join("Google"),
         );
+        for app in ["Code", "Cursor", "Notion", "Slack", "LarkInternational"] {
+            candidates.push(home.join("Library").join("Application Support").join(app));
+        }
         // Some global tools use XDG-style caches on macOS instead of
         // `~/Library/Caches` (for example pre-commit and uv).
         candidates.push(home.join(".cache"));
