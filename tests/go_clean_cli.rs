@@ -1,3 +1,5 @@
+#![cfg(not(windows))]
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
