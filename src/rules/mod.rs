@@ -16,6 +16,7 @@ mod gradle;
 mod ios;
 mod js_global;
 mod jvm;
+mod macos_system;
 mod markers;
 mod maven;
 mod node;
@@ -80,6 +81,7 @@ static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
 static AI_MODELS_RULES: RuleFn = RuleFn(ai_models::classify);
 static BROWSER_GLOBAL_RULES: RuleFn = RuleFn(browser_global::classify);
 static JS_GLOBAL_RULES: RuleFn = RuleFn(js_global::classify);
+static MACOS_SYSTEM_RULES: RuleFn = RuleFn(macos_system::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
 static PYTHON_GLOBAL_RULES: RuleFn = RuleFn(python_global::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
@@ -91,7 +93,7 @@ static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static USER_TOOL_CACHES_RULES: RuleFn = RuleFn(user_tool_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 25] = [
+static BUILTIN_RULES: [&dyn RuleSet; 26] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -107,6 +109,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 25] = [
     &AI_MODELS_RULES,
     &BROWSER_GLOBAL_RULES,
     &JS_GLOBAL_RULES,
+    &MACOS_SYSTEM_RULES,
     &PIP_RULES,
     &PYTHON_GLOBAL_RULES,
     &GRADLE_RULES,

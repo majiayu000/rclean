@@ -205,6 +205,10 @@ pub struct CommonScanArgs {
     /// remember every path.
     #[arg(long, conflicts_with = "paths")]
     pub home: bool,
+
+    /// On macOS, include APFS/System/Data volume attribution in the scan report.
+    #[arg(long)]
+    pub disk_attribution: bool,
 }
 
 #[derive(Debug, Args)]
@@ -309,6 +313,7 @@ impl CommonScanArgs {
             },
             include_blocked: self.include_blocked,
             verbose: self.verbose,
+            disk_attribution: self.disk_attribution,
             ignore_globs: self.ignore.clone(),
         })
     }
@@ -361,6 +366,12 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         for app in ["Code", "Cursor", "Notion", "Slack", "LarkInternational"] {
             candidates.push(home.join("Library").join("Application Support").join(app));
         }
+        candidates.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("com.apple.wallpaper")
+                .join("aerials"),
+        );
         // Some global tools use XDG-style caches on macOS instead of
         // `~/Library/Caches` (for example pre-commit and uv).
         candidates.push(home.join(".cache"));

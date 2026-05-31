@@ -4,16 +4,35 @@ use crate::model::{CandidateDraft, Category, Safety};
 use crate::rules::markers::{has_marker, parent_ends_with};
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
+    if name == "mod" && is_go_module_cache(path) {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "go.module_cache".to_string(),
+            category: Category::Cache,
+            safety: Safety::Caution,
+            reasons: vec!["Go module download cache".to_string()],
+            warnings: vec![
+                "Cleanup must use `go clean -modcache`; modules will redownload and offline builds may fail"
+                    .to_string(),
+            ],
+            restore_hint: "Run go mod download or rebuild/test to redownload modules".to_string(),
+        });
+    }
+
     if name == "download" && parent_ends_with(project_dir, &["pkg", "mod", "cache"]) {
         return Some(CandidateDraft {
             path: path.to_path_buf(),
             name: name.to_string(),
             rule_id: "go.module_download_cache".to_string(),
             category: Category::Cache,
-            safety: Safety::Safe,
+            safety: Safety::Caution,
             reasons: vec!["Go module download cache".to_string()],
-            warnings: Vec::new(),
-            restore_hint: "Go will redownload modules on the next build or test".to_string(),
+            warnings: vec![
+                "Cleanup must use `go clean -modcache`; modules will redownload and offline builds may fail"
+                    .to_string(),
+            ],
+            restore_hint: "Run go mod download or rebuild/test to redownload modules".to_string(),
         });
     }
 
@@ -46,6 +65,16 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
     None
 }
 
+fn is_go_module_cache(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some("mod")
+        && path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            == Some("pkg")
+        && path.join("cache").join("download").is_dir()
+}
+
 fn is_go_build_cache_parent(path: &Path) -> bool {
     parent_ends_with(path, &["Library", "Caches"])
         || parent_ends_with(path, &[".cache"])
@@ -65,7 +94,20 @@ mod tests {
 
         assert_eq!(draft.rule_id, "go.module_download_cache");
         assert_eq!(draft.category, Category::Cache);
-        assert_eq!(draft.safety, Safety::Safe);
+        assert_eq!(draft.safety, Safety::Caution);
+    }
+
+    #[test]
+    fn classifies_go_module_cache_root() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let module_cache = temp.path().join("go").join("pkg").join("mod");
+        std::fs::create_dir_all(module_cache.join("cache").join("download")).unwrap();
+        let parent = module_cache.parent().unwrap();
+        let draft = classify(parent, "mod", &module_cache).expect("should classify");
+
+        assert_eq!(draft.rule_id, "go.module_cache");
+        assert_eq!(draft.category, Category::Cache);
+        assert_eq!(draft.safety, Safety::Caution);
     }
 
     #[test]

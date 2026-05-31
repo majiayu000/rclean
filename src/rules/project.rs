@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::macos_system::is_dynamic_candidate_name as is_macos_system_dynamic_candidate_name;
 use super::markers::{
     has_marker, has_prefixed_marker, is_dotnet_project, is_python_project, is_ruby_project,
     package_mentions,
@@ -23,6 +24,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | ".ruff_cache"
             | ".tox"
             | "target"
+            | "mod"
             | "vendor"
             | "Pods"
             | "coverage"
@@ -60,6 +62,11 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "ms-playwright"
             | "Chrome"
             | "GoogleUpdater"
+            | "LarkInternational"
+            | "com.google.Chrome.code_sign_clone"
+            | "videos"
+            | "OptGuideOnDeviceModel"
+            | "update"
             | "compact_index"
             | "logs"
             | "Cache"
@@ -68,6 +75,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "GPUCache"
     ) || is_pnpm_store_version_name(name)
         || is_shipit_candidate_name(name)
+        || is_macos_system_dynamic_candidate_name(name)
         || is_user_tool_dynamic_candidate_name(name)
 }
 
@@ -100,6 +108,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "maven.local_repo"
             | "xcode.simulators"
             | "go.module_download_cache"
+            | "go.module_cache"
             | "go.build_cache"
             | "bun.cache"
             | "pre_commit.cache"
@@ -107,6 +116,12 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "app.shipit_caches"
             | "chrome.cache"
             | "chrome.google_updater"
+            | "app.lark_cache"
+            | "macos.chrome_code_sign_clone"
+            | "macos.remem_dry_run_tmp"
+            | "apple.wallpaper_aerial_videos"
+            | "chrome.opt_guide_model"
+            | "app.lark_update"
             | "node.npm_transient"
             | "ruby.bundle_compact_index"
             | "cloud.kube_cache"
@@ -215,6 +230,13 @@ mod tests {
             "com.microsoft.VSCode.ShipIt",
             "Chrome",
             "GoogleUpdater",
+            "LarkInternational",
+            "com.google.Chrome.code_sign_clone",
+            "remem-dry-run-123",
+            "videos",
+            "OptGuideOnDeviceModel",
+            "update",
+            "mod",
             "compact_index",
             "_npx",
             "_logs",

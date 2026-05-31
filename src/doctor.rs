@@ -71,6 +71,11 @@ pub fn diagnose() -> DoctorReport {
             "no Go module cache detected",
         ),
         check_anchor(
+            "go.module_cache",
+            home.join("go").join("pkg").join("mod"),
+            "no Go module cache detected",
+        ),
+        check_anchor(
             "gradle.caches",
             home.join(".gradle"),
             "no Gradle install detected",
@@ -358,6 +363,46 @@ pub fn diagnose() -> DoctorReport {
             "no Google app data detected",
         ));
         entries.push(check_anchor(
+            "app.lark_cache",
+            home.join("Library")
+                .join("Caches")
+                .join("LarkInternational"),
+            "no Lark/Feishu cache detected",
+        ));
+        entries.push(skipped_anchor(
+            "macos.chrome_code_sign_clone",
+            PathBuf::from("/private/var/folders/*/*/X/com.google.Chrome.code_sign_clone"),
+            "exact macOS temp candidate not checked by doctor",
+        ));
+        entries.push(skipped_anchor(
+            "macos.remem_dry_run_tmp",
+            PathBuf::from("/private/var/folders/*/*/T/remem-dry-run-*"),
+            "exact macOS temp candidate not checked by doctor",
+        ));
+        entries.push(check_anchor(
+            "apple.wallpaper_aerial_videos",
+            home.join("Library")
+                .join("Application Support")
+                .join("com.apple.wallpaper")
+                .join("aerials"),
+            "no macOS aerial wallpaper cache detected",
+        ));
+        entries.push(check_anchor(
+            "chrome.opt_guide_model",
+            home.join("Library")
+                .join("Application Support")
+                .join("Google")
+                .join("Chrome"),
+            "no Chrome app support detected",
+        ));
+        entries.push(check_anchor(
+            "app.lark_update",
+            home.join("Library")
+                .join("Application Support")
+                .join("LarkInternational"),
+            "no Lark/Feishu app support detected",
+        ));
+        entries.push(check_anchor(
             "editor.vscode_cache",
             home.join("Library")
                 .join("Application Support")
@@ -386,6 +431,12 @@ pub fn diagnose() -> DoctorReport {
             "app.shipit_caches",
             "chrome.cache",
             "chrome.google_updater",
+            "app.lark_cache",
+            "macos.chrome_code_sign_clone",
+            "macos.remem_dry_run_tmp",
+            "apple.wallpaper_aerial_videos",
+            "chrome.opt_guide_model",
+            "app.lark_update",
             "editor.vscode_cache",
             "editor.cursor_cache",
             "app.electron_cache",
@@ -420,6 +471,15 @@ fn check_anchor(
         rule_id,
         anchor,
         status,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn skipped_anchor(rule_id: &'static str, anchor: PathBuf, reason: &'static str) -> DoctorEntry {
+    DoctorEntry {
+        rule_id,
+        anchor,
+        status: Status::Skipped { reason },
     }
 }
 
@@ -534,8 +594,10 @@ mod tests {
 
         let report = diagnose();
         // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
-        // #116 conservative user/app cache coverage adds 10 more.
-        assert_eq!(report.total_count(), 36);
+        // #116 conservative user/app cache coverage adds 10 more;
+        // #117 macOS whole-machine/app cache coverage adds 7 more anchors
+        // plus the Go modcache root cleanup rule.
+        assert_eq!(report.total_count(), 43);
     }
 
     #[test]

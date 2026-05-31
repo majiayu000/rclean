@@ -75,8 +75,55 @@ pub struct ScanReport {
     pub tool_version: String,
     pub scanned_at: String,
     pub roots: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "diskAttribution"
+    )]
+    pub disk_attribution: Option<DiskAttribution>,
     pub summary: Summary,
     pub projects: Vec<ProjectReport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskAttribution {
+    pub platform: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apfs_container: Option<ApfsContainerUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_volume: Option<VolumeUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_volume: Option<VolumeUsage>,
+    pub data_contributors: Vec<DiskContributor>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApfsContainerUsage {
+    pub capacity_bytes: Option<u64>,
+    pub used_bytes: Option<u64>,
+    pub free_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeUsage {
+    pub label: String,
+    pub path: String,
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskContributor {
+    pub label: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

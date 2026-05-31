@@ -127,6 +127,12 @@ pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
                 "projects" | "sessions" | "history.jsonl" | "shell-snapshots" | "file-history"
                 | "todos",
             ) => return true,
+            (Some("Library"), "Containers") => return true,
+            (Some("Chrome"), "Default") => return true,
+            (Some("Code") | Some("Cursor"), "User" | "globalStorage" | "workspaceStorage") => {
+                return true;
+            }
+            (Some("Notion"), "Partitions") => return true,
             _ => {}
         }
         previous = Some(name);
@@ -162,6 +168,23 @@ mod tests {
             "/Users/me/.claude/shell-snapshots/snap-1.json",
             "/Users/me/.claude/file-history/foo.diff",
             "/Users/me/.claude/todos/today.md",
+        ] {
+            assert!(
+                is_protected_user_data_path(&PathBuf::from(path)),
+                "expected {path} to be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn protects_macos_app_container_and_profile_state() {
+        for path in [
+            "/Users/me/Library/Containers/com.tencent.xinWeChat",
+            "/Users/me/Library/Application Support/Google/Chrome/Default",
+            "/Users/me/Library/Application Support/Code/User",
+            "/Users/me/Library/Application Support/Code/globalStorage",
+            "/Users/me/Library/Application Support/Cursor/workspaceStorage",
+            "/Users/me/Library/Application Support/Notion/Partitions",
         ] {
             assert!(
                 is_protected_user_data_path(&PathBuf::from(path)),
