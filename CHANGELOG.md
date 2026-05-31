@@ -37,6 +37,15 @@ include breaking changes per semver 0.x; each break is noted explicitly.
   plus `~/.cache` on macOS (so the pre-commit anchor is reachable).
 - `rclean doctor` reports six new entries; the per-machine applicable
   count grows from 12 to 18.
+- Conservative #116 user/app cache coverage:
+  - `node.npm_transient` for `~/.npm/_npx`, `_logs`, and `_prebuilds`.
+  - `ruby.bundle_compact_index`, `cloud.kube_cache`, and
+    `cloud.gcloud_logs` for exact safe user-level caches.
+  - caution-only VS Code/Cursor cache directories, obsolete editor
+    extension versions, Claude Code old version directories, and known
+    Electron app code/GPU caches. Protected editor/app state such as
+    `User`, `globalStorage`, `workspaceStorage`, and Notion partitions
+    remains unclassified.
 
 ### Tests
 
