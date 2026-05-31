@@ -1,0 +1,86 @@
+name: Cleanup safety concern
+description: Report cleanup output that looks risky, surprising, or unsafe.
+title: "[Safety concern]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when `rclean clean`, a dry run, or an ActionPlan makes you concerned that rclean could delete the wrong thing.
+
+        Do not use this form for private vulnerabilities or exploit details. Follow `SECURITY.md` for symlink bypasses, broad-root guard bypasses, ActionPlan tampering, TOCTOU issues, or other trust-model vulnerabilities.
+  - type: input
+    id: rclean_version
+    attributes:
+      label: rclean version
+      description: Run `rclean --version`.
+      placeholder: "rclean 0.1.x"
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.5, Ubuntu 24.04, Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    id: cleanup_stage
+    attributes:
+      label: Cleanup stage
+      description: Where did you notice the concern?
+      options:
+        - scan output
+        - clean dry run
+        - ActionPlan review
+        - clean execution to Trash
+        - permanent clean
+        - explain output
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: Include the exact command, with sensitive paths sanitized.
+      placeholder: "rclean clean ~/code --all --dry-run"
+    validations:
+      required: true
+  - type: textarea
+    id: concern
+    attributes:
+      label: What looked unsafe?
+      description: Describe the path, safety tier, and behavior that surprised you.
+      placeholder: "`rclean clean --all --dry-run` selected a directory that appears to contain user-authored files."
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected behavior
+      description: What should rclean have done instead?
+      placeholder: "The path should have been blocked, report-only, or omitted from `--all` selection."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A small directory layout, ActionPlan excerpt, or sanitized command transcript helps triage.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Paste sanitized `scan`, `clean --dry-run`, ActionPlan, or `explain` output.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Include whether files were actually deleted, moved to Trash, or only shown in a dry run.
+    validations:
+      required: false

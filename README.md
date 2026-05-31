@@ -81,6 +81,11 @@ cargo install rclean-cli
 
 The Cargo package is `rclean-cli`; the installed command is `rclean`.
 
+If installation or first-run behavior is confusing, use the
+[feature request intake](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml)
+for packaging or documentation gaps. If scan or cleanup output looks
+unsafe, use the safety intake linked in [Support and Intake](#support-and-intake).
+
 ## Usage
 
 ```bash
@@ -127,6 +132,11 @@ rclean scan ~/code
 rclean clean ~/code --all --dry-run
 ```
 
+If this quickstart flags a path that should not be cleanup, open a
+[scan false positive report](https://github.com/majiayu000/rclean/issues/new?template=scan-false-positive.yml).
+If the dry run or ActionPlan selection looks risky, open a
+[cleanup safety concern](https://github.com/majiayu000/rclean/issues/new?template=cleanup-safety-concern.yml).
+
 Write and review an ActionPlan:
 
 ```bash
@@ -149,6 +159,20 @@ rclean clean --plan rclean-plan.json --dry-run
 
 See [`SECURITY.md`](SECURITY.md) for the threat model, in-scope issues,
 and how to report a vulnerability privately.
+
+## Support and Intake
+
+- [Scan false positives](https://github.com/majiayu000/rclean/issues/new?template=scan-false-positive.yml):
+  use when `scan` or `explain` classifies a path that should not be cleanup.
+- [Cleanup safety concerns](https://github.com/majiayu000/rclean/issues/new?template=cleanup-safety-concern.yml):
+  use when `clean --dry-run`, ActionPlan review, or cleanup execution looks
+  risky or surprising.
+- [Feature requests](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml):
+  use for new ecosystem rules, install/package requests, output modes, and
+  documentation gaps.
+
+Security or private trust-model issues should follow [`SECURITY.md`](SECURITY.md)
+instead of public issue intake.
 
 ## Supported Ecosystems
 

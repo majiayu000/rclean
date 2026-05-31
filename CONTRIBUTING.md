@@ -49,6 +49,9 @@ in the PR body.
 
 ## PR shape
 
+- Use the repository PR template and fill in the safety/scope and
+  verification sections. If a checklist item is not applicable, say why
+  in the PR body instead of deleting it.
 - **Small and focused.** One concern per PR. If a refactor and a fix
   are tangled, land the refactor first as a pure-rename PR, then the
   fix.
@@ -105,8 +108,16 @@ The file format is documented in the README.
 ## Reporting bugs
 
 - Functional bugs (wrong candidate, wrong size, wrong category):
-  open a GitHub issue with a minimal reproducible directory layout
-  (`mkdir -p` script is ideal).
+  open a
+  [scan false positive report](https://github.com/majiayu000/rclean/issues/new?template=scan-false-positive.yml)
+  with a minimal reproducible directory layout (`mkdir -p` script is
+  ideal).
+- Cleanup behavior that looks risky or surprising: open a
+  [cleanup safety concern](https://github.com/majiayu000/rclean/issues/new?template=cleanup-safety-concern.yml)
+  with the command, safety tier, and sanitized output.
+- New ecosystem rules, install/package requests, output modes, and
+  documentation gaps: open a
+  [feature request](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml).
 - Security or trust-model issues: follow the private disclosure
   process in [`SECURITY.md`](SECURITY.md) — do not file a public issue.
 
