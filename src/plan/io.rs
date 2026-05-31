@@ -39,7 +39,6 @@ pub fn write_action_plan(
     write_atomically(path, json.as_bytes())
 }
 
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn write_selected_action_plan(
     report: &ScanReport,
     path: &Path,

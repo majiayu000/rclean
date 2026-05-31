@@ -11,6 +11,7 @@ mod parse;
 mod plan;
 mod rules;
 mod scan;
+mod stamp;
 #[cfg(feature = "tui")]
 mod tui;
 mod user_rules;
@@ -200,6 +201,7 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         }
         Commands::Watch(args) => watch::run(args),
+        Commands::Stamp(args) => stamp::run(args),
         Commands::Explain(args) => {
             let explanation = scan::explain_path(&args.path)?;
             output::print_explanation(&explanation);
