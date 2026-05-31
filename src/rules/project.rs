@@ -45,7 +45,15 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "caches"
             | "repository"
             | "CoreSimulator"
+            | "ms-playwright"
+            | "Chrome"
+            | "GoogleUpdater"
     ) || is_pnpm_store_version_name(name)
+        || is_shipit_candidate_name(name)
+}
+
+fn is_shipit_candidate_name(name: &str) -> bool {
+    name.ends_with(".ShipIt") && name.len() > ".ShipIt".len()
 }
 
 /// Returns true for rule ids whose classifier intentionally targets
@@ -157,4 +165,26 @@ pub fn detect_project_kind(dir: &Path) -> (String, Vec<String>) {
     }
 
     ("Unknown".to_string(), markers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_candidate_name;
+
+    #[test]
+    fn candidate_prefilter_includes_global_app_cache_names() {
+        for name in [
+            "ms-playwright",
+            "com.microsoft.VSCode.ShipIt",
+            "Chrome",
+            "GoogleUpdater",
+        ] {
+            assert!(is_candidate_name(name), "{name} should pass prefilter");
+        }
+
+        assert!(
+            !is_candidate_name(".ShipIt"),
+            "bare .ShipIt must not pass the dynamic prefilter"
+        );
+    }
 }

@@ -110,8 +110,9 @@ rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, plus `~/Library/Caches`,
-`~/Library/pnpm`, and `~/Library/Developer` on macOS or `~/.cache`
-and `~/.local/share/pnpm` on Linux. Existing
+`~/Library/pnpm`, `~/Library/Developer`, and
+`~/Library/Application Support/Google` on macOS or `~/.cache` and
+`~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
 [Global Toolchain Caches](#global-toolchain-caches) table below
