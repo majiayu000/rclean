@@ -73,7 +73,10 @@ pub(crate) fn build_project_report(
                 .push("project has uncommitted git changes".to_string());
         }
 
-        if bytes < options.min_size && draft.safety != Safety::Blocked {
+        if bytes < options.min_size
+            && draft.safety != Safety::Blocked
+            && draft.safety != Safety::ReportOnly
+        {
             continue;
         }
 
@@ -95,7 +98,9 @@ pub(crate) fn build_project_report(
 
     let total_bytes = candidates
         .iter()
-        .filter(|candidate| candidate.safety != Safety::Blocked)
+        .filter(|candidate| {
+            candidate.safety != Safety::Blocked && candidate.safety != Safety::ReportOnly
+        })
         .map(|candidate| candidate.bytes)
         .sum();
     let source_bytes = size_summary.source_bytes;
@@ -142,6 +147,7 @@ pub(crate) fn build_summary(projects: &[ProjectReport]) -> Summary {
                     summary.total_bytes += candidate.bytes;
                 }
                 Safety::Blocked => summary.blocked_candidates += 1,
+                Safety::ReportOnly => summary.report_only_candidates += 1,
                 Safety::Unknown => {}
             }
         }

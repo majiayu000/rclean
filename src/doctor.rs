@@ -155,6 +155,24 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
+    // AI / ML model caches (#102). All three rules anchor under
+    // `~/.cache/...` and `~/.ollama/...` on every platform.
+    entries.push(check_anchor(
+        "ai.huggingface_hub",
+        home.join(".cache").join("huggingface").join("hub"),
+        "no HuggingFace cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.torch_hub",
+        home.join(".cache").join("torch").join("hub"),
+        "no PyTorch hub cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.ollama_models",
+        home.join(".ollama").join("models"),
+        "no Ollama install detected",
+    ));
+
     // Python global tooling caches (#101). uv, Poetry, and pipx each
     // resolve to either the native macOS path or the XDG override —
     // real users hit both, so doctor accepts either anchor.
@@ -435,8 +453,9 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // v0.3 Phase 2 + Python + Deno has 22 entries; Puppeteer adds one more.
-        assert_eq!(report.total_count(), 23);
+        // v0.3 Phase 2 + Python + Deno + Puppeteer has 23 entries;
+        // AI/ML adds HuggingFace, PyTorch, and Ollama for 26 total.
+        assert_eq!(report.total_count(), 26);
     }
 
     #[test]

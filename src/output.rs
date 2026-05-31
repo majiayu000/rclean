@@ -149,10 +149,11 @@ pub fn print_table(report: &ScanReport) {
         format_bytes(report.summary.total_bytes)
     );
     println!(
-        "Safety: {} safe, {} caution, {} blocked",
+        "Safety: {} safe, {} caution, {} blocked, {} report-only",
         report.summary.safe_candidates,
         report.summary.caution_candidates,
-        report.summary.blocked_candidates
+        report.summary.blocked_candidates,
+        report.summary.report_only_candidates
     );
 
     if report.projects.is_empty() {
@@ -343,7 +344,11 @@ fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
             project
                 .candidates
                 .iter()
-                .filter(|candidate| candidate.safety != Safety::Blocked && candidate.bytes > 0)
+                .filter(|candidate| {
+                    candidate.safety != Safety::Blocked
+                        && candidate.safety != Safety::ReportOnly
+                        && candidate.bytes > 0
+                })
                 .map(move |candidate| (project, candidate))
         })
         .collect::<Vec<_>>();

@@ -320,6 +320,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
+        home.join(".ollama"),
         home.join(".bun"),
     ];
     if let Some(gopath) = std::env::var_os("GOPATH") {

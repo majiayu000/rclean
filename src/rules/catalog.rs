@@ -238,6 +238,24 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "pip will repopulate the cache on the next install",
     },
     RuleInfo {
+        rule_id: "ai.huggingface_hub",
+        category: Category::Cache,
+        candidate: "hub",
+        restore_hint: "Use `huggingface-cli delete-cache` for guided cleanup",
+    },
+    RuleInfo {
+        rule_id: "ai.torch_hub",
+        category: Category::Cache,
+        candidate: "hub",
+        restore_hint: "Recreated automatically on the next `torch.hub.load()`",
+    },
+    RuleInfo {
+        rule_id: "ai.ollama_models",
+        category: Category::Deps,
+        candidate: "models",
+        restore_hint: "Run `ollama pull <model>` per model (user data, report-only)",
+    },
+    RuleInfo {
         rule_id: "browser.puppeteer",
         category: Category::Cache,
         candidate: "puppeteer",

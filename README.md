@@ -41,9 +41,10 @@ This is a from-scratch Rust CLI. It already supports:
 - **global toolchain caches**: Cargo registry, Go module/build
   cache, npm `_cacache`, pnpm store, yarn cache, pip cache, uv cache,
   Poetry cache, pipx cache, Bun install cache, Deno cache, Gradle
-  caches, Maven local repo, Puppeteer Chrome, Xcode
-  `DerivedData`, iOS Simulators (via `scan --home`)
-- conservative safety classification: `safe`, `caution`, `blocked`
+  caches, Maven local repo, Puppeteer Chrome, HuggingFace Hub,
+  PyTorch Hub, Ollama models (report-only), Xcode `DerivedData`,
+  iOS Simulators (via `scan --home`)
+- conservative safety classification: `safe`, `caution`, `blocked`, `report-only`
 - root-project scanning
 - symlink blocking
 - dirty git worktree caution
@@ -57,7 +58,7 @@ This is a from-scratch Rust CLI. It already supports:
 Existing tools already clean `node_modules`, `target`, and other artifacts.
 `rclean` focuses on the part that makes people hesitate before deleting:
 
-- clear safety states: `safe`, `caution`, `blocked`
+- clear safety states: `safe`, `caution`, `blocked`, `report-only` (user data, never selected)
 - immediate top cleanup wins before the detailed table
 - reviewable ActionPlan JSON
 - symlink and root-boundary revalidation before plan-based cleanup
@@ -184,6 +185,9 @@ let rclean find every applicable cache automatically:
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
 | `node.yarn_cache` | `~/Library/Caches/Yarn` (macOS) | safe | next `yarn install` |
 | `pip.cache` | `~/Library/Caches/pip` (macOS) / `~/.cache/pip` (Linux) | safe | next `pip install` |
+| `ai.huggingface_hub` | `~/.cache/huggingface/hub` | caution | `huggingface-cli delete-cache` |
+| `ai.torch_hub` | `~/.cache/torch/hub` | safe | next `torch.hub.load()` |
+| `ai.ollama_models` | `~/.ollama/models` | **report-only** (user data, never selected) | `ollama pull <model>` |
 | `python.uv_cache` | `~/Library/Caches/uv` or `~/.cache/uv` (XDG override active on macOS too) | caution | `uv cache clean` |
 | `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
 | `python.pipx_cache` | `~/Library/Caches/pipx` (macOS) / `~/.cache/pipx` (Linux) | safe | next `pipx run <pkg>` |
@@ -225,7 +229,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 23 rules applicable on this machine.
+10 of 26 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

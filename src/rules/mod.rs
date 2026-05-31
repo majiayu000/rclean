@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod ai_models;
 mod app_caches;
 mod browser_global;
 mod bun;
@@ -75,6 +76,7 @@ static IOS_RULES: RuleFn = RuleFn(ios::classify);
 static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
+static AI_MODELS_RULES: RuleFn = RuleFn(ai_models::classify);
 static BROWSER_GLOBAL_RULES: RuleFn = RuleFn(browser_global::classify);
 static JS_GLOBAL_RULES: RuleFn = RuleFn(js_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
@@ -87,7 +89,7 @@ static PLAYWRIGHT_RULES: RuleFn = RuleFn(playwright::classify);
 static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 23] = [
+static BUILTIN_RULES: [&dyn RuleSet; 24] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -100,6 +102,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 23] = [
     &XCODE_RULES,
     &CARGO_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,
+    &AI_MODELS_RULES,
     &BROWSER_GLOBAL_RULES,
     &JS_GLOBAL_RULES,
     &PIP_RULES,

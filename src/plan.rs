@@ -167,7 +167,10 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
-        if draft.safety == Safety::Blocked || draft.safety == Safety::Unknown {
+        if draft.safety == Safety::Blocked
+            || draft.safety == Safety::Unknown
+            || draft.safety == Safety::ReportOnly
+        {
             return Err(PlanError::Generic(format!(
                 "{} is now classified as {:?} by rule {}; refusing to clean",
                 candidate.path, draft.safety, draft.rule_id
@@ -332,6 +335,7 @@ fn summarize_selected(selected: &[PlanCandidate], scan_summary: &Summary) -> Sum
             Safety::Safe => summary.safe_candidates += 1,
             Safety::Caution => summary.caution_candidates += 1,
             Safety::Blocked => summary.blocked_candidates += 1,
+            Safety::ReportOnly => summary.report_only_candidates += 1,
             Safety::Unknown => {}
         }
     }
@@ -437,6 +441,7 @@ mod tests {
                 safe_candidates: 1,
                 caution_candidates: 0,
                 blocked_candidates: 0,
+                report_only_candidates: 0,
                 total_bytes: 3,
             },
             projects: vec![ProjectReport {
