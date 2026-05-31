@@ -41,7 +41,7 @@ This is a from-scratch Rust CLI. It already supports:
 - **global toolchain caches**: Cargo registry, Go module/build
   cache, npm `_cacache`, pnpm store, yarn cache, pip cache, uv cache,
   Poetry cache, pipx cache, Bun install cache, Deno cache, Gradle
-  caches, Maven local repo, Xcode
+  caches, Maven local repo, Puppeteer Chrome, Xcode
   `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`
 - root-project scanning
@@ -188,6 +188,7 @@ let rclean find every applicable cache automatically:
 | `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
 | `python.pipx_cache` | `~/Library/Caches/pipx` (macOS) / `~/.cache/pipx` (Linux) | safe | next `pipx run <pkg>` |
 | `js.deno_cache` | `~/Library/Caches/deno` (macOS) / `~/.cache/deno` (Linux) | caution | `deno cache --reload` |
+| `browser.puppeteer` | `~/Library/Caches/puppeteer` (macOS) / `~/.cache/puppeteer` (Linux) | caution | `npx puppeteer browsers install chrome` |
 | `gradle.caches` | `~/.gradle/caches` | caution | next Gradle build |
 | `maven.local_repo` | `~/.m2/repository` | caution | next `mvn install` |
 | `xcode.derived_data` | `~/Library/Developer/Xcode/DerivedData` | safe | next Xcode build |
@@ -224,7 +225,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 22 rules applicable on this machine.
+10 of 23 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

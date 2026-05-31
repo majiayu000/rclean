@@ -182,6 +182,13 @@ pub fn diagnose() -> DoctorReport {
         "no Deno install detected",
     ));
 
+    // Puppeteer keeps Chrome for Testing downloads in a global cache.
+    entries.push(check_any_anchor(
+        "browser.puppeteer",
+        browser_cache_anchors(&home, "puppeteer"),
+        "no Puppeteer install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -318,6 +325,27 @@ fn check_anchor(
     }
 }
 
+/// Canonical anchors for a browser-automation cache directory.
+/// macOS defaults to `~/Library/Caches/<tool>` but may also use
+/// `~/.cache/<tool>` as an XDG fallback.
+fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join(tool)]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
+    }
+}
+
 /// Canonical anchors for Deno's remote-dependency cache. macOS native
 /// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
 /// uses `%LOCALAPPDATA%\deno`.
@@ -407,8 +435,8 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // v0.3 Phase 2 + Python has 21 entries; Deno adds one more.
-        assert_eq!(report.total_count(), 22);
+        // v0.3 Phase 2 + Python + Deno has 22 entries; Puppeteer adds one more.
+        assert_eq!(report.total_count(), 23);
     }
 
     #[test]

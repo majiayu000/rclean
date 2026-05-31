@@ -238,6 +238,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "pip will repopulate the cache on the next install",
     },
     RuleInfo {
+        rule_id: "browser.puppeteer",
+        category: Category::Cache,
+        candidate: "puppeteer",
+        restore_hint: "Run `npx puppeteer browsers install chrome` to re-download Chrome for Testing",
+    },
+    RuleInfo {
         rule_id: "python.uv_cache",
         category: Category::Cache,
         candidate: "uv",

@@ -249,6 +249,29 @@ fn home_flag_expands_to_bun_cache_not_runtime_root() -> Result<(), Box<dyn std::
 }
 
 #[test]
+fn home_flag_reports_xdg_browser_and_lint_caches() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    for name in ["puppeteer", "pre-commit"] {
+        let path = temp.path().join(".cache").join(name);
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("blob"), "x")?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"browser.puppeteer\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        .stdout(predicate::str::contains("\"ruleId\": \"pre_commit.cache\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+    Ok(())
+}
+
+#[test]
 fn doctor_prints_rule_status_table() {
     // Run with a clean HOME so the output is deterministic
     // (no rules applicable).
@@ -262,7 +285,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 22 rules applicable"));
+        .stdout(predicate::str::contains("of 23 rules applicable"));
 }
 
 #[test]
