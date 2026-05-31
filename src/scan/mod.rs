@@ -24,7 +24,6 @@ mod safety;
 mod sizer;
 mod walker;
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -43,7 +42,7 @@ pub(crate) use project::{
 pub(crate) use safety::{
     apply_path_safety, is_protected_user_data_path, is_runtime_or_system_path,
 };
-pub(crate) use sizer::DirSizes;
+pub(crate) use sizer::SourceSizeIndex;
 pub(crate) use walker::{WalkScratch, walk_parallel};
 
 #[derive(Debug, Clone, Default)]
@@ -101,7 +100,6 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
     let mut roots = Vec::new();
     let mut projects = Vec::new();
     let git_cache = GitCache::new();
-    let mut sizes: DirSizes = HashMap::new();
 
     for path in paths {
         let root = path
@@ -120,9 +118,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
         let (drafts_by_project, walk_sizes) = walk.into_inner();
-        for (dir, bytes) in walk_sizes {
-            *sizes.entry(dir).or_insert(0) += bytes;
-        }
+        let source_sizes = SourceSizeIndex::from_dir_sizes(&walk_sizes);
 
         // Phase 2: serial post-processing per project so dir_size,
         // git_info, and risk_score all see consistent state. Sort
@@ -138,8 +134,14 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             if drafts.is_empty() {
                 continue;
             }
-            let project =
-                build_project_report(&project_dir, &root, drafts, options, &git_cache, &sizes)?;
+            let project = build_project_report(
+                &project_dir,
+                &root,
+                drafts,
+                options,
+                &git_cache,
+                &source_sizes,
+            )?;
             if !project.candidates.is_empty() {
                 projects.push(project);
             }

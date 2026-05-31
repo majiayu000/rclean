@@ -6,6 +6,50 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to semantic versioning. Pre-1.0, patch versions may
 include breaking changes per semver 0.x; each break is noted explicitly.
 
+## Unreleased — v0.3 Phase 1+2 (toolchain extras + scoped GUI cache rules)
+
+### Added
+
+- Three new cross-platform developer-toolchain cache rules:
+  - `bun.cache` — `~/.bun/install/cache`, safe to delete, `bun install`
+    repopulates.
+  - `pre_commit.cache` — `~/.cache/pre-commit` (pre-commit hardcodes the
+    XDG layout on every platform, including macOS), safe to delete,
+    `pre-commit run` reinitializes hooks.
+  - `playwright.browsers` — `~/Library/Caches/ms-playwright` on macOS and
+    `~/.cache/ms-playwright` on Linux. Safe to delete, `npx playwright
+    install` re-downloads browser binaries.
+- Three new macOS-only GUI app cache rules under `~/Library/Caches` and
+  `~/Library/Application Support`. v0.3 §2 explicitly supersedes the
+  v0.2 §2 Non-Goal "no system-level cache cleanup" for this tightly
+  scoped set, with strict parent-anchor matching:
+  - `app.shipit_caches` — `~/Library/Caches/<bundle-id>.ShipIt`, the
+    already-applied update packages left behind by any Squirrel.Mac
+    application (VSCode, Notion, Telegram, ...). Suffix-matched.
+  - `chrome.cache` — `~/Library/Caches/Google/Chrome` (HTTP/disk cache
+    only). **NOT** the Application Support copy that holds bookmarks,
+    passwords, extensions; a dedicated unit test
+    `rejects_chrome_under_application_support_google` enforces the
+    boundary at compile + test time.
+  - `chrome.google_updater` — `~/Library/Application Support/Google/
+    GoogleUpdater`, the auto-updater's historical state.
+- `home_toolchain_paths()` now expands to `~/.bun` on every platform,
+  plus `~/.cache` on macOS (so the pre-commit anchor is reachable).
+- `rclean doctor` reports six new entries; the per-machine applicable
+  count grows from 12 to 18.
+
+### Tests
+
+- 201 tests passing (up from 188): new unit tests for each of the six
+  rules plus the anti-collision test for `chrome.cache`.
+
+### Spec
+
+- New design document at `docs/specs/v0.3-developer-toolchain-extra.md`.
+  Phase 3 (system-level `--system` flag + sudo prompt mechanism for
+  `/Library/Application Support/com.apple.idleassetsd` and similar) is
+  documented but deferred to a follow-up PR.
+
 ## 0.1.3 - Unreleased (M3 candidate)
 
 ### Changed

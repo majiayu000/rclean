@@ -85,6 +85,16 @@ pub fn diagnose() -> DoctorReport {
             home.join(".npm"),
             "no npm install detected",
         ),
+        check_anchor(
+            "bun.cache",
+            home.join(".bun").join("install"),
+            "no bun install cache detected",
+        ),
+        check_anchor(
+            "pre_commit.cache",
+            home.join(".cache"),
+            "no XDG cache directory",
+        ),
     ];
 
     let mut pnpm_anchors = vec![home.join(".pnpm-store")];
@@ -145,25 +155,38 @@ pub fn diagnose() -> DoctorReport {
         ));
     }
 
-    // Browser automation + pre-commit caches (#100). Playwright lives
-    // under Library/Caches on macOS native; puppeteer and pre-commit
-    // both default to ~/.cache on every platform (per their docs and
-    // platformdirs). check_any_anchor accepts either layout on macOS.
-    let playwright_anchors = browser_cache_anchors(&home, "ms-playwright");
+    // Python global tooling caches (#101). uv, Poetry, and pipx each
+    // resolve to either the native macOS path or the XDG override —
+    // real users hit both, so doctor accepts either anchor.
     entries.push(check_any_anchor(
-        "browser.playwright",
-        playwright_anchors,
-        "no Playwright install detected",
+        "python.uv_cache",
+        python_cache_anchors(&home, "uv"),
+        "no uv install detected",
     ));
-    entries.push(check_anchor(
+    entries.push(check_any_anchor(
+        "python.poetry_cache",
+        python_cache_anchors(&home, "pypoetry"),
+        "no Poetry install detected",
+    ));
+    entries.push(check_any_anchor(
+        "python.pipx_cache",
+        python_cache_anchors(&home, "pipx"),
+        "no pipx install detected",
+    ));
+
+    // Deno's cache can be native macOS or XDG-style, depending on
+    // platform and user environment.
+    entries.push(check_any_anchor(
+        "js.deno_cache",
+        deno_cache_anchors(&home),
+        "no Deno install detected",
+    ));
+
+    // Puppeteer keeps Chrome for Testing downloads in a global cache.
+    entries.push(check_any_anchor(
         "browser.puppeteer",
-        home.join(".cache").join("puppeteer"),
+        browser_cache_anchors(&home, "puppeteer"),
         "no Puppeteer install detected",
-    ));
-    entries.push(check_anchor(
-        "lint.pre_commit",
-        home.join(".cache").join("pre-commit"),
-        "no pre-commit install detected",
     ));
 
     // macOS-only rules. On non-macOS the anchor never exists, so the
@@ -213,6 +236,72 @@ pub fn diagnose() -> DoctorReport {
         });
     }
 
+    // Playwright lives in `~/Library/Caches/ms-playwright` on macOS
+    // and `~/.cache/ms-playwright` on Linux. On Windows the layout is
+    // different and v0.3 doesn't support it — report Skipped.
+    #[cfg(target_os = "macos")]
+    {
+        entries.push(check_anchor(
+            "playwright.browsers",
+            home.join("Library").join("Caches").join("ms-playwright"),
+            "no Playwright browsers detected",
+        ));
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        entries.push(check_anchor(
+            "playwright.browsers",
+            home.join(".cache").join("ms-playwright"),
+            "no Playwright browsers detected",
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        entries.push(DoctorEntry {
+            rule_id: "playwright.browsers",
+            anchor: PathBuf::from("(macOS / Linux only)"),
+            status: Status::Skipped {
+                reason: "rule only applies on macOS and Linux",
+            },
+        });
+    }
+
+    // v0.3 Phase 2: GUI app caches under ~/Library/* (macOS only).
+    // Each rule anchors on the candidate's parent directory, so
+    // doctor checks whether that parent exists at all.
+    #[cfg(target_os = "macos")]
+    {
+        entries.push(check_anchor(
+            "app.shipit_caches",
+            home.join("Library").join("Caches"),
+            "no Library/Caches directory",
+        ));
+        entries.push(check_anchor(
+            "chrome.cache",
+            home.join("Library").join("Caches").join("Google"),
+            "no Chrome cache detected",
+        ));
+        entries.push(check_anchor(
+            "chrome.google_updater",
+            home.join("Library")
+                .join("Application Support")
+                .join("Google"),
+            "no Google app data detected",
+        ));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        for rule_id in ["app.shipit_caches", "chrome.cache", "chrome.google_updater"] {
+            entries.push(DoctorEntry {
+                rule_id,
+                anchor: PathBuf::from("(macOS only)"),
+                status: Status::Skipped {
+                    reason: "rule only applies on macOS",
+                },
+            });
+        }
+    }
+
     DoctorReport { entries }
 }
 
@@ -237,8 +326,8 @@ fn check_anchor(
 }
 
 /// Canonical anchors for a browser-automation cache directory.
-/// Playwright on macOS defaults to `~/Library/Caches/<tool>` but
-/// honours `~/.cache/<tool>` as an XDG fallback.
+/// macOS defaults to `~/Library/Caches/<tool>` but may also use
+/// `~/.cache/<tool>` as an XDG fallback.
 fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -253,7 +342,52 @@ fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        vec![home.join("AppData").join("Local").join(tool)]
+        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
+    }
+}
+
+/// Canonical anchors for Deno's remote-dependency cache. macOS native
+/// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
+/// uses `%LOCALAPPDATA%\deno`.
+fn deno_cache_anchors(home: &std::path::Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join("deno"),
+            home.join(".cache").join("deno"),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join("deno")]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join("deno")]
+    }
+}
+
+/// Canonical anchors for a Python toolchain cache directory.
+///
+/// macOS hosts may resolve to either the native `~/Library/Caches/<tool>`
+/// or the XDG override `~/.cache/<tool>` — the empirical dev box behind
+/// issue #101 had uv at `~/.cache/uv` while the platformdirs default is
+/// `~/Library/Caches/uv`. Linux and Windows have a single canonical path.
+fn python_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join(tool)]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
     }
 }
 
@@ -301,11 +435,8 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // 9 cross-platform + 3 browser/lint (playwright/puppeteer/
-        // pre-commit) + 3 macOS-only (or 3 stubbed skipped entries on
-        // non-macOS). Either way: 15 total, matching the v0.2 ruleset
-        // including issue #100.
-        assert_eq!(report.total_count(), 15);
+        // v0.3 Phase 2 + Python + Deno has 22 entries; Puppeteer adds one more.
+        assert_eq!(report.total_count(), 23);
     }
 
     #[test]

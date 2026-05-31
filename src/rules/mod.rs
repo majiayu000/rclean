@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod app_caches;
 mod browser_global;
+mod bun;
 mod cargo_global;
 mod catalog;
 mod dotnet;
@@ -11,14 +13,18 @@ mod generic;
 mod go;
 mod gradle;
 mod ios;
+mod js_global;
 mod jvm;
 mod markers;
 mod maven;
 mod node;
 mod node_global;
 mod pip;
+mod playwright;
+mod pre_commit;
 mod project;
 mod python;
+mod python_global;
 mod ruby;
 mod rust;
 mod xcode;
@@ -70,12 +76,18 @@ static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
 static BROWSER_GLOBAL_RULES: RuleFn = RuleFn(browser_global::classify);
+static JS_GLOBAL_RULES: RuleFn = RuleFn(js_global::classify);
 static PIP_RULES: RuleFn = RuleFn(pip::classify);
+static PYTHON_GLOBAL_RULES: RuleFn = RuleFn(python_global::classify);
 static GRADLE_RULES: RuleFn = RuleFn(gradle::classify);
 static MAVEN_RULES: RuleFn = RuleFn(maven::classify);
+static BUN_RULES: RuleFn = RuleFn(bun::classify);
+static PRE_COMMIT_RULES: RuleFn = RuleFn(pre_commit::classify);
+static PLAYWRIGHT_RULES: RuleFn = RuleFn(playwright::classify);
+static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 17] = [
+static BUILTIN_RULES: [&dyn RuleSet; 23] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -89,9 +101,15 @@ static BUILTIN_RULES: [&dyn RuleSet; 17] = [
     &CARGO_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,
     &BROWSER_GLOBAL_RULES,
+    &JS_GLOBAL_RULES,
     &PIP_RULES,
+    &PYTHON_GLOBAL_RULES,
     &GRADLE_RULES,
     &MAVEN_RULES,
+    &BUN_RULES,
+    &PRE_COMMIT_RULES,
+    &PLAYWRIGHT_RULES,
+    &APP_CACHES_RULES,
     &GENERIC_RULES,
 ];
 
