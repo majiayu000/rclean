@@ -141,7 +141,7 @@ pub fn diagnose() -> DoctorReport {
             "no Go build cache detected",
         ));
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         entries.push(check_anchor(
             "pip.cache",
@@ -151,6 +151,19 @@ pub fn diagnose() -> DoctorReport {
         entries.push(check_anchor(
             "go.build_cache",
             home.join(".cache").join("go-build"),
+            "no Go build cache detected",
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        entries.push(check_anchor(
+            "pip.cache",
+            home.join(".cache"),
+            "no XDG cache directory",
+        ));
+        entries.push(check_anchor(
+            "go.build_cache",
+            home.join("AppData").join("Local").join("go-build"),
             "no Go build cache detected",
         ));
     }
