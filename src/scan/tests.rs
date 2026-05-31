@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
 
-use crate::model::{GitInfo, ProjectReport, Safety};
+use crate::model::{GitInfo, ProjectReport, Safety, ScanReport};
 
 use super::*;
 
@@ -230,6 +230,87 @@ fn sibling_projects_source_bytes_do_not_cross_contaminate() {
         back_source, backend_source_expected,
         "backend should only count its own files"
     );
+}
+
+#[test]
+fn scan_sizes_one_large_candidate_and_many_small_projects_deterministically() {
+    const SMALL_PROJECTS: usize = 24;
+    const SMALL_BYTES: u64 = 4;
+    const HUGE_DIRS: usize = 16;
+    const HUGE_FILES_PER_DIR: usize = 8;
+    const HUGE_FILE_BYTES: u64 = 1024;
+
+    let temp = TempDir::new().unwrap();
+
+    for i in 0..SMALL_PROJECTS {
+        let project = temp.path().join(format!("small_{i:03}"));
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join("package.json"), "{}").unwrap();
+        fs::write(project.join("index.js"), "console.log(1);\n").unwrap();
+        let node_modules = project.join("node_modules");
+        fs::create_dir(&node_modules).unwrap();
+        let file = fs::File::create(node_modules.join("blob")).unwrap();
+        file.set_len(SMALL_BYTES).unwrap();
+    }
+
+    let huge = temp.path().join("huge_rust");
+    fs::create_dir(&huge).unwrap();
+    fs::write(huge.join("Cargo.toml"), "[package]\nname = \"huge_rust\"\n").unwrap();
+    fs::write(huge.join("main.rs"), "fn main() {}\n").unwrap();
+    let target = huge.join("target");
+    for dir_index in 0..HUGE_DIRS {
+        let dir = target
+            .join("debug")
+            .join("deps")
+            .join(format!("crate_{dir_index:03}"));
+        fs::create_dir_all(&dir).unwrap();
+        for file_index in 0..HUGE_FILES_PER_DIR {
+            let file = fs::File::create(dir.join(format!("artifact_{file_index:03}.o"))).unwrap();
+            file.set_len(HUGE_FILE_BYTES).unwrap();
+        }
+    }
+
+    let first = scan(&[temp.path().to_path_buf()], &options()).unwrap();
+    let second = scan(&[temp.path().to_path_buf()], &options()).unwrap();
+
+    let huge_bytes = HUGE_DIRS as u64 * HUGE_FILES_PER_DIR as u64 * HUGE_FILE_BYTES;
+    let expected_total = SMALL_PROJECTS as u64 * SMALL_BYTES + huge_bytes;
+
+    assert_eq!(first.summary.candidates, SMALL_PROJECTS + 1);
+    assert_eq!(first.summary.total_bytes, expected_total);
+
+    let huge_project = first
+        .projects
+        .iter()
+        .find(|project| project.path.ends_with("huge_rust"))
+        .expect("huge Rust project missing");
+    assert_eq!(huge_project.candidates.len(), 1);
+    assert_eq!(huge_project.candidates[0].rule_id, "rust.target");
+    assert_eq!(huge_project.candidates[0].bytes, huge_bytes);
+
+    assert_eq!(scan_signature(&first), scan_signature(&second));
+}
+
+fn scan_signature(report: &ScanReport) -> Vec<(String, Vec<(String, String, u64, String)>)> {
+    report
+        .projects
+        .iter()
+        .map(|project| {
+            let candidates = project
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    (
+                        candidate.path.clone(),
+                        candidate.rule_id.clone(),
+                        candidate.bytes,
+                        format!("{:?}", candidate.safety),
+                    )
+                })
+                .collect();
+            (project.path.clone(), candidates)
+        })
+        .collect()
 }
 
 #[test]

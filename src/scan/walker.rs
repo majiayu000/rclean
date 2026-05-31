@@ -5,7 +5,7 @@
 //! worker-thread parallelism. The walker:
 //!
 //!   - Accumulates per-directory file sizes into a `DirSizes` map
-//!     (used by `sum_subtree_bytes` in phase 2).
+//!     (used by `SourceSizeIndex` in phase 2).
 //!   - Classifies candidate-named directories and groups the
 //!     resulting drafts by project directory.
 //!   - Honors the existing `IgnoreMatcher` (`.rcleanignore` + CLI
@@ -23,6 +23,7 @@
 //! cleanup hits the file-layout work.
 
 use std::collections::HashMap;
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -52,15 +53,78 @@ impl WalkScratch {
     }
 
     pub(crate) fn into_inner(self) -> (HashMap<PathBuf, Vec<CandidateDraft>>, DirSizes) {
-        let drafts = self
+        let mut drafts = self
             .drafts_by_project
             .into_inner()
             .unwrap_or_else(|e| panic!("walk scratch drafts mutex poisoned: {e}"));
+        for project_drafts in drafts.values_mut() {
+            project_drafts.sort_by(|a, b| a.path.cmp(&b.path));
+        }
         let sizes = self
             .sizes
             .into_inner()
             .unwrap_or_else(|e| panic!("walk scratch sizes mutex poisoned: {e}"));
         (drafts, sizes)
+    }
+}
+
+struct WalkLocal<'a> {
+    scratch: &'a WalkScratch,
+    drafts_by_project: HashMap<PathBuf, Vec<CandidateDraft>>,
+    sizes: DirSizes,
+}
+
+impl<'a> WalkLocal<'a> {
+    fn new(scratch: &'a WalkScratch) -> Self {
+        Self {
+            scratch,
+            drafts_by_project: HashMap::new(),
+            sizes: HashMap::new(),
+        }
+    }
+
+    fn add_file_size(&mut self, parent: &Path, bytes: u64) {
+        let entry = self.sizes.entry(parent.to_path_buf()).or_insert(0);
+        *entry = entry.saturating_add(bytes);
+    }
+
+    fn add_draft(&mut self, project_dir: &Path, draft: CandidateDraft) {
+        self.drafts_by_project
+            .entry(project_dir.to_path_buf())
+            .or_default()
+            .push(draft);
+    }
+}
+
+impl Drop for WalkLocal<'_> {
+    fn drop(&mut self) {
+        let local_sizes = mem::take(&mut self.sizes);
+        if !local_sizes.is_empty() {
+            let mut sizes = self
+                .scratch
+                .sizes
+                .lock()
+                .unwrap_or_else(|e| panic!("walk scratch sizes mutex poisoned: {e}"));
+            for (dir, bytes) in local_sizes {
+                let entry = sizes.entry(dir).or_insert(0);
+                *entry = entry.saturating_add(bytes);
+            }
+        }
+
+        let local_drafts = mem::take(&mut self.drafts_by_project);
+        if !local_drafts.is_empty() {
+            let mut drafts = self
+                .scratch
+                .drafts_by_project
+                .lock()
+                .unwrap_or_else(|e| panic!("walk scratch drafts mutex poisoned: {e}"));
+            for (project_dir, mut project_drafts) in local_drafts {
+                drafts
+                    .entry(project_dir)
+                    .or_default()
+                    .append(&mut project_drafts);
+            }
+        }
     }
 }
 
@@ -88,7 +152,8 @@ pub(crate) fn walk_parallel(
         .hidden(false);
 
     builder.build_parallel().run(|| {
-        Box::new(|result| {
+        let mut local = WalkLocal::new(scratch);
+        Box::new(move |result| {
             let entry = match result {
                 Ok(e) => e,
                 Err(err) => {
@@ -117,15 +182,15 @@ pub(crate) fn walk_parallel(
             }
 
             if file_type.is_file() {
-                if let Ok(metadata) = entry.metadata()
-                    && let Some(parent) = path.parent()
-                {
-                    let mut sizes = scratch
-                        .sizes
-                        .lock()
-                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
-                    let entry = sizes.entry(parent.to_path_buf()).or_insert(0);
-                    *entry = entry.saturating_add(metadata.len());
+                match entry.metadata() {
+                    Ok(metadata) => {
+                        if let Some(parent) = path.parent() {
+                            local.add_file_size(parent, metadata.len());
+                        }
+                    }
+                    Err(err) => {
+                        debug!(path = %path.display(), error = %err, "walk metadata error");
+                    }
                 }
                 return WalkState::Continue;
             }
@@ -155,11 +220,7 @@ pub(crate) fn walk_parallel(
                 }
                 apply_path_safety(root, &mut draft);
                 if should_include(&draft, options) {
-                    let mut drafts = scratch
-                        .drafts_by_project
-                        .lock()
-                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
-                    drafts.entry(parent.to_path_buf()).or_default().push(draft);
+                    local.add_draft(parent, draft);
                 }
                 // Classified candidate's subtree is the candidate's
                 // own concern — dir_size walks it separately in
@@ -176,11 +237,7 @@ pub(crate) fn walk_parallel(
                 }
                 apply_path_safety(root, &mut draft);
                 if should_include(&draft, options) {
-                    let mut drafts = scratch
-                        .drafts_by_project
-                        .lock()
-                        .unwrap_or_else(|e| panic!("walk scratch mutex poisoned: {e}"));
-                    drafts.entry(parent.to_path_buf()).or_default().push(draft);
+                    local.add_draft(parent, draft);
                 }
                 return WalkState::Skip;
             }
