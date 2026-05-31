@@ -474,6 +474,7 @@ fn check_anchor(
     }
 }
 
+#[cfg(target_os = "macos")]
 fn skipped_anchor(rule_id: &'static str, anchor: PathBuf, reason: &'static str) -> DoctorEntry {
     DoctorEntry {
         rule_id,

@@ -1,6 +1,11 @@
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
-use crate::model::{ApfsContainerUsage, DiskAttribution, DiskContributor, VolumeUsage};
+use crate::model::DiskAttribution;
+#[cfg(target_os = "macos")]
+use crate::model::DiskContributor;
+#[cfg(any(target_os = "macos", test))]
+use crate::model::{ApfsContainerUsage, VolumeUsage};
 
 #[cfg(target_os = "macos")]
 pub(crate) fn collect_disk_attribution() -> Option<DiskAttribution> {
@@ -106,6 +111,7 @@ fn run_output(program: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_df_usage(output: &str, label: &str, path: &str) -> Option<VolumeUsage> {
     let line = output
         .lines()
@@ -127,6 +133,7 @@ fn parse_df_usage(output: &str, label: &str, path: &str) -> Option<VolumeUsage> 
     })
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_apfs_container(output: &str) -> Option<ApfsContainerUsage> {
     let capacity_bytes = parse_labeled_bytes(output, "Capacity Ceiling");
     let used_bytes = parse_labeled_bytes(output, "Capacity In Use By Volumes");
@@ -140,6 +147,7 @@ fn parse_apfs_container(output: &str) -> Option<ApfsContainerUsage> {
     )
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_labeled_bytes(output: &str, label: &str) -> Option<u64> {
     output
         .lines()
@@ -147,12 +155,14 @@ fn parse_labeled_bytes(output: &str, label: &str) -> Option<u64> {
         .and_then(parse_parenthesized_bytes)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_parenthesized_bytes(line: &str) -> Option<u64> {
     let (_, after_open) = line.rsplit_once('(')?;
     let (bytes, _) = after_open.split_once(" Bytes")?;
     bytes.trim().parse().ok()
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn parse_du_kib(output: &str) -> Option<u64> {
     output
         .split_whitespace()

@@ -17,7 +17,7 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (project_dir, name, path);
-        return None;
+        None
     }
 
     #[cfg(target_os = "macos")]

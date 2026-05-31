@@ -97,6 +97,7 @@ fn ensure_no_open_files(path: &Path) -> Result<(), CleanError> {
     open_file_check_result(path, output.status.success(), &stdout, &stderr)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn open_file_check_result(
     path: &Path,
     success: bool,
