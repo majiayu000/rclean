@@ -174,6 +174,14 @@ pub fn diagnose() -> DoctorReport {
         "no pipx install detected",
     ));
 
+    // Deno's cache can be native macOS or XDG-style, depending on
+    // platform and user environment.
+    entries.push(check_any_anchor(
+        "js.deno_cache",
+        deno_cache_anchors(&home),
+        "no Deno install detected",
+    ));
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
@@ -310,6 +318,27 @@ fn check_anchor(
     }
 }
 
+/// Canonical anchors for Deno's remote-dependency cache. macOS native
+/// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
+/// uses `%LOCALAPPDATA%\deno`.
+fn deno_cache_anchors(home: &std::path::Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join("deno"),
+            home.join(".cache").join("deno"),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join("deno")]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join("deno")]
+    }
+}
+
 /// Canonical anchors for a Python toolchain cache directory.
 ///
 /// macOS hosts may resolve to either the native `~/Library/Caches/<tool>`
@@ -378,9 +407,8 @@ mod tests {
         let _restore = with_home(temp.path());
 
         let report = diagnose();
-        // v0.3 Phase 2 baseline has 18 entries; Python global caches
-        // add uv, Poetry, and pipx for 21 entries total.
-        assert_eq!(report.total_count(), 21);
+        // v0.3 Phase 2 + Python has 21 entries; Deno adds one more.
+        assert_eq!(report.total_count(), 22);
     }
 
     #[test]
