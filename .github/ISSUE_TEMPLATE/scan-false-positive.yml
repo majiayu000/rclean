@@ -1,0 +1,83 @@
+name: Scan false positive
+description: Report a path that rclean classified as cleanup but should not have.
+title: "[False positive]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when `rclean scan` or `rclean explain` marks a path as a cleanup candidate and you believe the path should not be classified that way.
+
+        If this is a private security or trust-model issue, do not include sensitive reproduction details here. Follow `SECURITY.md` instead.
+  - type: input
+    id: rclean_version
+    attributes:
+      label: rclean version
+      description: Run `rclean --version`.
+      placeholder: "rclean 0.1.x"
+    validations:
+      required: true
+  - type: input
+    id: operating_system
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.5, Ubuntu 24.04, Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: Include the exact command that produced the candidate.
+      placeholder: "rclean scan ~/code --min-size 100mb"
+    validations:
+      required: true
+  - type: input
+    id: candidate_path
+    attributes:
+      label: Candidate path
+      description: Use a sanitized path if needed, but keep enough structure to reproduce the match.
+      placeholder: "~/code/example-app/build"
+    validations:
+      required: true
+  - type: input
+    id: rule_id
+    attributes:
+      label: Rule id and safety
+      description: Include the rule id and safety tier from `scan --json`, table output, or `rclean explain`.
+      placeholder: "generic.build_dir, safe"
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Why this should not be a cleanup candidate
+      description: Explain what the directory contains and why deleting it would be wrong.
+      placeholder: "This directory contains checked-in source artifacts, not rebuildable cache output."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A small directory layout or shell snippet is ideal.
+      placeholder: |
+        mkdir -p /tmp/rclean-repro/example/build
+        touch /tmp/rclean-repro/example/...
+        rclean scan /tmp/rclean-repro --min-size 0
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Paste sanitized `rclean scan`, `rclean scan --json`, or `rclean explain` output.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Links to package-manager docs, project conventions, or related issues can help triage.
+    validations:
+      required: false

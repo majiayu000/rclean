@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest a new rule, workflow, output mode, or packaging improvement.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new ecosystem rules, CLI workflow improvements, output formats, packaging requests, or documentation gaps.
+
+        If the request is about a wrong cleanup candidate, use the scan false positive form instead. If the request is about risky cleanup behavior, use the cleanup safety concern form.
+  - type: dropdown
+    id: feature_area
+    attributes:
+      label: Feature area
+      options:
+        - new cleanup rule
+        - scan or explain output
+        - clean or ActionPlan workflow
+        - install or packaging
+        - documentation
+        - performance
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+      placeholder: "I want rclean to identify rebuildable cache output from..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior, command, rule, or documentation change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: safety_impact
+    attributes:
+      label: Safety impact
+      description: Explain how rclean can avoid deleting user data or selecting risky paths by default.
+      placeholder: "The rule should require marker files and classify the path as caution until restore behavior is proven."
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or prior art
+      description: Include path examples, package-manager docs, comparable tools, or command output.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: If there is already a manual workaround, include it here.
+    validations:
+      required: false
