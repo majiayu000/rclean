@@ -157,3 +157,10 @@ pub fn classify_candidate(project_dir: &Path, name: &str, path: PathBuf) -> Opti
             draft
         })
 }
+
+pub fn allows_protected_user_data_path(rule_id: &str) -> bool {
+    matches!(
+        rule_id,
+        "macos.geod_map_tiles" | "macos.mediaanalysisd_cache" | "macos.mediaanalysisd_tmp"
+    )
+}

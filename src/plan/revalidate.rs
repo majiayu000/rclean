@@ -14,7 +14,9 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
     let mut selected = Vec::with_capacity(plan.selected.len());
     for candidate in &plan.selected {
         let path = PathBuf::from(&candidate.path);
-        if is_protected_user_data_path(&path) {
+        if is_protected_user_data_path(&path)
+            && !rules::allows_protected_user_data_path(&candidate.rule_id)
+        {
             return Err(PlanError::Generic(format!(
                 "{} is protected user data; refusing to clean",
                 candidate.path
@@ -97,7 +99,9 @@ pub fn revalidate_selected(
                 path: candidate.path.clone(),
                 source,
             })?;
-        if is_protected_user_data_path(&canonical) {
+        if is_protected_user_data_path(&canonical)
+            && !rules::allows_protected_user_data_path(&candidate.rule_id)
+        {
             return Err(PlanError::Generic(format!(
                 "{} resolves to protected user data",
                 candidate.path.display()

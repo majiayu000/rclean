@@ -31,7 +31,9 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
         return;
     }
 
-    if is_protected_user_data_path(&draft.path) {
+    if is_protected_user_data_path(&draft.path)
+        && !rules::allows_protected_user_data_path(&draft.rule_id)
+    {
         draft.safety = Safety::Blocked;
         draft
             .warnings

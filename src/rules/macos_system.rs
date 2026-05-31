@@ -124,7 +124,93 @@ fn classify_macos(project_dir: &Path, name: &str, path: &Path) -> Option<Candida
         });
     }
 
+    if name == "MapTiles"
+        && parent_ends_with(
+            project_dir,
+            &[
+                "Library",
+                "Containers",
+                "com.apple.geod",
+                "Data",
+                "Library",
+                "Caches",
+                "com.apple.geod",
+            ],
+        )
+    {
+        return Some(user_service_cache(
+            path,
+            name,
+            "macos.geod_map_tiles",
+            "macOS geod map tile cache",
+            "Maps and location services will redownload map tiles on demand",
+        ));
+    }
+
+    if name == "com.apple.mediaanalysisd"
+        && parent_ends_with(
+            project_dir,
+            &[
+                "Library",
+                "Containers",
+                "com.apple.mediaanalysisd",
+                "Data",
+                "Library",
+                "Caches",
+            ],
+        )
+    {
+        return Some(user_service_cache(
+            path,
+            name,
+            "macos.mediaanalysisd_cache",
+            "mediaanalysisd user-level analysis cache",
+            "Photos/media analysis services will rebuild this cache when needed",
+        ));
+    }
+
+    if name == "MediaCache"
+        && parent_ends_with(
+            project_dir,
+            &[
+                "Library",
+                "Containers",
+                "com.apple.mediaanalysisd",
+                "Data",
+                "tmp",
+            ],
+        )
+    {
+        return Some(user_service_cache(
+            path,
+            name,
+            "macos.mediaanalysisd_tmp",
+            "mediaanalysisd temporary media cache",
+            "mediaanalysisd will recreate temporary media analysis data when needed",
+        ));
+    }
+
     None
+}
+
+#[cfg(target_os = "macos")]
+fn user_service_cache(
+    path: &Path,
+    name: &str,
+    rule_id: &str,
+    reason: &str,
+    restore_hint: &str,
+) -> CandidateDraft {
+    CandidateDraft {
+        path: path.to_path_buf(),
+        name: name.to_string(),
+        rule_id: rule_id.to_string(),
+        category: Category::Cache,
+        safety: Safety::Caution,
+        reasons: vec![reason.to_string()],
+        warnings: vec!["Skip this candidate while the owning macOS service is active".to_string()],
+        restore_hint: restore_hint.to_string(),
+    }
 }
 
 pub(crate) fn is_dynamic_candidate_name(name: &str) -> bool {
@@ -219,5 +305,51 @@ mod tests {
         .expect("should classify Chrome model cache");
         assert_eq!(draft.rule_id, "chrome.opt_guide_model");
         assert_eq!(draft.safety, Safety::Caution);
+    }
+
+    #[test]
+    fn classifies_exact_user_service_container_caches() {
+        let geod = PathBuf::from(
+            "/Users/me/Library/Containers/com.apple.geod/Data/Library/Caches/com.apple.geod",
+        );
+        let draft = classify(&geod, "MapTiles", &geod.join("MapTiles"))
+            .expect("should classify geod MapTiles");
+        assert_eq!(draft.rule_id, "macos.geod_map_tiles");
+        assert_eq!(draft.safety, Safety::Caution);
+
+        let media_cache = PathBuf::from(
+            "/Users/me/Library/Containers/com.apple.mediaanalysisd/Data/Library/Caches",
+        );
+        let draft = classify(
+            &media_cache,
+            "com.apple.mediaanalysisd",
+            &media_cache.join("com.apple.mediaanalysisd"),
+        )
+        .expect("should classify mediaanalysisd cache");
+        assert_eq!(draft.rule_id, "macos.mediaanalysisd_cache");
+
+        let media_tmp =
+            PathBuf::from("/Users/me/Library/Containers/com.apple.mediaanalysisd/Data/tmp");
+        let draft = classify(&media_tmp, "MediaCache", &media_tmp.join("MediaCache"))
+            .expect("should classify mediaanalysisd temp cache");
+        assert_eq!(draft.rule_id, "macos.mediaanalysisd_tmp");
+    }
+
+    #[test]
+    fn rejects_user_service_container_roots() {
+        for path in [
+            "/Users/me/Library/Containers/com.apple.geod",
+            "/Users/me/Library/Containers/com.apple.mediaanalysisd",
+            "/Users/me/Library/Containers/com.apple.geod/Data",
+        ] {
+            let path = PathBuf::from(path);
+            let name = path.file_name().unwrap().to_str().unwrap();
+            let parent = path.parent().unwrap();
+            assert!(
+                classify(parent, name, &path).is_none(),
+                "must not classify container root {}",
+                path.display()
+            );
+        }
     }
 }
