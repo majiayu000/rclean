@@ -291,7 +291,10 @@ fn scan_sizes_one_large_candidate_and_many_small_projects_deterministically() {
     assert_eq!(scan_signature(&first), scan_signature(&second));
 }
 
-fn scan_signature(report: &ScanReport) -> Vec<(String, Vec<(String, String, u64, String)>)> {
+type CandidateSignature = (String, String, u64, String);
+type ProjectSignature = (String, Vec<CandidateSignature>);
+
+fn scan_signature(report: &ScanReport) -> Vec<ProjectSignature> {
     report
         .projects
         .iter()
