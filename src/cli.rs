@@ -28,6 +28,8 @@ pub enum Commands {
     Tui(CommonScanArgs),
     /// Watch lockfiles and refresh cleanable artifact candidates.
     Watch(WatchArgs),
+    /// Mark current artifacts, then sweep unchanged stamped artifacts into an ActionPlan.
+    Stamp(StampArgs),
     /// Explain whether a single path is cleanable and why.
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
@@ -255,6 +257,16 @@ pub struct WatchArgs {
     /// Poll interval after the watcher is idle or unavailable. Examples: 60s, 5m.
     #[arg(long, default_value = "60s")]
     pub every: String,
+}
+
+#[derive(Debug, Args)]
+pub struct StampArgs {
+    #[command(flatten)]
+    pub common: CommonScanArgs,
+
+    /// Write an ActionPlan for stamped candidates that have not changed since stamping.
+    #[arg(long)]
+    pub sweep: bool,
 }
 
 #[derive(Debug, Args)]
