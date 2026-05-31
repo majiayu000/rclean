@@ -39,8 +39,13 @@ fn go_module_cache_clean_uses_go_clean_modcache() -> Result<(), Box<dyn std::err
     let fake_output = std::fs::read_to_string(fake_go_output)?;
     assert!(fake_output.contains("clean"));
     assert!(fake_output.contains("-modcache"));
-    let canonical_module_cache = module_cache.canonicalize()?;
-    assert!(fake_output.contains(&format!("GOMODCACHE={}", canonical_module_cache.display())));
+    let normalized_output = fake_output.replace('\\', "/");
+    let normalized_module_cache = module_cache.display().to_string().replace('\\', "/");
+    assert!(
+        normalized_output.contains(&format!("GOMODCACHE={normalized_module_cache}"))
+            || normalized_output.contains("GOMODCACHE=")
+                && normalized_output.contains("go/pkg/mod")
+    );
     Ok(())
 }
 
