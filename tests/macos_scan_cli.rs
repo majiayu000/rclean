@@ -35,6 +35,30 @@ fn home_flag_reports_macos_high_value_candidates() -> Result<(), Box<dyn std::er
             .join("com.apple.wallpaper")
             .join("aerials")
             .join("videos"),
+        temp.path()
+            .join("Library")
+            .join("Containers")
+            .join("com.apple.geod")
+            .join("Data")
+            .join("Library")
+            .join("Caches")
+            .join("com.apple.geod")
+            .join("MapTiles"),
+        temp.path()
+            .join("Library")
+            .join("Containers")
+            .join("com.apple.mediaanalysisd")
+            .join("Data")
+            .join("Library")
+            .join("Caches")
+            .join("com.apple.mediaanalysisd"),
+        temp.path()
+            .join("Library")
+            .join("Containers")
+            .join("com.apple.mediaanalysisd")
+            .join("Data")
+            .join("tmp")
+            .join("MediaCache"),
     ] {
         std::fs::create_dir_all(&path)?;
         std::fs::write(path.join("blob"), "x")?;
@@ -52,6 +76,15 @@ fn home_flag_reports_macos_high_value_candidates() -> Result<(), Box<dyn std::er
         .stdout(predicate::str::contains("\"ruleId\": \"app.lark_update\""))
         .stdout(predicate::str::contains(
             "\"ruleId\": \"apple.wallpaper_aerial_videos\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"macos.geod_map_tiles\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"macos.mediaanalysisd_cache\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"macos.mediaanalysisd_tmp\"",
         ))
         .stdout(predicate::str::contains("/Default\"").not())
         .stdout(predicate::str::contains("\"safety\": \"caution\""));

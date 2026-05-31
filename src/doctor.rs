@@ -403,6 +403,36 @@ pub fn diagnose() -> DoctorReport {
             "no Lark/Feishu app support detected",
         ));
         entries.push(check_anchor(
+            "macos.geod_map_tiles",
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.geod")
+                .join("Data")
+                .join("Library")
+                .join("Caches")
+                .join("com.apple.geod"),
+            "no geod map cache detected",
+        ));
+        entries.push(check_anchor(
+            "macos.mediaanalysisd_cache",
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.mediaanalysisd")
+                .join("Data")
+                .join("Library")
+                .join("Caches"),
+            "no mediaanalysisd cache detected",
+        ));
+        entries.push(check_anchor(
+            "macos.mediaanalysisd_tmp",
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.mediaanalysisd")
+                .join("Data")
+                .join("tmp"),
+            "no mediaanalysisd tmp cache detected",
+        ));
+        entries.push(check_anchor(
             "editor.vscode_cache",
             home.join("Library")
                 .join("Application Support")
@@ -437,6 +467,9 @@ pub fn diagnose() -> DoctorReport {
             "apple.wallpaper_aerial_videos",
             "chrome.opt_guide_model",
             "app.lark_update",
+            "macos.geod_map_tiles",
+            "macos.mediaanalysisd_cache",
+            "macos.mediaanalysisd_tmp",
             "editor.vscode_cache",
             "editor.cursor_cache",
             "app.electron_cache",
@@ -597,7 +630,7 @@ mod tests {
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
         // plus the Go modcache root cleanup rule.
-        assert_eq!(report.total_count(), 43);
+        assert_eq!(report.total_count(), 46);
     }
 
     #[test]

@@ -67,6 +67,9 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "videos"
             | "OptGuideOnDeviceModel"
             | "update"
+            | "MapTiles"
+            | "MediaCache"
+            | "com.apple.mediaanalysisd"
             | "compact_index"
             | "logs"
             | "Cache"
@@ -122,6 +125,9 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "apple.wallpaper_aerial_videos"
             | "chrome.opt_guide_model"
             | "app.lark_update"
+            | "macos.geod_map_tiles"
+            | "macos.mediaanalysisd_cache"
+            | "macos.mediaanalysisd_tmp"
             | "node.npm_transient"
             | "ruby.bundle_compact_index"
             | "cloud.kube_cache"
@@ -236,6 +242,9 @@ mod tests {
             "videos",
             "OptGuideOnDeviceModel",
             "update",
+            "MapTiles",
+            "MediaCache",
+            "com.apple.mediaanalysisd",
             "mod",
             "compact_index",
             "_npx",

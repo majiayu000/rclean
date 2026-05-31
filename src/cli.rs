@@ -372,6 +372,30 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
                 .join("com.apple.wallpaper")
                 .join("aerials"),
         );
+        candidates.push(
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.geod")
+                .join("Data")
+                .join("Library")
+                .join("Caches")
+                .join("com.apple.geod"),
+        );
+        candidates.push(
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.mediaanalysisd")
+                .join("Data")
+                .join("Library")
+                .join("Caches"),
+        );
+        candidates.push(
+            home.join("Library")
+                .join("Containers")
+                .join("com.apple.mediaanalysisd")
+                .join("Data")
+                .join("tmp"),
+        );
         // Some global tools use XDG-style caches on macOS instead of
         // `~/Library/Caches` (for example pre-commit and uv).
         candidates.push(home.join(".cache"));

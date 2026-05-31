@@ -46,7 +46,9 @@ pub(super) fn validate_for_deletion_with_rule(
     let canonical = path.canonicalize().map_err(|err| {
         CleanError::Generic(format!("failed to canonicalize {}: {err}", path.display()))
     })?;
-    if is_protected_user_data_path(&canonical) {
+    if is_protected_user_data_path(&canonical)
+        && !rule_id.is_some_and(rules::allows_protected_user_data_path)
+    {
         return Err(CleanError::Generic(format!(
             "refusing to delete {}: resolves to protected user data",
             path.display()
@@ -77,6 +79,9 @@ fn requires_closed_process_gate(rule_id: &str) -> bool {
             | "editor.vscode_cache"
             | "editor.cursor_cache"
             | "chrome.opt_guide_model"
+            | "macos.geod_map_tiles"
+            | "macos.mediaanalysisd_cache"
+            | "macos.mediaanalysisd_tmp"
     )
 }
 

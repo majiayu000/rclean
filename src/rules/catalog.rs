@@ -382,6 +382,24 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Lark/Feishu will download future updates again when needed",
     },
     RuleInfo {
+        rule_id: "macos.geod_map_tiles",
+        category: Category::Cache,
+        candidate: "MapTiles",
+        restore_hint: "Maps and location services will redownload map tiles on demand",
+    },
+    RuleInfo {
+        rule_id: "macos.mediaanalysisd_cache",
+        category: Category::Cache,
+        candidate: "com.apple.mediaanalysisd",
+        restore_hint: "Photos/media analysis services will rebuild this cache when needed",
+    },
+    RuleInfo {
+        rule_id: "macos.mediaanalysisd_tmp",
+        category: Category::Cache,
+        candidate: "MediaCache",
+        restore_hint: "mediaanalysisd will recreate temporary media analysis data when needed",
+    },
+    RuleInfo {
         rule_id: "ruby.bundle_compact_index",
         category: Category::Cache,
         candidate: "compact_index",
