@@ -18,6 +18,7 @@
 //! gitignore-style filter live here next to `ScanOptions` because
 //! they are the only types every submodule needs to import.
 
+mod disk;
 mod git_cache;
 mod project;
 mod safety;
@@ -54,6 +55,7 @@ pub struct ScanOptions {
     pub rule_ids: Option<Vec<String>>,
     pub include_blocked: bool,
     pub verbose: bool,
+    pub disk_attribution: bool,
     /// Extra gitignore-style globs from `--ignore` CLI flags, layered on
     /// top of any `.rcleanignore` file at the scan root.
     pub ignore_globs: Vec<String>,
@@ -156,6 +158,10 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
         scanned_at: Utc::now().to_rfc3339(),
         roots,
+        disk_attribution: options
+            .disk_attribution
+            .then(disk::collect_disk_attribution)
+            .flatten(),
         summary,
         projects,
     })

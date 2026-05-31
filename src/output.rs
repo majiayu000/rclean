@@ -155,6 +155,9 @@ pub fn print_table(report: &ScanReport) {
         report.summary.blocked_candidates,
         report.summary.report_only_candidates
     );
+    if let Some(disk) = &report.disk_attribution {
+        print_disk_attribution(disk);
+    }
 
     if report.projects.is_empty() {
         println!("No cleanable developer artifacts found.");
@@ -210,6 +213,48 @@ pub fn print_table(report: &ScanReport) {
             );
         }
     }
+}
+
+fn print_disk_attribution(disk: &crate::model::DiskAttribution) {
+    println!();
+    println!("Disk attribution:");
+    if let Some(container) = &disk.apfs_container {
+        println!(
+            "  APFS container: {} used / {} total ({} free)",
+            format_optional_bytes(container.used_bytes),
+            format_optional_bytes(container.capacity_bytes),
+            format_optional_bytes(container.free_bytes)
+        );
+    }
+    if let Some(system) = &disk.system_volume {
+        println!("  System volume: {} used", format_bytes(system.used_bytes));
+    }
+    if let Some(data) = &disk.data_volume {
+        println!("  Data volume: {} used", format_bytes(data.used_bytes));
+    }
+    if !disk.data_contributors.is_empty() {
+        println!("  Top Data contributors:");
+        for contributor in &disk.data_contributors {
+            println!(
+                "    {:<14} {:>8}  {}",
+                contributor.label,
+                contributor
+                    .bytes
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "unknown".to_string()),
+                contributor.path
+            );
+        }
+    }
+    for warning in &disk.warnings {
+        println!("  warning: {warning}");
+    }
+}
+
+fn format_optional_bytes(bytes: Option<u64>) -> String {
+    bytes
+        .map(format_bytes)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn format_risk(score: f32) -> String {

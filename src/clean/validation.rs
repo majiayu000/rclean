@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 use crate::error::CleanError;
 use crate::rules;
@@ -57,6 +59,102 @@ pub(super) fn validate_for_deletion_with_rule(
             path.display()
         )));
     }
+    if rule_id.is_some_and(requires_closed_process_gate) {
+        ensure_no_open_files(path)?;
+    }
 
     Ok(())
+}
+
+fn requires_closed_process_gate(rule_id: &str) -> bool {
+    matches!(
+        rule_id,
+        "macos.chrome_code_sign_clone"
+            | "macos.remem_dry_run_tmp"
+            | "app.lark_cache"
+            | "app.lark_update"
+            | "app.electron_cache"
+            | "editor.vscode_cache"
+            | "editor.cursor_cache"
+            | "chrome.opt_guide_model"
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_no_open_files(path: &Path) -> Result<(), CleanError> {
+    let output = Command::new("lsof")
+        .args(["-t", "+D"])
+        .arg(path)
+        .output()
+        .map_err(|err| {
+            CleanError::Generic(format!(
+                "failed to check open files for {}: {err}",
+                path.display()
+            ))
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    open_file_check_result(path, output.status.success(), &stdout, &stderr)
+}
+
+fn open_file_check_result(
+    path: &Path,
+    success: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<(), CleanError> {
+    if !stdout.trim().is_empty() {
+        return Err(CleanError::Generic(format!(
+            "refusing to delete {}: files are open by process ids {}",
+            path.display(),
+            stdout.split_whitespace().collect::<Vec<_>>().join(",")
+        )));
+    }
+    if !success && !stderr.trim().is_empty() {
+        return Err(CleanError::Generic(format!(
+            "failed to check open files for {}: {}",
+            path.display(),
+            stderr.trim()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ensure_no_open_files(_path: &Path) -> Result<(), CleanError> {
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn closed_process_gate_applies_to_app_and_temp_rules() {
+        assert!(requires_closed_process_gate("macos.chrome_code_sign_clone"));
+        assert!(requires_closed_process_gate("macos.remem_dry_run_tmp"));
+        assert!(requires_closed_process_gate("app.lark_update"));
+        assert!(!requires_closed_process_gate("node.node_modules"));
+    }
+
+    #[test]
+    fn open_file_check_rejects_open_process_ids() {
+        let err = open_file_check_result(&PathBuf::from("/tmp/cache"), true, "123\n456\n", "")
+            .unwrap_err();
+        assert!(err.to_string().contains("123,456"));
+    }
+
+    #[test]
+    fn open_file_check_allows_no_open_files_lsof_exit_one() {
+        open_file_check_result(&PathBuf::from("/tmp/cache"), false, "", "").unwrap();
+    }
+
+    #[test]
+    fn open_file_check_reports_lsof_errors() {
+        let err =
+            open_file_check_result(&PathBuf::from("/tmp/cache"), false, "", "permission denied")
+                .unwrap_err();
+        assert!(err.to_string().contains("permission denied"));
+    }
 }

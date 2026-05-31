@@ -18,6 +18,7 @@ fn options() -> ScanOptions {
         rule_ids: None,
         include_blocked: true,
         verbose: false,
+        disk_attribution: false,
         ignore_globs: Vec::new(),
     }
 }

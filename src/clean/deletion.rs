@@ -1,4 +1,6 @@
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::error::CleanError;
 
@@ -17,7 +19,9 @@ pub fn delete_selected(
             continue;
         }
 
-        let outcome = if permanent {
+        let outcome = if is_go_modcache_rule(&candidate.rule_id) {
+            clean_go_modcache(candidate).map_err(|err| err.to_string())
+        } else if permanent {
             fs::remove_dir_all(&candidate.path).map_err(|err| err.to_string())
         } else {
             trash::delete(&candidate.path).map_err(|err| err.to_string())
@@ -55,6 +59,15 @@ pub fn delete_selected_into_graveyard(
             continue;
         }
 
+        if is_go_modcache_rule(&candidate.rule_id) {
+            result.failed.push((
+                candidate.clone(),
+                "Go module cache cleanup must run `go clean -modcache`; graveyard mode cannot preserve that tool-managed operation"
+                    .to_string(),
+            ));
+            continue;
+        }
+
         let category = candidate.category.to_string();
         let safety = candidate.safety.to_string();
         let input = GraveInput {
@@ -75,4 +88,92 @@ pub fn delete_selected_into_graveyard(
     }
 
     Ok(result)
+}
+
+fn is_go_modcache_rule(rule_id: &str) -> bool {
+    matches!(rule_id, "go.module_cache" | "go.module_download_cache")
+}
+
+fn clean_go_modcache(candidate: &SelectedCandidate) -> Result<(), CleanError> {
+    let modcache = go_modcache_path(candidate).ok_or_else(|| {
+        CleanError::Generic(format!(
+            "{} is not inside a Go module cache layout",
+            candidate.path.display()
+        ))
+    })?;
+    let output = Command::new("go")
+        .args(["clean", "-modcache"])
+        .env("GOMODCACHE", &modcache)
+        .output()
+        .map_err(|err| CleanError::Generic(format!("failed to run go clean -modcache: {err}")))?;
+    if !output.status.success() {
+        return Err(CleanError::Generic(format!(
+            "go clean -modcache failed for {}: {}",
+            modcache.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
+fn go_modcache_path(candidate: &SelectedCandidate) -> Option<PathBuf> {
+    if candidate.rule_id == "go.module_cache" {
+        return Some(candidate.path.clone());
+    }
+    go_modcache_from_download_path(&candidate.path)
+}
+
+fn go_modcache_from_download_path(path: &Path) -> Option<PathBuf> {
+    if path.file_name()?.to_str()? != "download" {
+        return None;
+    }
+    let cache = path.parent()?;
+    if cache.file_name()?.to_str()? != "cache" {
+        return None;
+    }
+    let modcache = cache.parent()?;
+    if modcache.file_name()?.to_str()? != "mod" {
+        return None;
+    }
+    Some(modcache.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Category, Safety};
+
+    #[test]
+    fn resolves_go_modcache_from_root_candidate() {
+        let candidate = SelectedCandidate {
+            id: None,
+            path: PathBuf::from("/Users/me/go/pkg/mod"),
+            bytes: 0,
+            rule_id: "go.module_cache".to_string(),
+            category: Category::Cache,
+            safety: Safety::Caution,
+            risk_score: 0.0,
+        };
+        assert_eq!(
+            go_modcache_path(&candidate),
+            Some(PathBuf::from("/Users/me/go/pkg/mod"))
+        );
+    }
+
+    #[test]
+    fn resolves_go_modcache_from_legacy_download_candidate() {
+        let candidate = SelectedCandidate {
+            id: None,
+            path: PathBuf::from("/Users/me/go/pkg/mod/cache/download"),
+            bytes: 0,
+            rule_id: "go.module_download_cache".to_string(),
+            category: Category::Cache,
+            safety: Safety::Caution,
+            risk_score: 0.0,
+        };
+        assert_eq!(
+            go_modcache_path(&candidate),
+            Some(PathBuf::from("/Users/me/go/pkg/mod"))
+        );
+    }
 }

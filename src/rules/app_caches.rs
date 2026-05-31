@@ -64,6 +64,19 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
         });
     }
 
+    if name == "LarkInternational" && parent_ends_with(project_dir, &["Library", "Caches"]) {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "app.lark_cache".to_string(),
+            category: Category::Cache,
+            safety: Safety::Safe,
+            reasons: vec!["Lark/Feishu rebuildable application cache".to_string()],
+            warnings: vec!["Close Lark/Feishu first if it is actively running".to_string()],
+            restore_hint: "Lark/Feishu will recreate this cache on next launch".to_string(),
+        });
+    }
+
     // Chrome auto-updater state.
     if name == "GoogleUpdater"
         && parent_ends_with(project_dir, &["Library", "Application Support", "Google"])
@@ -180,6 +193,16 @@ mod tests {
         let parent = PathBuf::from("/Users/me/Library/Caches/Google");
         let path = parent.join("Chromium");
         assert!(classify(&parent, "Chromium", &path).is_none());
+    }
+
+    #[test]
+    fn classifies_lark_cache_under_library_caches() {
+        let parent = PathBuf::from("/Users/me/Library/Caches");
+        let path = parent.join("LarkInternational");
+        let draft =
+            classify(&parent, "LarkInternational", &path).expect("should classify Lark cache");
+        assert_eq!(draft.rule_id, "app.lark_cache");
+        assert_eq!(draft.safety, Safety::Safe);
     }
 
     // --- chrome.google_updater ---

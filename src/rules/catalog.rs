@@ -199,7 +199,13 @@ pub(super) static RULES: &[RuleInfo] = &[
         rule_id: "go.module_download_cache",
         category: Category::Cache,
         candidate: "download",
-        restore_hint: "Go will redownload modules on the next build or test",
+        restore_hint: "Run go mod download or rebuild/test to redownload modules",
+    },
+    RuleInfo {
+        rule_id: "go.module_cache",
+        category: Category::Cache,
+        candidate: "mod",
+        restore_hint: "Run go mod download or rebuild/test to redownload modules",
     },
     RuleInfo {
         rule_id: "go.build_cache",
@@ -338,6 +344,42 @@ pub(super) static RULES: &[RuleInfo] = &[
         category: Category::Cache,
         candidate: "GoogleUpdater",
         restore_hint: "Chrome's updater will recreate it on next launch",
+    },
+    RuleInfo {
+        rule_id: "app.lark_cache",
+        category: Category::Cache,
+        candidate: "LarkInternational",
+        restore_hint: "Lark/Feishu will recreate this cache on next launch",
+    },
+    RuleInfo {
+        rule_id: "macos.chrome_code_sign_clone",
+        category: Category::Cache,
+        candidate: "com.google.Chrome.code_sign_clone",
+        restore_hint: "Chrome/macOS will recreate temporary code-sign clone data when needed",
+    },
+    RuleInfo {
+        rule_id: "macos.remem_dry_run_tmp",
+        category: Category::Cache,
+        candidate: "remem-dry-run-*",
+        restore_hint: "No restore needed; persistent remem state lives outside this dry-run temp path",
+    },
+    RuleInfo {
+        rule_id: "apple.wallpaper_aerial_videos",
+        category: Category::Cache,
+        candidate: "videos",
+        restore_hint: "System Settings > Wallpaper will redownload selected aerials on demand",
+    },
+    RuleInfo {
+        rule_id: "chrome.opt_guide_model",
+        category: Category::Cache,
+        candidate: "OptGuideOnDeviceModel",
+        restore_hint: "Chrome can redownload or rebuild this optimization model when needed",
+    },
+    RuleInfo {
+        rule_id: "app.lark_update",
+        category: Category::Cache,
+        candidate: "update",
+        restore_hint: "Lark/Feishu will download future updates again when needed",
     },
     RuleInfo {
         rule_id: "ruby.bundle_compact_index",

@@ -90,11 +90,10 @@ fn home_flag_expands_to_go_cache_roots_when_present() {
         .args(["scan", "--home", "--json", "--min-size", "0"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "\"ruleId\": \"go.module_download_cache\"",
-        ))
+        .stdout(predicate::str::contains("\"ruleId\": \"go.module_cache\""))
         .stdout(predicate::str::contains("\"ruleId\": \"go.build_cache\""))
-        .stdout(predicate::str::contains("\"safety\": \"safe\""));
+        .stdout(predicate::str::contains("\"safety\": \"caution\""))
+        .stdout(predicate::str::contains("\"ruleId\": \"go.module_download_cache\"").not());
 }
 
 #[test]
@@ -465,7 +464,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 36 rules applicable"));
+        .stdout(predicate::str::contains("of 43 rules applicable"));
 }
 
 #[test]
