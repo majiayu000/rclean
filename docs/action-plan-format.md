@@ -212,7 +212,7 @@ existing locally.
 ## Related
 
 - [`docs/explain-mode.md`](explain-mode.md) — per-path inspector;
-  the same classifier revalidation step lives inside `explain_path`.
+  the same classifier revalidation step lives inside the explain path.
 - [`docs/architecture.md`](architecture.md) — where `plan.rs` sits in
   the scan → clean pipeline.
 - [`SECURITY.md`](../SECURITY.md) — threat model behind the

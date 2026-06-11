@@ -203,7 +203,8 @@ fn run() -> Result<ExitCode, RcleanError> {
         Commands::Watch(args) => watch::run(args),
         Commands::Stamp(args) => stamp::run(args),
         Commands::Explain(args) => {
-            let explanation = scan::explain_path(&args.path)?;
+            let explanation =
+                scan::explain_path_with_activity_depth(&args.path, args.activity_depth)?;
             output::print_explanation(&explanation);
             match explanation.safety {
                 // ReportOnly shares the "refuse to clean" semantic with

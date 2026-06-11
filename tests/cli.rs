@@ -876,7 +876,7 @@ fn clean_interactive_selection_accepts_number() {
 #[test]
 fn explain_emits_risk_score_for_matched_candidate() {
     // A node_modules under a real package.json project should match
-    // node.node_modules. explain_path now computes the same risk_score
+    // node.node_modules. explain now computes the same risk_score
     // the scan path emits per candidate, so the output should include
     // a `Risk: 0.??` line.
     let temp = TempDir::new().unwrap();
@@ -887,11 +887,25 @@ fn explain_emits_risk_score_for_matched_candidate() {
     let candidate = temp.path().join("node_modules");
 
     let mut cmd = Command::cargo_bin("rclean").unwrap();
-    cmd.args(["explain", candidate.to_str().unwrap()])
+    cmd.args([
+        "explain",
+        "--activity-depth",
+        "1",
+        candidate.to_str().unwrap(),
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Rule: node.node_modules"))
+    .stdout(predicate::str::contains("Risk: 0."));
+}
+
+#[test]
+fn explain_help_exposes_activity_depth() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["explain", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Rule: node.node_modules"))
-        .stdout(predicate::str::contains("Risk: 0."));
+        .stdout(predicate::str::contains("--activity-depth"));
 }
 
 #[test]
