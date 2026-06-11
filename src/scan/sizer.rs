@@ -25,15 +25,39 @@ pub(crate) struct SourceSizeIndex {
 
 impl SourceSizeIndex {
     pub(crate) fn from_dir_sizes(sizes: &DirSizes) -> Self {
-        let mut subtree_bytes: HashMap<PathBuf, u64> = HashMap::new();
-        for (dir, bytes) in sizes {
-            let mut current = Some(dir.as_path());
+        let mut subtree_bytes: HashMap<PathBuf, u64> = sizes
+            .iter()
+            .filter(|(dir, _)| !dir.as_os_str().is_empty())
+            .map(|(dir, bytes)| (dir.clone(), *bytes))
+            .collect();
+
+        for dir in sizes.keys().filter(|dir| !dir.as_os_str().is_empty()) {
+            let mut current = indexed_parent(dir);
             while let Some(path) = current {
-                if !path.as_os_str().is_empty() {
-                    let entry = subtree_bytes.entry(path.to_path_buf()).or_insert(0);
-                    *entry = (*entry).saturating_add(*bytes);
+                if subtree_bytes.contains_key(path) {
+                    break;
                 }
-                current = path.parent().filter(|parent| *parent != path);
+                subtree_bytes.insert(path.to_path_buf(), 0);
+                current = indexed_parent(path);
+            }
+        }
+
+        let mut dirs: Vec<(usize, PathBuf)> = subtree_bytes
+            .keys()
+            .map(|dir| (dir.components().count(), dir.clone()))
+            .collect();
+        dirs.sort_by(|(a_depth, a), (b_depth, b)| b_depth.cmp(a_depth).then_with(|| b.cmp(a)));
+
+        for (_, dir) in dirs {
+            let bytes = subtree_bytes.get(&dir).copied().unwrap_or(0);
+            if bytes == 0 {
+                continue;
+            }
+            if let Some(parent) = indexed_parent(&dir) {
+                let Some(entry) = subtree_bytes.get_mut(parent) else {
+                    continue;
+                };
+                *entry = (*entry).saturating_add(bytes);
             }
         }
         Self { subtree_bytes }
@@ -42,6 +66,11 @@ impl SourceSizeIndex {
     fn bytes_under(&self, project_dir: &Path) -> u64 {
         self.subtree_bytes.get(project_dir).copied().unwrap_or(0)
     }
+}
+
+fn indexed_parent(path: &Path) -> Option<&Path> {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty() && *parent != path)
 }
 
 pub(crate) struct SizeSummary {
@@ -211,5 +240,27 @@ mod tests {
         assert_eq!(index.bytes_under(&project_b), 7);
         assert_eq!(index.bytes_under(Path::new("workspace")), 22);
         assert_eq!(index.bytes_under(Path::new("workspace/missing")), 0);
+    }
+
+    #[test]
+    fn source_size_index_rolls_up_nested_and_sibling_dirs() {
+        let project = PathBuf::from("workspace/app");
+        let sibling = PathBuf::from("workspace/other");
+        let mut sizes = DirSizes::new();
+        sizes.insert(project.join("src"), 2);
+        sizes.insert(project.join("src/routes"), 3);
+        sizes.insert(project.join("src/routes/api"), 5);
+        sizes.insert(project.join("assets/images"), 7);
+        sizes.insert(sibling.join("src"), 11);
+
+        let index = SourceSizeIndex::from_dir_sizes(&sizes);
+
+        assert_eq!(index.bytes_under(&project), 17);
+        assert_eq!(index.bytes_under(&project.join("src")), 10);
+        assert_eq!(index.bytes_under(&project.join("src/routes")), 8);
+        assert_eq!(index.bytes_under(&project.join("assets")), 7);
+        assert_eq!(index.bytes_under(&sibling), 11);
+        assert_eq!(index.bytes_under(Path::new("workspace")), 28);
+        assert_eq!(index.bytes_under(Path::new("workspace/app/src/views")), 0);
     }
 }
