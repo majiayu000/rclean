@@ -13,12 +13,25 @@
 //! - [`is_runtime_or_system_path`]: same allowlist applied as an
 //!   any-component check on the candidate path.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Safety};
 use crate::rules;
+
+const RUNTIME_OR_SYSTEM_COMPONENTS: &[&str] = &[
+    ".cargo",
+    ".rustup",
+    ".nvm",
+    ".fnm",
+    ".pyenv",
+    ".sdkman",
+    ".rbenv",
+    ".conda",
+    "Library",
+    "Applications",
+    ".Trash",
+];
 
 pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
     let metadata = fs::symlink_metadata(&draft.path);
@@ -95,28 +108,9 @@ pub(crate) fn is_skip_name(name: &str) -> bool {
 }
 
 pub(crate) fn is_runtime_or_system_path(path: &Path) -> bool {
-    let protected: HashSet<&str> = [
-        ".cargo",
-        ".rustup",
-        ".nvm",
-        ".fnm",
-        ".pyenv",
-        ".sdkman",
-        ".rbenv",
-        ".conda",
-        "Library",
-        "Applications",
-        ".Trash",
-    ]
-    .into_iter()
-    .collect();
-
-    path.components().any(|component| {
-        component
-            .as_os_str()
-            .to_str()
-            .is_some_and(|name| protected.contains(name))
-    })
+    path.components()
+        .filter_map(component_name)
+        .any(|name| RUNTIME_OR_SYSTEM_COMPONENTS.contains(&name))
 }
 
 pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
@@ -148,8 +142,36 @@ fn component_name(component: std::path::Component<'_>) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_protected_user_data_path;
+    use super::{is_protected_user_data_path, is_runtime_or_system_path};
     use std::path::PathBuf;
+
+    #[test]
+    fn runtime_or_system_path_matches_any_protected_component() {
+        for path in [
+            "/Users/me/.cargo/registry/cache",
+            "/Users/me/Library/Caches/example",
+            "/Users/me/project/.Trash/old-file",
+        ] {
+            assert!(
+                is_runtime_or_system_path(&PathBuf::from(path)),
+                "expected {path} to be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_or_system_path_requires_exact_component_match() {
+        for path in [
+            "/Users/me/cargo/registry/cache",
+            "/Users/me/MyLibrary/Caches/example",
+            "/Users/me/project/Trash/old-file",
+        ] {
+            assert!(
+                !is_runtime_or_system_path(&PathBuf::from(path)),
+                "did not expect {path} to be protected"
+            );
+        }
+    }
 
     #[test]
     fn protects_codex_user_records() {
