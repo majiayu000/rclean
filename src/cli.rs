@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 use crate::agent::AgentTool;
 use crate::model::Category;
 use crate::parse::{parse_duration, parse_size};
-use crate::scan::ScanOptions;
+use crate::scan::{DEFAULT_ACTIVITY_DEPTH, ScanOptions};
 
 #[derive(Debug, Parser)]
 #[command(name = "rclean")]
@@ -275,6 +275,10 @@ pub struct StampArgs {
 
 #[derive(Debug, Args)]
 pub struct ExplainArgs {
+    /// Activity traversal depth used when computing risk score.
+    #[arg(long = "activity-depth", default_value_t = DEFAULT_ACTIVITY_DEPTH)]
+    pub activity_depth: usize,
+
     pub path: PathBuf,
 }
 

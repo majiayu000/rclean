@@ -36,6 +36,8 @@ use crate::model::{CandidateDraft, Category, Explanation, Safety, ScanReport};
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
+pub const DEFAULT_ACTIVITY_DEPTH: usize = 6;
+
 pub(crate) use git_cache::GitCache;
 pub(crate) use project::{
     build_project_report, build_summary, compute_risk_score, project_activity,
@@ -167,7 +169,10 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
     })
 }
 
-pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
+pub fn explain_path_with_activity_depth(
+    path: &Path,
+    activity_depth: usize,
+) -> Result<Explanation, ScanError> {
     let parent = path
         .parent()
         .ok_or_else(|| ScanError::Generic(format!("{} has no parent directory", path.display())))?;
@@ -191,13 +196,12 @@ pub fn explain_path(path: &Path) -> Result<Explanation, ScanError> {
 
     apply_path_safety(Path::new("."), &mut draft);
 
-    // Same risk signal the scan path emits. `parent` is the project
-    // dir; max_depth 6 matches v0.1.0's default `--depth`. The GitCache
-    // lookup shells out once here — explain is single-shot, not a scan
-    // loop. `project_activity` fallback to `now()` conservatively trips
-    // the recent-mtime axis (+0.25); scan path uses the same fallback.
+    // Same risk signal the scan path emits. The GitCache lookup shells
+    // out once here — explain is single-shot, not a scan loop.
+    // `project_activity` fallback to `now()` conservatively trips the
+    // recent-mtime axis (+0.25); scan path uses the same fallback.
     let git = GitCache::new().info_for(parent);
-    let activity_time = project_activity(parent, 6).unwrap_or_else(SystemTime::now);
+    let activity_time = project_activity(parent, activity_depth).unwrap_or_else(SystemTime::now);
     let risk_score = compute_risk_score(git.as_ref(), activity_time, parent);
 
     Ok(Explanation {

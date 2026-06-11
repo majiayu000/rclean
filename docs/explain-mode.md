@@ -10,13 +10,17 @@ without running a full scan.
 ## Usage
 
 ```bash
-rclean explain <PATH>
+rclean explain [--activity-depth <N>] <PATH>
 ```
 
 `<PATH>` may be relative or absolute. `explain` does not require the
 path to exist as a directory; it inspects the symlink shape, the
 file name, and the parent directory's markers. It never writes
 anything and never deletes anything.
+
+`--activity-depth` controls how deeply `explain` walks the parent
+project when computing the activity portion of `Risk`. It defaults to
+`6`, matching the default scan traversal depth.
 
 ## Sample output
 
@@ -87,7 +91,7 @@ typically cares about: "go ahead and clean", "ignore this path",
 | `Reasons` | Always (one or more lines) | The rule's justification (e.g. `Cargo.toml marker found`). For `unknown`, a single "no built-in rule matched" line. |
 | `Warnings` | When a safety check downgraded the path | `candidate is a symlink`, `candidate is inside a protected runtime or system path`, `project has uncommitted git changes`, etc. |
 | `Restore` | When a rule matched | One-line recovery hint (e.g. `Run cargo build`). Matches the rule's catalog entry. |
-| `Risk` | When a rule matched | Advisory composite score in `[0.0, 0.85]`. Combines dirty-git (0.40), recent activity (0.25), no-lockfile (0.20). See [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) §4.6. |
+| `Risk` | When a rule matched | Advisory composite score in `[0.0, 0.85]`. Combines dirty-git (0.40), recent activity (0.25), no-lockfile (0.20). `--activity-depth` controls the recent-activity traversal for `explain`. See [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) §4.6. |
 
 ## Risk vs. Safety
 
@@ -155,7 +159,7 @@ If you need any of those signals, run `scan` with a narrow root
 
 ## Related
 
-- [`docs/architecture.md`](architecture.md) — where `explain_path`
+- [`docs/architecture.md`](architecture.md) — where `explain`
   lives in the pipeline.
 - [`README.md`](../README.md) — usage examples and supported
   ecosystems.

@@ -21,7 +21,7 @@ src/
 ├── parse.rs         CLI value parsers: size strings ("100mb"),
 │                    duration strings ("6m", "30d").
 ├── doctor.rs        Per-machine global-cache applicability report.
-├── scan/            The scan phase. scan() + explain_path() entry points.
+├── scan/            The scan phase. scan() + explain entry points.
 │   ├── mod.rs       Public scan API, ScanOptions, IgnoreMatcher.
 │   ├── walker.rs    Parallel ignore::Walk traversal and draft grouping.
 │   ├── project.rs   ProjectReport materialization, activity, risk score.
@@ -124,11 +124,11 @@ shape in the meantime.
 ### `explain <path>`
 
 ```text
-path ──► scan::explain_path(path)
+path + activity_depth ──► scan::explain_path_with_activity_depth(path, activity_depth)
        ├── rules::classify_candidate(parent, name, path)
        │       └─ Some(draft) → continue; None → Safety::Unknown
        ├── apply_path_safety(".", &mut draft)
-       └── GitCache::info_for(parent) + project_activity()
+       └── GitCache::info_for(parent) + project_activity(activity_depth)
        
        Explanation ──► output::print_explanation()
        Exit codes:

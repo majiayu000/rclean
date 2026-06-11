@@ -1,6 +1,6 @@
 //! Per-candidate safety promotion and pruning predicates.
 //!
-//! These are the trust-boundary checks the walker and `explain_path`
+//! These are the trust-boundary checks the walker and `explain`
 //! both share:
 //!
 //! - [`apply_path_safety`]: symlinks → Blocked; system/runtime
