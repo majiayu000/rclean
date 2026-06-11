@@ -119,7 +119,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         let walk = WalkScratch::new();
         walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
-        let (drafts_by_project, walk_sizes) = walk.into_inner();
+        let (drafts_by_project, walk_sizes) = walk.into_inner()?;
         let source_sizes = SourceSizeIndex::from_dir_sizes(&walk_sizes);
 
         // Phase 2: serial post-processing per project so dir_size,

@@ -25,11 +25,15 @@
 use std::collections::HashMap;
 use std::mem;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use ignore::{WalkBuilder, WalkState};
-use tracing::debug;
+use tracing::{debug, warn};
 
+use crate::error::ScanError;
 use crate::model::CandidateDraft;
 use crate::rules;
 use crate::user_rules::UserRuleSet;
@@ -42,6 +46,7 @@ use super::{IgnoreMatcher, ScanOptions, should_include};
 pub(crate) struct WalkScratch {
     drafts_by_project: Mutex<HashMap<PathBuf, Vec<CandidateDraft>>>,
     sizes: Mutex<DirSizes>,
+    poisoned: AtomicBool,
 }
 
 impl WalkScratch {
@@ -49,22 +54,45 @@ impl WalkScratch {
         Self {
             drafts_by_project: Mutex::new(HashMap::new()),
             sizes: Mutex::new(HashMap::new()),
+            poisoned: AtomicBool::new(false),
         }
     }
 
-    pub(crate) fn into_inner(self) -> (HashMap<PathBuf, Vec<CandidateDraft>>, DirSizes) {
-        let mut drafts = self
-            .drafts_by_project
+    pub(crate) fn into_inner(
+        self,
+    ) -> Result<(HashMap<PathBuf, Vec<CandidateDraft>>, DirSizes), ScanError> {
+        let WalkScratch {
+            drafts_by_project,
+            sizes,
+            poisoned,
+        } = self;
+        if poisoned.load(Ordering::SeqCst) {
+            return Err(poison_error("walk scratch accumulator"));
+        }
+
+        let mut drafts = drafts_by_project
             .into_inner()
-            .unwrap_or_else(|e| panic!("walk scratch drafts mutex poisoned: {e}"));
+            .map_err(|_| poison_error("walk scratch drafts mutex"))?;
         for project_drafts in drafts.values_mut() {
             project_drafts.sort_by(|a, b| a.path.cmp(&b.path));
         }
-        let sizes = self
-            .sizes
+        let sizes = sizes
             .into_inner()
-            .unwrap_or_else(|e| panic!("walk scratch sizes mutex poisoned: {e}"));
-        (drafts, sizes)
+            .map_err(|_| poison_error("walk scratch sizes mutex"))?;
+        Ok((drafts, sizes))
+    }
+
+    fn mark_poisoned(&self, lock_name: &'static str) {
+        if !self.poisoned.swap(true, Ordering::SeqCst) {
+            warn!(
+                lock = lock_name,
+                "walk scratch mutex poisoned; aborting scan result"
+            );
+        }
+    }
+
+    fn is_poisoned(&self) -> bool {
+        self.poisoned.load(Ordering::SeqCst)
     }
 }
 
@@ -100,29 +128,29 @@ impl Drop for WalkLocal<'_> {
     fn drop(&mut self) {
         let local_sizes = mem::take(&mut self.sizes);
         if !local_sizes.is_empty() {
-            let mut sizes = self
-                .scratch
-                .sizes
-                .lock()
-                .unwrap_or_else(|e| panic!("walk scratch sizes mutex poisoned: {e}"));
-            for (dir, bytes) in local_sizes {
-                let entry = sizes.entry(dir).or_insert(0);
-                *entry = entry.saturating_add(bytes);
+            match self.scratch.sizes.lock() {
+                Ok(mut sizes) => {
+                    for (dir, bytes) in local_sizes {
+                        let entry = sizes.entry(dir).or_insert(0);
+                        *entry = entry.saturating_add(bytes);
+                    }
+                }
+                Err(_) => self.scratch.mark_poisoned("sizes"),
             }
         }
 
         let local_drafts = mem::take(&mut self.drafts_by_project);
         if !local_drafts.is_empty() {
-            let mut drafts = self
-                .scratch
-                .drafts_by_project
-                .lock()
-                .unwrap_or_else(|e| panic!("walk scratch drafts mutex poisoned: {e}"));
-            for (project_dir, mut project_drafts) in local_drafts {
-                drafts
-                    .entry(project_dir)
-                    .or_default()
-                    .append(&mut project_drafts);
+            match self.scratch.drafts_by_project.lock() {
+                Ok(mut drafts) => {
+                    for (project_dir, mut project_drafts) in local_drafts {
+                        drafts
+                            .entry(project_dir)
+                            .or_default()
+                            .append(&mut project_drafts);
+                    }
+                }
+                Err(_) => self.scratch.mark_poisoned("drafts_by_project"),
             }
         }
     }
@@ -154,6 +182,10 @@ pub(crate) fn walk_parallel(
     builder.build_parallel().run(|| {
         let mut local = WalkLocal::new(scratch);
         Box::new(move |result| {
+            if scratch.is_poisoned() {
+                return WalkState::Quit;
+            }
+
             let entry = match result {
                 Ok(e) => e,
                 Err(err) => {
@@ -251,8 +283,133 @@ pub(crate) fn walk_parallel(
     });
 }
 
+fn poison_error(lock_name: &str) -> ScanError {
+    ScanError::Generic(format!("{lock_name} poisoned during scan"))
+}
+
 fn is_skip_name_path(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
         .is_some_and(is_skip_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{self, AssertUnwindSafe};
+
+    use super::*;
+
+    #[test]
+    fn into_inner_reports_poisoned_scratch_without_panicking() {
+        let scratch = WalkScratch::new();
+        let poison_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = match scratch.sizes.lock() {
+                Ok(guard) => guard,
+                Err(err) => panic!("unexpected pre-existing poison: {err}"),
+            };
+            panic!("poison sizes");
+        }));
+        assert!(poison_result.is_err());
+
+        let err = match scratch.into_inner() {
+            Ok(_) => panic!("poisoned scratch must error"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("walk scratch sizes mutex poisoned")
+        );
+    }
+
+    #[test]
+    fn local_drop_marks_poisoned_scratch_without_panicking() {
+        let scratch = WalkScratch::new();
+        let poison_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = match scratch.sizes.lock() {
+                Ok(guard) => guard,
+                Err(err) => panic!("unexpected pre-existing poison: {err}"),
+            };
+            panic!("poison sizes");
+        }));
+        assert!(poison_result.is_err());
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut local = WalkLocal::new(&scratch);
+            local.add_file_size(Path::new("/tmp/project"), 7);
+        }));
+
+        assert!(result.is_ok());
+        assert!(scratch.is_poisoned());
+        let err = match scratch.into_inner() {
+            Ok(_) => panic!("poisoned scratch must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("walk scratch accumulator poisoned")
+        );
+    }
+
+    #[test]
+    fn into_inner_reports_poisoned_drafts_without_panicking() {
+        let scratch = WalkScratch::new();
+        let poison_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = match scratch.drafts_by_project.lock() {
+                Ok(guard) => guard,
+                Err(err) => panic!("unexpected pre-existing poison: {err}"),
+            };
+            panic!("poison drafts");
+        }));
+        assert!(poison_result.is_err());
+
+        let err = match scratch.into_inner() {
+            Ok(_) => panic!("poisoned scratch must error"),
+            Err(err) => err,
+        };
+
+        assert!(
+            err.to_string()
+                .contains("walk scratch drafts mutex poisoned")
+        );
+    }
+
+    #[test]
+    fn local_drop_marks_poisoned_drafts_without_panicking() {
+        let scratch = WalkScratch::new();
+        let poison_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let _guard = match scratch.drafts_by_project.lock() {
+                Ok(guard) => guard,
+                Err(err) => panic!("unexpected pre-existing poison: {err}"),
+            };
+            panic!("poison drafts");
+        }));
+        assert!(poison_result.is_err());
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut local = WalkLocal::new(&scratch);
+            let draft = CandidateDraft {
+                path: PathBuf::from("/tmp/project/node_modules"),
+                name: "node_modules".to_string(),
+                rule_id: "node.node_modules".to_string(),
+                category: crate::model::Category::Deps,
+                safety: crate::model::Safety::Safe,
+                reasons: Vec::new(),
+                warnings: Vec::new(),
+                restore_hint: "reinstall dependencies".to_string(),
+            };
+            local.add_draft(Path::new("/tmp/project"), draft);
+        }));
+
+        assert!(result.is_ok());
+        assert!(scratch.is_poisoned());
+        let err = match scratch.into_inner() {
+            Ok(_) => panic!("poisoned scratch must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("walk scratch accumulator poisoned")
+        );
+    }
 }
