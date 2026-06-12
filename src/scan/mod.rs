@@ -45,7 +45,7 @@ pub(crate) use project::{
     build_project_report, build_summary, compute_risk_score, project_activity,
 };
 pub(crate) use safety::{
-    apply_path_safety, is_protected_user_data_path, is_runtime_or_system_path,
+    apply_path_safety, dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path,
 };
 pub(crate) use sizer::SourceSizeIndex;
 pub(crate) use walker::{WalkScratch, walk_parallel};

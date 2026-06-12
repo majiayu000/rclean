@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::process::Command;
 
 use tempfile::TempDir;
 
@@ -65,6 +67,51 @@ fn validate_rejects_symlink() {
         .expect_err("symlink must be rejected")
         .to_string();
     assert!(err.contains("symlink"), "unexpected error: {err}");
+}
+
+#[test]
+#[cfg(unix)]
+fn validate_rejects_hardlinked_file_before_directory_check() {
+    let temp = TempDir::new().unwrap();
+    let original = temp.path().join("original");
+    let hardlink = temp.path().join("artifact");
+    fs::write(&original, "content").unwrap();
+    fs::hard_link(&original, &hardlink).unwrap();
+
+    let err = validate_for_deletion(&hardlink)
+        .expect_err("hardlinked regular file must be rejected")
+        .to_string();
+
+    assert!(err.contains("hardlinked file"), "unexpected error: {err}");
+}
+
+#[test]
+#[cfg(windows)]
+fn validate_rejects_junction() {
+    let temp = TempDir::new().unwrap();
+    let target = temp.path().join("target");
+    let junction = temp.path().join("artifact");
+    fs::create_dir(&target).unwrap();
+    let output = Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&junction)
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "mklink failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let err = validate_for_deletion(&junction)
+        .expect_err("junction must be rejected")
+        .to_string();
+
+    assert!(
+        err.contains("junction") || err.contains("reparse point"),
+        "unexpected error: {err}"
+    );
 }
 
 #[test]

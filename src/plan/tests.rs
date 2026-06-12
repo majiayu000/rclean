@@ -133,6 +133,29 @@ fn revalidation_rejects_symlinked_plan_path() {
 }
 
 #[test]
+#[cfg(unix)]
+fn revalidation_rejects_hardlinked_plan_path() {
+    let temp = TempDir::new().unwrap();
+    let candidate = create_node_project(temp.path());
+    let original = temp.path().join("original");
+    let plan_path = temp.path().join("plan.json");
+    let report = report(temp.path(), &candidate);
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+    let plan = read_action_plan(&plan_path).unwrap();
+    let selected = selected_from_action_plan(&plan).unwrap();
+    fs::remove_dir_all(&candidate).unwrap();
+    fs::write(&original, "content").unwrap();
+    fs::hard_link(&original, &candidate).unwrap();
+
+    let err = revalidate_selected(&plan, &selected)
+        .expect_err("hardlinked plan path must be rejected")
+        .to_string();
+
+    assert!(err.contains("hardlinked file"), "unexpected error: {err}");
+}
+
+#[test]
 fn tampered_plan_with_unrecognized_path_is_rejected() {
     let temp = TempDir::new().unwrap();
     let candidate = temp.path().join("not_a_real_artifact");
