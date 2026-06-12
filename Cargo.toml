@@ -36,6 +36,7 @@ toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 trash = "5.2"
+wait-timeout = "0.2"
 walkdir = "2.5"
 
 [dev-dependencies]
