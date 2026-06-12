@@ -5,17 +5,27 @@ use std::process::Command;
 use crate::error::CleanError;
 use crate::path_util::path_file_name;
 
+use super::audit::{DeleteAuditLogger, DeleteAuditMode, DeleteAuditStatus};
 use super::types::{CleanResult, SelectedCandidate};
 use super::validation::validate_candidate_for_deletion;
 
 pub fn delete_selected(
     selected: &[SelectedCandidate],
     permanent: bool,
+    mut audit_logger: Option<&mut DeleteAuditLogger>,
 ) -> Result<CleanResult, CleanError> {
     let mut result = CleanResult::default();
 
     for candidate in selected {
+        let mode = delete_mode_for_candidate(candidate, permanent);
         if let Err(err) = validate_candidate_for_deletion(candidate) {
+            log_audit(
+                &mut audit_logger,
+                candidate,
+                mode,
+                DeleteAuditStatus::Failed,
+                Some(err.to_string()),
+            )?;
             result.failed.push((candidate.clone(), err.to_string()));
             continue;
         }
@@ -29,8 +39,26 @@ pub fn delete_selected(
         };
 
         match outcome {
-            Ok(()) => result.cleaned.push(candidate.clone()),
-            Err(err) => result.failed.push((candidate.clone(), err)),
+            Ok(()) => {
+                log_audit(
+                    &mut audit_logger,
+                    candidate,
+                    mode,
+                    DeleteAuditStatus::Success,
+                    None,
+                )?;
+                result.cleaned.push(candidate.clone());
+            }
+            Err(err) => {
+                log_audit(
+                    &mut audit_logger,
+                    candidate,
+                    mode,
+                    DeleteAuditStatus::Failed,
+                    Some(err.clone()),
+                )?;
+                result.failed.push((candidate.clone(), err));
+            }
         }
     }
 
@@ -48,6 +76,7 @@ pub fn delete_selected(
 pub fn delete_selected_into_graveyard(
     selected: &[SelectedCandidate],
     graveyard: &crate::graveyard::Graveyard,
+    mut audit_logger: Option<&mut DeleteAuditLogger>,
 ) -> Result<CleanResult, CleanError> {
     use crate::graveyard::GraveInput;
 
@@ -56,16 +85,28 @@ pub fn delete_selected_into_graveyard(
 
     for candidate in selected {
         if let Err(err) = validate_candidate_for_deletion(candidate) {
+            log_audit(
+                &mut audit_logger,
+                candidate,
+                DeleteAuditMode::Graveyard,
+                DeleteAuditStatus::Failed,
+                Some(err.to_string()),
+            )?;
             result.failed.push((candidate.clone(), err.to_string()));
             continue;
         }
 
         if is_go_modcache_rule(&candidate.rule_id) {
-            result.failed.push((
-                candidate.clone(),
-                "Go module cache cleanup must run `go clean -modcache`; graveyard mode cannot preserve that tool-managed operation"
-                    .to_string(),
-            ));
+            let reason = "Go module cache cleanup must run `go clean -modcache`; graveyard mode cannot preserve that tool-managed operation"
+                .to_string();
+            log_audit(
+                &mut audit_logger,
+                candidate,
+                DeleteAuditMode::Graveyard,
+                DeleteAuditStatus::Skipped,
+                Some(reason.clone()),
+            )?;
+            result.failed.push((candidate.clone(), reason));
             continue;
         }
 
@@ -83,8 +124,26 @@ pub fn delete_selected_into_graveyard(
         };
 
         match graveyard.bury(input) {
-            Ok(_) => result.cleaned.push(candidate.clone()),
-            Err(err) => result.failed.push((candidate.clone(), err.to_string())),
+            Ok(_) => {
+                log_audit(
+                    &mut audit_logger,
+                    candidate,
+                    DeleteAuditMode::Graveyard,
+                    DeleteAuditStatus::Success,
+                    None,
+                )?;
+                result.cleaned.push(candidate.clone());
+            }
+            Err(err) => {
+                log_audit(
+                    &mut audit_logger,
+                    candidate,
+                    DeleteAuditMode::Graveyard,
+                    DeleteAuditStatus::Failed,
+                    Some(err.to_string()),
+                )?;
+                result.failed.push((candidate.clone(), err.to_string()));
+            }
         }
     }
 
@@ -93,6 +152,29 @@ pub fn delete_selected_into_graveyard(
 
 fn is_go_modcache_rule(rule_id: &str) -> bool {
     matches!(rule_id, "go.module_cache" | "go.module_download_cache")
+}
+
+fn delete_mode_for_candidate(candidate: &SelectedCandidate, permanent: bool) -> DeleteAuditMode {
+    if is_go_modcache_rule(&candidate.rule_id) {
+        DeleteAuditMode::GoModcache
+    } else if permanent {
+        DeleteAuditMode::Permanent
+    } else {
+        DeleteAuditMode::Trash
+    }
+}
+
+fn log_audit(
+    audit_logger: &mut Option<&mut DeleteAuditLogger>,
+    candidate: &SelectedCandidate,
+    mode: DeleteAuditMode,
+    result: DeleteAuditStatus,
+    reason: Option<String>,
+) -> Result<(), CleanError> {
+    if let Some(logger) = audit_logger {
+        logger.log(candidate, mode, result, reason)?;
+    }
+    Ok(())
 }
 
 fn clean_go_modcache(candidate: &SelectedCandidate) -> Result<(), CleanError> {

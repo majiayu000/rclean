@@ -168,17 +168,25 @@ fn run() -> Result<ExitCode, RcleanError> {
                 return Ok(ExitCode::SUCCESS);
             }
 
+            if let Some(audit_log) = args.audit_log.as_deref() {
+                clean::validate_audit_log_path(audit_log, &selected)?;
+            }
             clean::confirm_if_needed(&selected, &args)?;
+            let mut audit_logger = args
+                .audit_log
+                .as_deref()
+                .map(clean::DeleteAuditLogger::new)
+                .transpose()?;
             #[cfg(feature = "graveyard")]
             let result = if args.graveyard {
                 // SPEC §4.7.1: lazy create on first bury.
                 let yard = graveyard::Graveyard::open(graveyard::default_root());
-                clean::delete_selected_into_graveyard(&selected, &yard)?
+                clean::delete_selected_into_graveyard(&selected, &yard, audit_logger.as_mut())?
             } else {
-                clean::delete_selected(&selected, args.permanent)?
+                clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?
             };
             #[cfg(not(feature = "graveyard"))]
-            let result = clean::delete_selected(&selected, args.permanent)?;
+            let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
             clean::print_clean_result(&result);
 
             if result.failed.is_empty() {
