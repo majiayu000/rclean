@@ -11,13 +11,20 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
+use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
 use tracing::debug;
 
 use crate::model::{CandidateDraft, Safety};
 
 pub(crate) type DirSizes = HashMap<PathBuf, u64>;
+const PARALLEL_DIRECT_ENTRY_THRESHOLD: usize = 1_000;
+const MAX_DIR_SIZE_THREADS: usize = 4;
 
 pub(crate) struct SourceSizeIndex {
     subtree_bytes: HashMap<PathBuf, u64>,
@@ -128,6 +135,13 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
     let mut current = path.to_path_buf();
 
     loop {
+        if should_walk_parallel(&current) {
+            return SizePartition {
+                bytes,
+                roots: vec![current],
+            };
+        }
+
         let mut subdirs = Vec::new();
 
         let entries = match fs::read_dir(&current) {
@@ -186,15 +200,85 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
     }
 }
 
+fn should_walk_parallel(path: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(path) else {
+        return false;
+    };
+    entries.take(PARALLEL_DIRECT_ENTRY_THRESHOLD + 1).count() > PARALLEL_DIRECT_ENTRY_THRESHOLD
+}
+
 fn dir_size_roots(roots: &[PathBuf]) -> u64 {
     match roots {
         [] => 0,
-        [only] => dir_size_walkdir(only),
+        [only] => dir_size_walk_parallel(only),
         _ => roots
             .par_iter()
             .map(|path| dir_size_walkdir(path))
             .reduce(|| 0, u64::saturating_add),
     }
+}
+
+fn dir_size_walk_parallel(path: &Path) -> u64 {
+    let total = Arc::new(AtomicU64::new(0));
+    let walk_root = path.to_path_buf();
+
+    let mut builder = WalkBuilder::new(path);
+    builder
+        .follow_links(false)
+        .standard_filters(false)
+        .hidden(false)
+        .threads(dir_size_threads());
+
+    builder.build_parallel().run(|| {
+        let total = Arc::clone(&total);
+        let walk_root = walk_root.clone();
+        Box::new(move |result| {
+            let entry = match result {
+                Ok(entry) => entry,
+                Err(err) => {
+                    debug!(path = %walk_root.display(), error = %err, "dir_size walk error");
+                    return WalkState::Continue;
+                }
+            };
+
+            if !entry
+                .file_type()
+                .is_some_and(|file_type| file_type.is_file())
+            {
+                return WalkState::Continue;
+            }
+
+            match entry.metadata() {
+                Ok(metadata) => {
+                    saturating_atomic_add(&total, metadata.len());
+                }
+                Err(err) => {
+                    debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
+                }
+            }
+            WalkState::Continue
+        })
+    });
+
+    total.load(Ordering::Relaxed)
+}
+
+fn saturating_atomic_add(total: &AtomicU64, bytes: u64) {
+    let mut current = total.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(bytes);
+        match total.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+fn dir_size_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|threads| threads.get())
+        .unwrap_or(1)
+        .clamp(1, MAX_DIR_SIZE_THREADS)
 }
 
 fn dir_size_walkdir(path: &Path) -> u64 {
@@ -224,6 +308,7 @@ fn dir_size_walkdir(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn source_size_index_rolls_up_descendants_without_sibling_contamination() {
@@ -262,5 +347,48 @@ mod tests {
         assert_eq!(index.bytes_under(&sibling), 11);
         assert_eq!(index.bytes_under(Path::new("workspace")), 28);
         assert_eq!(index.bytes_under(Path::new("workspace/app/src/views")), 0);
+    }
+
+    #[test]
+    fn parallel_walk_matches_serial_walk_for_nested_tree() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("root.bin"), [0; 3]).unwrap();
+        fs::create_dir_all(temp.path().join("a/b")).unwrap();
+        fs::write(temp.path().join("a/b/leaf.bin"), [0; 5]).unwrap();
+        fs::create_dir(temp.path().join("c")).unwrap();
+        fs::write(temp.path().join("c/leaf.bin"), [0; 7]).unwrap();
+
+        assert_eq!(
+            dir_size_walk_parallel(temp.path()),
+            dir_size_walkdir(temp.path())
+        );
+    }
+
+    #[test]
+    fn saturating_atomic_add_caps_at_u64_max() {
+        let total = AtomicU64::new(u64::MAX - 2);
+
+        saturating_atomic_add(&total, 5);
+        assert_eq!(total.load(Ordering::Relaxed), u64::MAX);
+
+        saturating_atomic_add(&total, 1);
+        assert_eq!(total.load(Ordering::Relaxed), u64::MAX);
+    }
+
+    #[test]
+    fn wide_directory_uses_parallel_root_and_counts_all_files() {
+        let temp = TempDir::new().unwrap();
+        for i in 0..=PARALLEL_DIRECT_ENTRY_THRESHOLD {
+            fs::write(temp.path().join(format!("file_{i:04}.bin")), [0; 2]).unwrap();
+        }
+
+        let partition = partition_parallel_roots(temp.path());
+
+        assert_eq!(partition.bytes, 0);
+        assert_eq!(partition.roots, vec![temp.path().to_path_buf()]);
+        assert_eq!(
+            dir_size(temp.path(), false),
+            ((PARALLEL_DIRECT_ENTRY_THRESHOLD + 1) * 2) as u64
+        );
     }
 }
