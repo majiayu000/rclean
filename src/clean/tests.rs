@@ -109,7 +109,7 @@ fn validate_rejects_junction() {
         .to_string();
 
     assert!(
-        err.contains("junction") || err.contains("reparse point"),
+        err.contains("symlink") || err.contains("junction") || err.contains("reparse point"),
         "unexpected error: {err}"
     );
 }

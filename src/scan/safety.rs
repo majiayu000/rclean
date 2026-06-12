@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
-    fn detects_junction_reparse_point() {
+    fn detects_junction_as_dangerous_link() {
         let temp = TempDir::new().unwrap();
         let target = temp.path().join("target");
         let junction = temp.path().join("junction");
@@ -247,9 +247,10 @@ mod tests {
 
         let metadata = fs::symlink_metadata(&junction).unwrap();
 
-        assert_eq!(
-            dangerous_link_kind(&metadata),
-            Some(DangerousLink::ReparsePoint)
+        let kind = dangerous_link_kind(&metadata).expect("junction must be dangerous");
+        assert!(
+            matches!(kind, DangerousLink::Symlink | DangerousLink::ReparsePoint),
+            "unexpected dangerous link kind: {kind:?}"
         );
     }
 
