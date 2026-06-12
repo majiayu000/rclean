@@ -250,7 +250,7 @@ fn dir_size_walk_parallel(path: &Path) -> u64 {
 
             match entry.metadata() {
                 Ok(metadata) => {
-                    total.fetch_add(metadata.len(), Ordering::Relaxed);
+                    saturating_atomic_add(&total, metadata.len());
                 }
                 Err(err) => {
                     debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
@@ -261,6 +261,17 @@ fn dir_size_walk_parallel(path: &Path) -> u64 {
     });
 
     total.load(Ordering::Relaxed)
+}
+
+fn saturating_atomic_add(total: &AtomicU64, bytes: u64) {
+    let mut current = total.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(bytes);
+        match total.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
+    }
 }
 
 fn dir_size_threads() -> usize {
@@ -351,6 +362,17 @@ mod tests {
             dir_size_walk_parallel(temp.path()),
             dir_size_walkdir(temp.path())
         );
+    }
+
+    #[test]
+    fn saturating_atomic_add_caps_at_u64_max() {
+        let total = AtomicU64::new(u64::MAX - 2);
+
+        saturating_atomic_add(&total, 5);
+        assert_eq!(total.load(Ordering::Relaxed), u64::MAX);
+
+        saturating_atomic_add(&total, 1);
+        assert_eq!(total.load(Ordering::Relaxed), u64::MAX);
     }
 
     #[test]
