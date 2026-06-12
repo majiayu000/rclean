@@ -10,6 +10,7 @@ use notify::{Event, RecursiveMode, Watcher};
 use crate::cli::WatchArgs;
 use crate::error::{RcleanError, ScanError};
 use crate::model::{Safety, ScanReport, format_bytes};
+use crate::path_util::path_file_name;
 use crate::{output, parse, plan, scan};
 
 const IDLE_DEGRADE_AFTER: Duration = Duration::from_secs(20 * 60);
@@ -228,8 +229,8 @@ fn affected_project_roots(event: &Event) -> Vec<PathBuf> {
 }
 
 fn project_root_for_lockfile(path: &Path) -> Option<PathBuf> {
-    let name = path.file_name()?.to_str()?;
-    if name == "HEAD" && path.parent()?.file_name()?.to_str()? == ".git" {
+    let name = path_file_name(path)?;
+    if name == "HEAD" && path.parent().and_then(path_file_name)? == ".git" {
         return path.parent()?.parent().map(Path::to_path_buf);
     }
     if is_lockfile_name(name) {

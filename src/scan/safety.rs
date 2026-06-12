@@ -17,6 +17,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Safety};
+use crate::path_util::path_file_name;
 use crate::rules;
 
 const RUNTIME_OR_SYSTEM_COMPONENTS: &[&str] = &[
@@ -81,9 +82,7 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
 }
 
 pub(crate) fn is_skip_dir(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(is_skip_name)
+    path_file_name(path).is_some_and(is_skip_name)
 }
 
 pub(crate) fn is_skip_name(name: &str) -> bool {

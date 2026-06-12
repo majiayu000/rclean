@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::CleanError;
+use crate::path_util::path_file_name;
 
 use super::types::{CleanResult, SelectedCandidate};
 use super::validation::validate_candidate_for_deletion;
@@ -124,15 +125,15 @@ fn go_modcache_path(candidate: &SelectedCandidate) -> Option<PathBuf> {
 }
 
 fn go_modcache_from_download_path(path: &Path) -> Option<PathBuf> {
-    if path.file_name()?.to_str()? != "download" {
+    if path_file_name(path)? != "download" {
         return None;
     }
     let cache = path.parent()?;
-    if cache.file_name()?.to_str()? != "cache" {
+    if path_file_name(cache)? != "cache" {
         return None;
     }
     let modcache = cache.parent()?;
-    if modcache.file_name()?.to_str()? != "mod" {
+    if path_file_name(modcache)? != "mod" {
         return None;
     }
     Some(modcache.to_path_buf())

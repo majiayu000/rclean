@@ -21,6 +21,7 @@ use crate::error::ScanError;
 use crate::model::{
     ActivityInfo, Candidate, CandidateDraft, GitInfo, ProjectReport, Safety, Summary,
 };
+use crate::path_util::path_file_name;
 use crate::rules;
 
 use super::ScanOptions;
@@ -174,9 +175,7 @@ pub(crate) fn project_activity(project_dir: &Path, max_depth: usize) -> Option<S
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| {
-            entry
-                .file_name()
-                .to_str()
+            path_file_name(entry.path())
                 .is_none_or(|name| !is_skip_name(name) && !rules::is_candidate_name(name))
         })
         .flatten()

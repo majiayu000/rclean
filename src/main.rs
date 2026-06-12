@@ -8,6 +8,7 @@ mod graveyard;
 mod model;
 mod output;
 mod parse;
+mod path_util;
 mod plan;
 mod rules;
 mod scan;

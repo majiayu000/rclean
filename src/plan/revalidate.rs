@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
 use crate::model::{CandidateDraft, ProjectReport, Safety};
+use crate::path_util::path_file_name;
 use crate::rules;
 use crate::scan::{is_protected_user_data_path, is_runtime_or_system_path};
 use crate::user_rules::UserRuleSet;
@@ -154,7 +155,7 @@ fn classify_from_project_context(
 
 fn classify_from_path_parent(plan: &ActionPlan, path: &Path) -> Option<CandidateDraft> {
     let parent = path.parent()?;
-    let name = path.file_name()?.to_str()?;
+    let name = path_file_name(path)?;
     classify_from_project_rules(plan, parent, name, path.to_path_buf())
 }
 

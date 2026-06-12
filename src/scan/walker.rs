@@ -35,6 +35,7 @@ use tracing::{debug, warn};
 
 use crate::error::ScanError;
 use crate::model::CandidateDraft;
+use crate::path_util::{path_file_name, path_file_name_string};
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
@@ -239,7 +240,7 @@ pub(crate) fn walk_parallel(
             let Some(parent) = path.parent() else {
                 return WalkState::Continue;
             };
-            let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+            let Some(name) = path_file_name_string(&path) else {
                 return WalkState::Continue;
             };
 
@@ -288,9 +289,7 @@ fn poison_error(lock_name: &str) -> ScanError {
 }
 
 fn is_skip_name_path(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(is_skip_name)
+    path_file_name(path).is_some_and(is_skip_name)
 }
 
 #[cfg(test)]
