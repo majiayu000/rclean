@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 
-use super::audit::DeleteAuditLogger;
+use super::audit::{DeleteAuditLogger, validate_audit_log_path};
 use super::deletion::delete_selected;
 use super::roots::check_broad_roots;
 use super::selection::parse_selection;
@@ -156,6 +156,39 @@ fn delete_selected_logs_validation_failure() {
             .unwrap()
             .contains("no longer exists")
     );
+}
+
+#[test]
+fn validate_audit_log_path_rejects_selected_descendant() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let candidate_path = temp.path().join("node_modules");
+    fs::create_dir(&candidate_path)?;
+    let selected = vec![SelectedCandidate {
+        id: None,
+        path: candidate_path.clone(),
+        bytes: 0,
+        rule_id: "node.node_modules".to_string(),
+        category: crate::model::Category::Deps,
+        safety: Safety::Safe,
+        risk_score: 0.0,
+    }];
+
+    let err = match validate_audit_log_path(&candidate_path.join("audit.jsonl"), &selected) {
+        Ok(()) => {
+            return Err(std::io::Error::other(
+                "audit log inside selected candidate must be rejected",
+            )
+            .into());
+        }
+        Err(err) => err.to_string(),
+    };
+
+    assert!(err.contains("audit log"), "unexpected error: {err}");
+    assert!(
+        err.contains("selected candidate"),
+        "unexpected error: {err}"
+    );
+    Ok(())
 }
 
 #[test]

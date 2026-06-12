@@ -9,7 +9,7 @@ mod validation;
 #[cfg(test)]
 mod tests;
 
-pub use audit::DeleteAuditLogger;
+pub use audit::{DeleteAuditLogger, validate_audit_log_path};
 pub use deletion::delete_selected;
 #[cfg(feature = "graveyard")]
 pub use deletion::delete_selected_into_graveyard;

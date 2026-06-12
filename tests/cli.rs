@@ -768,6 +768,46 @@ fn clean_permanent_yes_writes_audit_log() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
+fn clean_rejects_audit_log_inside_selected_candidate() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    std::fs::write(temp.path().join("package.json"), "{}")?;
+    let candidate = temp.path().join("node_modules");
+    std::fs::create_dir(&candidate)?;
+    std::fs::write(candidate.join("blob"), "abc")?;
+    let audit_log = candidate.join("audit.jsonl");
+    let root_arg = temp.path().to_string_lossy().into_owned();
+    let audit_log_arg = audit_log.to_string_lossy().into_owned();
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.args([
+        "clean",
+        root_arg.as_str(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--audit-log",
+        audit_log_arg.as_str(),
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .failure()
+    .stderr(
+        predicate::str::contains("audit log").and(predicate::str::contains("selected candidate")),
+    );
+
+    assert!(
+        candidate.exists(),
+        "candidate must not be deleted after audit path rejection"
+    );
+    assert!(
+        !audit_log.exists(),
+        "audit log inside candidate must not be created"
+    );
+    Ok(())
+}
+
+#[test]
 fn scan_write_plan_then_clean_plan_dry_run() {
     let temp = TempDir::new().unwrap();
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();

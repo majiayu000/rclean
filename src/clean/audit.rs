@@ -45,6 +45,71 @@ pub struct DeleteAuditLogger {
     file: File,
 }
 
+pub fn validate_audit_log_path(
+    path: &Path,
+    selected: &[SelectedCandidate],
+) -> Result<(), CleanError> {
+    let audit_path = comparable_path(path, "audit log")?;
+    for candidate in selected {
+        let candidate_path = comparable_path(&candidate.path, "selected candidate")?;
+        if audit_path == candidate_path || audit_path.starts_with(&candidate_path) {
+            return Err(CleanError::Generic(format!(
+                "audit log {} is inside selected candidate {}; choose a path outside cleaned trees",
+                path.display(),
+                candidate.path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn comparable_path(path: &Path, label: &str) -> Result<PathBuf, CleanError> {
+    let absolute = absolute_path(path, label)?;
+    let mut current = absolute.as_path();
+    let mut suffix = Vec::new();
+
+    while !current.exists() {
+        let Some(name) = current.file_name() else {
+            return Err(CleanError::Generic(format!(
+                "failed to resolve {label} path {}",
+                path.display()
+            )));
+        };
+        suffix.push(name.to_os_string());
+        let Some(parent) = current.parent().filter(|parent| *parent != current) else {
+            return Err(CleanError::Generic(format!(
+                "failed to resolve {label} path {}",
+                path.display()
+            )));
+        };
+        current = parent;
+    }
+
+    let mut resolved = current.canonicalize().map_err(|source| {
+        CleanError::Generic(format!(
+            "failed to resolve {label} path {}: {source}",
+            path.display()
+        ))
+    })?;
+    for part in suffix.iter().rev() {
+        resolved.push(part);
+    }
+    Ok(resolved)
+}
+
+fn absolute_path(path: &Path, label: &str) -> Result<PathBuf, CleanError> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    let cwd = std::env::current_dir().map_err(|source| {
+        CleanError::Generic(format!(
+            "failed to resolve {label} path {}: {source}",
+            path.display()
+        ))
+    })?;
+    Ok(cwd.join(path))
+}
+
 impl DeleteAuditLogger {
     pub fn new(path: &Path) -> Result<Self, CleanError> {
         if let Some(parent) = path.parent()

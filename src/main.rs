@@ -167,6 +167,9 @@ fn run() -> Result<ExitCode, RcleanError> {
                 return Ok(ExitCode::SUCCESS);
             }
 
+            if let Some(audit_log) = args.audit_log.as_deref() {
+                clean::validate_audit_log_path(audit_log, &selected)?;
+            }
             clean::confirm_if_needed(&selected, &args)?;
             let mut audit_logger = args
                 .audit_log
