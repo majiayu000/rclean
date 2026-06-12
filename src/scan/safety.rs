@@ -14,6 +14,11 @@
 //!   any-component check on the candidate path.
 
 use std::fs;
+use std::fs::Metadata;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Safety};
@@ -34,14 +39,61 @@ const RUNTIME_OR_SYSTEM_COMPONENTS: &[&str] = &[
     ".Trash",
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DangerousLink {
+    Symlink,
+    #[cfg(unix)]
+    HardlinkedFile,
+    #[cfg(windows)]
+    ReparsePoint,
+}
+
+impl DangerousLink {
+    pub(crate) fn description(self) -> &'static str {
+        match self {
+            Self::Symlink => "symlink",
+            #[cfg(unix)]
+            Self::HardlinkedFile => "hardlinked file",
+            #[cfg(windows)]
+            Self::ReparsePoint => "junction or reparse point",
+        }
+    }
+}
+
+pub(crate) fn dangerous_link_kind(metadata: &Metadata) -> Option<DangerousLink> {
+    if metadata.file_type().is_symlink() {
+        return Some(DangerousLink::Symlink);
+    }
+
+    #[cfg(unix)]
+    {
+        // Directories normally have nlink > 1 on Unix, so only regular
+        // hardlinked files are dangerous here.
+        if metadata.file_type().is_file() && metadata.nlink() > 1 {
+            return Some(DangerousLink::HardlinkedFile);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Some(DangerousLink::ReparsePoint);
+        }
+    }
+
+    None
+}
+
 pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
     let metadata = fs::symlink_metadata(&draft.path);
-    if metadata
-        .as_ref()
-        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+    if let Ok(metadata) = metadata.as_ref()
+        && let Some(kind) = dangerous_link_kind(metadata)
     {
         draft.safety = Safety::Blocked;
-        draft.warnings.push("candidate is a symlink".to_string());
+        draft
+            .warnings
+            .push(format!("candidate is a {}", kind.description()));
         return;
     }
 
@@ -141,8 +193,65 @@ fn component_name(component: std::path::Component<'_>) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_protected_user_data_path, is_runtime_or_system_path};
+    use super::{
+        DangerousLink, dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path,
+    };
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    #[test]
+    fn regular_directory_is_not_a_dangerous_link() {
+        let temp = TempDir::new().unwrap();
+        let metadata = fs::symlink_metadata(temp.path()).unwrap();
+
+        assert_eq!(dangerous_link_kind(&metadata), None);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn detects_hardlinked_regular_file() {
+        let temp = TempDir::new().unwrap();
+        let original = temp.path().join("original");
+        let hardlink = temp.path().join("hardlink");
+        fs::write(&original, "content").unwrap();
+        fs::hard_link(&original, &hardlink).unwrap();
+
+        let metadata = fs::symlink_metadata(&hardlink).unwrap();
+
+        assert_eq!(
+            dangerous_link_kind(&metadata),
+            Some(DangerousLink::HardlinkedFile)
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn detects_junction_as_dangerous_link() {
+        let temp = TempDir::new().unwrap();
+        let target = temp.path().join("target");
+        let junction = temp.path().join("junction");
+        fs::create_dir(&target).unwrap();
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mklink failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let metadata = fs::symlink_metadata(&junction).unwrap();
+
+        let kind = dangerous_link_kind(&metadata).expect("junction must be dangerous");
+        assert!(
+            matches!(kind, DangerousLink::Symlink | DangerousLink::ReparsePoint),
+            "unexpected dangerous link kind: {kind:?}"
+        );
+    }
 
     #[test]
     fn runtime_or_system_path_matches_any_protected_component() {

@@ -5,7 +5,7 @@ use std::process::Command;
 
 use crate::error::CleanError;
 use crate::rules;
-use crate::scan::{is_protected_user_data_path, is_runtime_or_system_path};
+use crate::scan::{dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path};
 
 use super::types::SelectedCandidate;
 
@@ -30,10 +30,11 @@ pub(super) fn validate_for_deletion_with_rule(
             path.display()
         ))
     })?;
-    if metadata.file_type().is_symlink() {
+    if let Some(kind) = dangerous_link_kind(&metadata) {
         return Err(CleanError::Generic(format!(
-            "refusing to delete {}: path is now a symlink",
-            path.display()
+            "refusing to delete {}: path is now a {}",
+            path.display(),
+            kind.description()
         )));
     }
     if !metadata.is_dir() {

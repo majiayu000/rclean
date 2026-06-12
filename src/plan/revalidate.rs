@@ -6,7 +6,7 @@ use crate::error::PlanError;
 use crate::model::{CandidateDraft, ProjectReport, Safety};
 use crate::path_util::path_file_name;
 use crate::rules;
-use crate::scan::{is_protected_user_data_path, is_runtime_or_system_path};
+use crate::scan::{dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path};
 use crate::user_rules::UserRuleSet;
 
 use super::schema::{ActionPlan, PlanCandidate};
@@ -81,10 +81,11 @@ pub fn revalidate_selected(
             path: candidate.path.clone(),
             source,
         })?;
-        if metadata.file_type().is_symlink() {
+        if let Some(kind) = dangerous_link_kind(&metadata) {
             return Err(PlanError::Generic(format!(
-                "{} is now a symlink",
-                candidate.path.display()
+                "{} is now a {}",
+                candidate.path.display(),
+                kind.description()
             )));
         }
         if !metadata.is_dir() {
