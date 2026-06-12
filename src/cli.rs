@@ -248,6 +248,10 @@ pub struct CleanArgs {
     #[arg(long)]
     pub plan: Option<PathBuf>,
 
+    /// Write delete audit events as JSON Lines.
+    #[arg(long = "audit-log", value_name = "PATH")]
+    pub audit_log: Option<PathBuf>,
+
     /// Use the feature-gated terminal selector instead of numbered text prompts.
     #[arg(long)]
     pub tui: bool,

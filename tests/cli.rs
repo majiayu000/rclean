@@ -1,6 +1,5 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-#[cfg(target_os = "macos")]
 use serde_json::Value;
 #[cfg(target_os = "macos")]
 use std::path::Path;
@@ -683,6 +682,7 @@ fn clean_dry_run_does_not_delete() {
     std::fs::write(temp.path().join("package.json"), "{}").unwrap();
     std::fs::create_dir(temp.path().join("node_modules")).unwrap();
     std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+    let audit_log = temp.path().join("audit.jsonl");
 
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.args([
@@ -690,6 +690,8 @@ fn clean_dry_run_does_not_delete() {
         temp.path().to_str().unwrap(),
         "--all",
         "--dry-run",
+        "--audit-log",
+        audit_log.to_str().unwrap(),
         "--min-size",
         "0",
     ])
@@ -698,6 +700,7 @@ fn clean_dry_run_does_not_delete() {
     .stdout(predicate::str::contains("Plan:"));
 
     assert!(temp.path().join("node_modules").exists());
+    assert!(!audit_log.exists(), "dry-run must not create audit log");
 }
 
 #[test]
@@ -722,6 +725,46 @@ fn clean_permanent_yes_deletes_safe_candidate() {
     .stdout(predicate::str::contains("Cleaned: 1"));
 
     assert!(!temp.path().join("node_modules").exists());
+}
+
+#[test]
+fn clean_permanent_yes_writes_audit_log() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    std::fs::write(temp.path().join("package.json"), "{}")?;
+    std::fs::create_dir(temp.path().join("node_modules"))?;
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc")?;
+    let audit_log = temp.path().join("logs").join("audit.jsonl");
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.args([
+        "clean",
+        temp.path().to_str().unwrap(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--audit-log",
+        audit_log.to_str().unwrap(),
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Cleaned: 1"));
+
+    let raw = std::fs::read_to_string(&audit_log)?;
+    let lines = raw.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 1);
+    let entry: Value = serde_json::from_str(lines[0])?;
+
+    assert_eq!(entry["rule_id"], "node.node_modules");
+    assert_eq!(entry["size_bytes"], 3);
+    assert_eq!(entry["permanent"], true);
+    assert_eq!(entry["mode"], "permanent");
+    assert_eq!(entry["result"], "success");
+    assert!(entry["reason"].is_null());
+    assert!(entry["path"].as_str().unwrap().ends_with("node_modules"));
+    assert!(entry["timestamp"].as_str().unwrap().contains('T'));
+    Ok(())
 }
 
 #[test]

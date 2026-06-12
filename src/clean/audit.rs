@@ -1,0 +1,112 @@
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+
+use chrono::Utc;
+use serde::Serialize;
+
+use crate::error::CleanError;
+
+use super::types::SelectedCandidate;
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteAuditMode {
+    Trash,
+    Permanent,
+    Graveyard,
+    GoModcache,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteAuditStatus {
+    Success,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct DeleteAuditEntry {
+    pub timestamp: String,
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    pub rule_id: String,
+    pub permanent: bool,
+    pub mode: DeleteAuditMode,
+    pub result: DeleteAuditStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+pub struct DeleteAuditLogger {
+    path: PathBuf,
+    file: File,
+}
+
+impl DeleteAuditLogger {
+    pub fn new(path: &Path) -> Result<Self, CleanError> {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|source| {
+                CleanError::Generic(format!(
+                    "failed to create audit log parent {}: {source}",
+                    parent.display()
+                ))
+            })?;
+        }
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|source| {
+                CleanError::Generic(format!(
+                    "failed to open audit log {}: {source}",
+                    path.display()
+                ))
+            })?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+        })
+    }
+
+    pub fn log(
+        &mut self,
+        candidate: &SelectedCandidate,
+        mode: DeleteAuditMode,
+        result: DeleteAuditStatus,
+        reason: Option<String>,
+    ) -> Result<(), CleanError> {
+        let entry = DeleteAuditEntry {
+            timestamp: Utc::now().to_rfc3339(),
+            path: candidate.path.clone(),
+            size_bytes: candidate.bytes,
+            rule_id: candidate.rule_id.clone(),
+            permanent: matches!(mode, DeleteAuditMode::Permanent),
+            mode,
+            result,
+            reason,
+        };
+        let json = serde_json::to_string(&entry).map_err(|source| {
+            CleanError::Generic(format!(
+                "failed to serialize audit log entry for {}: {source}",
+                candidate.path.display()
+            ))
+        })?;
+        writeln!(self.file, "{json}").map_err(|source| {
+            CleanError::Generic(format!(
+                "failed to write audit log {}: {source}",
+                self.path.display()
+            ))
+        })?;
+        self.file.flush().map_err(|source| {
+            CleanError::Generic(format!(
+                "failed to flush audit log {}: {source}",
+                self.path.display()
+            ))
+        })
+    }
+}

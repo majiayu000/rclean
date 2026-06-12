@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 
+use super::audit::DeleteAuditLogger;
 use super::deletion::delete_selected;
 use super::roots::check_broad_roots;
 use super::selection::parse_selection;
@@ -119,10 +120,42 @@ fn delete_selected_skips_swapped_symlink_target() {
     #[cfg(windows)]
     std::os::windows::fs::symlink_dir(&real, &candidate_path).unwrap();
 
-    let result = delete_selected(&selected, true).unwrap();
+    let result = delete_selected(&selected, true, None).unwrap();
     assert!(result.cleaned.is_empty());
     assert_eq!(result.failed.len(), 1);
     assert!(real.is_dir(), "symlink target must not be deleted");
+}
+
+#[test]
+fn delete_selected_logs_validation_failure() {
+    let temp = TempDir::new().unwrap();
+    let audit_path = temp.path().join("audit.jsonl");
+    let mut logger = DeleteAuditLogger::new(&audit_path).unwrap();
+    let missing = temp.path().join("missing");
+    let selected = vec![SelectedCandidate {
+        id: None,
+        path: missing,
+        bytes: 0,
+        rule_id: "test".to_string(),
+        category: crate::model::Category::Build,
+        safety: Safety::Safe,
+        risk_score: 0.0,
+    }];
+
+    let result = delete_selected(&selected, true, Some(&mut logger)).unwrap();
+
+    assert!(result.cleaned.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    let raw = fs::read_to_string(audit_path).unwrap();
+    let entry: serde_json::Value = serde_json::from_str(raw.trim()).unwrap();
+    assert_eq!(entry["result"], "failed");
+    assert_eq!(entry["mode"], "permanent");
+    assert!(
+        entry["reason"]
+            .as_str()
+            .unwrap()
+            .contains("no longer exists")
+    );
 }
 
 #[test]
