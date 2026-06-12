@@ -20,6 +20,7 @@ fn options() -> ScanOptions {
         verbose: false,
         disk_attribution: false,
         ignore_globs: Vec::new(),
+        git_timeout: Some(DEFAULT_GIT_TIMEOUT),
     }
 }
 

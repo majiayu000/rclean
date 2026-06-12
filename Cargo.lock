@@ -1714,6 +1714,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "wait-timeout",
  "walkdir",
 ]
 

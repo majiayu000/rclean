@@ -37,6 +37,8 @@ use crate::rules;
 use crate::user_rules::UserRuleSet;
 
 pub const DEFAULT_ACTIVITY_DEPTH: usize = 6;
+pub const DEFAULT_GIT_TIMEOUT_SECS: u64 = 5;
+pub const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(DEFAULT_GIT_TIMEOUT_SECS);
 
 pub(crate) use git_cache::GitCache;
 pub(crate) use project::{
@@ -48,7 +50,7 @@ pub(crate) use safety::{
 pub(crate) use sizer::SourceSizeIndex;
 pub(crate) use walker::{WalkScratch, walk_parallel};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub max_depth: usize,
     pub min_size: u64,
@@ -61,6 +63,25 @@ pub struct ScanOptions {
     /// Extra gitignore-style globs from `--ignore` CLI flags, layered on
     /// top of any `.rcleanignore` file at the scan root.
     pub ignore_globs: Vec<String>,
+    /// Timeout for each git metadata subprocess. `None` disables git checks.
+    pub git_timeout: Option<Duration>,
+}
+
+impl Default for ScanOptions {
+    fn default() -> Self {
+        Self {
+            max_depth: 0,
+            min_size: 0,
+            older_than: None,
+            categories: None,
+            rule_ids: None,
+            include_blocked: false,
+            verbose: false,
+            disk_attribution: false,
+            ignore_globs: Vec::new(),
+            git_timeout: Some(DEFAULT_GIT_TIMEOUT),
+        }
+    }
 }
 
 /// Compiled .gitignore-style matcher built from each scan root's
@@ -103,7 +124,7 @@ impl IgnoreMatcher {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
-    let git_cache = GitCache::new();
+    let git_cache = GitCache::with_timeout(options.git_timeout);
 
     for path in paths {
         let root = path

@@ -492,6 +492,15 @@ fn help_prints_usage() {
 }
 
 #[test]
+fn scan_help_exposes_git_timeout() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--git-timeout"));
+}
+
+#[test]
 fn agent_doctor_json_runs_for_codex() {
     let temp = TempDir::new().unwrap();
 

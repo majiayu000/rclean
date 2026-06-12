@@ -1,11 +1,12 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 
 use crate::agent::AgentTool;
 use crate::model::Category;
 use crate::parse::{parse_duration, parse_size};
-use crate::scan::{DEFAULT_ACTIVITY_DEPTH, ScanOptions};
+use crate::scan::{DEFAULT_ACTIVITY_DEPTH, DEFAULT_GIT_TIMEOUT_SECS, ScanOptions};
 
 #[derive(Debug, Parser)]
 #[command(name = "rclean")]
@@ -209,6 +210,10 @@ pub struct CommonScanArgs {
     /// On macOS, include APFS/System/Data volume attribution in the scan report.
     #[arg(long)]
     pub disk_attribution: bool,
+
+    /// Git command timeout in seconds. Use 0 to disable git checks.
+    #[arg(long = "git-timeout", default_value_t = DEFAULT_GIT_TIMEOUT_SECS)]
+    pub git_timeout: u64,
 }
 
 #[derive(Debug, Args)]
@@ -319,6 +324,7 @@ impl CommonScanArgs {
             verbose: self.verbose,
             disk_attribution: self.disk_attribution,
             ignore_globs: self.ignore.clone(),
+            git_timeout: (self.git_timeout > 0).then(|| Duration::from_secs(self.git_timeout)),
         })
     }
 }
