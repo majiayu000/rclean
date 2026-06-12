@@ -9,6 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::path_util::path_file_name_string;
 use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
@@ -204,7 +205,7 @@ fn has_newer_sibling(parent: &Path, id: &str, current: &[u64]) -> bool {
         return false;
     };
     entries.flatten().any(|entry| {
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+        let Some(name) = path_file_name_string(&entry.path()) else {
             return false;
         };
         let candidate_version = if id.is_empty() {

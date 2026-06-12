@@ -33,6 +33,7 @@
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::path_util::path_file_name;
 use crate::rules::markers::parent_ends_with;
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
@@ -92,9 +93,7 @@ pub(crate) fn is_pnpm_store_version_name(name: &str) -> bool {
 }
 
 fn parent_file_name_is(dir: &Path, expected: &str) -> bool {
-    dir.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| name == expected)
+    path_file_name(dir).is_some_and(|name| name == expected)
 }
 
 fn is_pnpm_store_parent(dir: &Path) -> bool {

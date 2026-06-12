@@ -33,6 +33,7 @@ use tracing::warn;
 
 use crate::error::ScanError;
 use crate::model::{CandidateDraft, Category, Explanation, Safety, ScanReport};
+use crate::path_util::path_file_name;
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
@@ -197,9 +198,7 @@ pub fn explain_path_with_activity_depth(
     let parent = path
         .parent()
         .ok_or_else(|| ScanError::Generic(format!("{} has no parent directory", path.display())))?;
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
+    let name = path_file_name(path)
         .ok_or_else(|| ScanError::Generic(format!("{} has no valid file name", path.display())))?;
 
     let Some(mut draft) = rules::classify_candidate(parent, name, path.to_path_buf()) else {

@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
+use crate::path_util::path_file_name;
 use crate::rules::markers::{has_marker, parent_ends_with};
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
@@ -66,12 +67,8 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
 }
 
 fn is_go_module_cache(path: &Path) -> bool {
-    path.file_name().and_then(|name| name.to_str()) == Some("mod")
-        && path
-            .parent()
-            .and_then(|parent| parent.file_name())
-            .and_then(|name| name.to_str())
-            == Some("pkg")
+    path_file_name(path) == Some("mod")
+        && path.parent().and_then(path_file_name) == Some("pkg")
         && path.join("cache").join("download").is_dir()
 }
 

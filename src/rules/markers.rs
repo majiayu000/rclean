@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::path_util::path_file_name;
+
 pub fn has_marker(dir: &Path, marker: &str) -> bool {
     dir.join(marker).is_file()
 }
@@ -99,7 +101,7 @@ pub fn is_virtualenv(path: &Path) -> bool {
 }
 
 pub fn is_shared_cargo_target(project_dir: &Path, candidate: &Path) -> bool {
-    if candidate.file_name().and_then(|name| name.to_str()) != Some("target") {
+    if path_file_name(candidate) != Some("target") {
         return false;
     }
 
