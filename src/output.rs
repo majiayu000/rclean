@@ -158,6 +158,7 @@ pub fn print_table(report: &ScanReport) {
     if let Some(disk) = &report.disk_attribution {
         print_disk_attribution(disk);
     }
+    print_scan_warnings(&report.warnings);
 
     if report.projects.is_empty() {
         println!("No cleanable developer artifacts found.");
@@ -213,6 +214,22 @@ pub fn print_table(report: &ScanReport) {
             );
         }
     }
+}
+
+fn print_scan_warnings(warnings: &[crate::model::ScanWarning]) {
+    if warnings.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Warnings during scan:");
+    for warning in warnings {
+        println!("  - {warning}");
+    }
+    println!(
+        "{} warning(s) during scan. Results may be incomplete.",
+        warnings.len()
+    );
 }
 
 fn print_disk_attribution(disk: &crate::model::DiskAttribution) {

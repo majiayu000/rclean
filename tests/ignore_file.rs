@@ -191,3 +191,64 @@ fn first_ignore_glob_miss_does_not_block_second_glob_hit() {
         .code(3)
         .stdout(predicate::str::contains("\"ruleId\":").not());
 }
+
+#[test]
+fn invalid_rcleanignore_is_reported_as_scan_warning() {
+    let temp = TempDir::new().unwrap();
+    build_node_project(&temp);
+    std::fs::write(temp.path().join(".rcleanignore"), "{a,b\n").unwrap();
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"warnings\": ["))
+        .stdout(predicate::str::contains("\"kind\": \"ignoreFileLoad\""))
+        .stdout(predicate::str::contains(".rcleanignore"))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"node.node_modules\"",
+        ));
+}
+
+#[test]
+fn invalid_rcleanignore_table_reports_warning_summary() {
+    let temp = TempDir::new().unwrap();
+    build_node_project(&temp);
+    std::fs::write(temp.path().join(".rcleanignore"), "{a,b\n").unwrap();
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .args(["scan", temp.path().to_str().unwrap(), "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Warnings during scan:"))
+        .stdout(predicate::str::contains("Results may be incomplete."));
+}
+
+#[test]
+fn invalid_cli_ignore_glob_fails_scan() {
+    let temp = TempDir::new().unwrap();
+    build_node_project(&temp);
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--json",
+            "--min-size",
+            "0",
+            "--ignore",
+            "{a,b",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid --ignore glob"));
+}

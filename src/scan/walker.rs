@@ -34,7 +34,7 @@ use ignore::{WalkBuilder, WalkState};
 use tracing::{debug, warn};
 
 use crate::error::ScanError;
-use crate::model::CandidateDraft;
+use crate::model::{CandidateDraft, ScanWarning};
 use crate::path_util::{path_file_name, path_file_name_string};
 use crate::rules;
 use crate::user_rules::UserRuleSet;
@@ -47,6 +47,7 @@ use super::{IgnoreMatcher, ScanOptions, should_include};
 pub(crate) struct WalkScratch {
     drafts_by_project: Mutex<HashMap<PathBuf, Vec<CandidateDraft>>>,
     sizes: Mutex<DirSizes>,
+    warnings: Mutex<Vec<ScanWarning>>,
     poisoned: AtomicBool,
 }
 
@@ -55,16 +56,25 @@ impl WalkScratch {
         Self {
             drafts_by_project: Mutex::new(HashMap::new()),
             sizes: Mutex::new(HashMap::new()),
+            warnings: Mutex::new(Vec::new()),
             poisoned: AtomicBool::new(false),
         }
     }
 
     pub(crate) fn into_inner(
         self,
-    ) -> Result<(HashMap<PathBuf, Vec<CandidateDraft>>, DirSizes), ScanError> {
+    ) -> Result<
+        (
+            HashMap<PathBuf, Vec<CandidateDraft>>,
+            DirSizes,
+            Vec<ScanWarning>,
+        ),
+        ScanError,
+    > {
         let WalkScratch {
             drafts_by_project,
             sizes,
+            warnings,
             poisoned,
         } = self;
         if poisoned.load(Ordering::SeqCst) {
@@ -80,7 +90,10 @@ impl WalkScratch {
         let sizes = sizes
             .into_inner()
             .map_err(|_| poison_error("walk scratch sizes mutex"))?;
-        Ok((drafts, sizes))
+        let warnings = warnings
+            .into_inner()
+            .map_err(|_| poison_error("walk scratch warnings mutex"))?;
+        Ok((drafts, sizes, warnings))
     }
 
     fn mark_poisoned(&self, lock_name: &'static str) {
@@ -101,6 +114,7 @@ struct WalkLocal<'a> {
     scratch: &'a WalkScratch,
     drafts_by_project: HashMap<PathBuf, Vec<CandidateDraft>>,
     sizes: DirSizes,
+    warnings: Vec<ScanWarning>,
 }
 
 impl<'a> WalkLocal<'a> {
@@ -109,6 +123,7 @@ impl<'a> WalkLocal<'a> {
             scratch,
             drafts_by_project: HashMap::new(),
             sizes: HashMap::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -122,6 +137,10 @@ impl<'a> WalkLocal<'a> {
             .entry(project_dir.to_path_buf())
             .or_default()
             .push(draft);
+    }
+
+    fn add_warning(&mut self, warning: ScanWarning) {
+        self.warnings.push(warning);
     }
 }
 
@@ -152,6 +171,14 @@ impl Drop for WalkLocal<'_> {
                     }
                 }
                 Err(_) => self.scratch.mark_poisoned("drafts_by_project"),
+            }
+        }
+
+        let local_warnings = mem::take(&mut self.warnings);
+        if !local_warnings.is_empty() {
+            match self.scratch.warnings.lock() {
+                Ok(mut warnings) => warnings.extend(local_warnings),
+                Err(_) => self.scratch.mark_poisoned("warnings"),
             }
         }
     }
@@ -191,6 +218,10 @@ pub(crate) fn walk_parallel(
                 Ok(e) => e,
                 Err(err) => {
                     debug!(error = %err, "walk error");
+                    local.add_warning(ScanWarning::WalkError {
+                        path: None,
+                        error: err.to_string(),
+                    });
                     return WalkState::Continue;
                 }
             };
@@ -223,6 +254,10 @@ pub(crate) fn walk_parallel(
                     }
                     Err(err) => {
                         debug!(path = %path.display(), error = %err, "walk metadata error");
+                        local.add_warning(ScanWarning::MetadataError {
+                            path,
+                            error: err.to_string(),
+                        });
                     }
                 }
                 return WalkState::Continue;

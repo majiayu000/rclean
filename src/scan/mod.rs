@@ -32,7 +32,7 @@ use chrono::Utc;
 use tracing::warn;
 
 use crate::error::ScanError;
-use crate::model::{CandidateDraft, Category, Explanation, Safety, ScanReport};
+use crate::model::{CandidateDraft, Category, Explanation, Safety, ScanReport, ScanWarning};
 use crate::path_util::path_file_name;
 use crate::rules;
 use crate::user_rules::UserRuleSet;
@@ -94,27 +94,36 @@ pub(crate) struct IgnoreMatcher {
 }
 
 impl IgnoreMatcher {
-    pub(crate) fn build(root: &Path, extra_globs: &[String]) -> Self {
+    pub(crate) fn build(
+        root: &Path,
+        extra_globs: &[String],
+    ) -> Result<(Self, Vec<ScanWarning>), ScanError> {
+        let mut warnings = Vec::new();
         let mut builder = ignore::gitignore::GitignoreBuilder::new(root);
         let rcleanignore = root.join(".rcleanignore");
         if rcleanignore.is_file()
             && let Some(err) = builder.add(&rcleanignore)
         {
             warn!(path = %rcleanignore.display(), error = %err, "failed to load .rcleanignore");
+            warnings.push(ScanWarning::IgnoreFileLoad {
+                path: rcleanignore,
+                error: err.to_string(),
+            });
         }
         for glob in extra_globs {
             if let Err(err) = builder.add_line(None, glob) {
-                warn!(glob = %glob, error = %err, "invalid --ignore glob");
+                return Err(ScanError::Generic(format!(
+                    "invalid --ignore glob '{glob}': {err}"
+                )));
             }
         }
-        let matcher = match builder.build() {
-            Ok(m) => m,
-            Err(err) => {
-                warn!(root = %root.display(), error = %err, "failed to build .rcleanignore matcher");
-                ignore::gitignore::Gitignore::empty()
-            }
-        };
-        Self { matcher }
+        let matcher = builder.build().map_err(|err| {
+            ScanError::Generic(format!(
+                "failed to build ignore matcher for {}: {err}",
+                root.display()
+            ))
+        })?;
+        Ok((Self { matcher }, warnings))
     }
 
     pub(crate) fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
@@ -125,6 +134,7 @@ impl IgnoreMatcher {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut projects = Vec::new();
+    let mut warnings = Vec::new();
     let git_cache = GitCache::with_timeout(options.git_timeout);
 
     for path in paths {
@@ -136,14 +146,16 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             })?;
         roots.push(root.display().to_string());
         let user_rules = UserRuleSet::load_from_root(&root);
-        let matcher = IgnoreMatcher::build(&root, &options.ignore_globs);
+        let (matcher, matcher_warnings) = IgnoreMatcher::build(&root, &options.ignore_globs)?;
+        warnings.extend(matcher_warnings);
 
         // Phase 1: parallel walk collects (project_dir, drafts) and
         // per-dir file_bytes into thread-safe accumulators.
         let walk = WalkScratch::new();
         walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
-        let (drafts_by_project, walk_sizes) = walk.into_inner()?;
+        let (drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
+        warnings.extend(walk_warnings);
         let source_sizes = SourceSizeIndex::from_dir_sizes(&walk_sizes);
 
         // Phase 2: serial post-processing per project so dir_size,
@@ -186,6 +198,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             .disk_attribution
             .then(disk::collect_disk_attribution)
             .flatten(),
+        warnings,
         summary,
         projects,
     })
