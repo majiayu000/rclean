@@ -68,6 +68,47 @@ impl fmt::Display for Safety {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ScanWarning {
+    IgnoreFileLoad {
+        path: PathBuf,
+        error: String,
+    },
+    WalkError {
+        path: Option<PathBuf>,
+        error: String,
+    },
+    MetadataError {
+        path: PathBuf,
+        error: String,
+    },
+}
+
+impl fmt::Display for ScanWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::IgnoreFileLoad { path, error } => {
+                write!(
+                    f,
+                    "failed to load .rcleanignore at {}: {error}",
+                    path.display()
+                )
+            }
+            Self::WalkError { path, error } => {
+                if let Some(path) = path {
+                    write!(f, "failed to walk {}: {error}", path.display())
+                } else {
+                    write!(f, "failed to walk scan root: {error}")
+                }
+            }
+            Self::MetadataError { path, error } => {
+                write!(f, "failed to read metadata for {}: {error}", path.display())
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanReport {
@@ -81,6 +122,8 @@ pub struct ScanReport {
         rename = "diskAttribution"
     )]
     pub disk_attribution: Option<DiskAttribution>,
+    #[serde(default)]
+    pub warnings: Vec<ScanWarning>,
     pub summary: Summary,
     pub projects: Vec<ProjectReport>,
 }

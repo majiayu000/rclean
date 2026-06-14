@@ -92,6 +92,22 @@ This means: even a hand-edited plan that upgrades a `blocked` path
 to `safe` will be re-classified and rejected. The trust boundary
 is the *code*, not the *file on disk*.
 
+## Final pre-delete validation
+
+`clean` validates every selected candidate again immediately before
+the destructive operation. The final check uses `symlink_metadata`
+to reject symlinks, junctions/reparse points, hardlinked files, files,
+missing paths, protected user-data paths, and protected runtime/system
+paths. This covers the common TOCTOU case where a directory that was
+safe at scan time is replaced by a symlink or a non-directory before
+deletion.
+
+This is a conservative local-developer safety guard, not a full
+multi-user adversarial filesystem lock. A process with write access
+to the same tree may still race after final validation. Run `rclean`
+on trusted local developer workspaces, and prefer non-permanent modes
+when operating on contested or shared filesystems.
+
 ## The broad-root guard
 
 Independent of safety state: `clean` refuses to operate inside `/`,

@@ -401,6 +401,10 @@ rclean scan ~/code --ignore "**/playground/**" --ignore "tmp-*"
 If both an `.rcleanignore` entry and a `--ignore` glob match the same path,
 the path is excluded.
 
+Invalid `--ignore` globs fail the scan. Invalid `.rcleanignore` files are
+reported as scan warnings so the scan can continue while still marking the
+result as potentially incomplete.
+
 ## Reports and Plans
 
 `rclean scan` can emit a machine-readable JSON report or an auditable action
@@ -415,6 +419,11 @@ rclean scan ~/code --write-plan rclean-plan.json
 rclean clean --plan rclean-plan.json --dry-run
 rclean clean --plan rclean-plan.json --yes
 ```
+
+Scan reports include a top-level `warnings` list for recoverable scan
+problems such as invalid `.rcleanignore` files or filesystem walk errors.
+The table output prints the same warning summary; JSON consumers should
+treat a non-empty `warnings` array as "results may be incomplete."
 
 The action plan is the trust boundary: `clean --plan` re-validates every
 path against the live filesystem before deleting, refuses to follow new

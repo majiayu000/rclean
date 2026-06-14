@@ -174,6 +174,36 @@ fn delete_selected_skips_swapped_symlink_target() {
 }
 
 #[test]
+fn delete_selected_skips_swapped_file_candidate() {
+    let temp = TempDir::new().unwrap();
+    let candidate_path = temp.path().join("artifact");
+    fs::create_dir(&candidate_path).unwrap();
+
+    let selected = vec![SelectedCandidate {
+        id: None,
+        path: candidate_path.clone(),
+        bytes: 0,
+        rule_id: "test".to_string(),
+        category: crate::model::Category::Build,
+        safety: Safety::Safe,
+        risk_score: 0.0,
+    }];
+
+    // TOCTOU: replace the candidate directory with a regular file between
+    // scan and delete. Final validation must fail before remove_dir_all runs.
+    fs::remove_dir(&candidate_path).unwrap();
+    fs::write(&candidate_path, b"not a directory").unwrap();
+
+    let result = delete_selected(&selected, true, None).unwrap();
+    assert!(result.cleaned.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert!(
+        candidate_path.is_file(),
+        "replacement file must not be deleted"
+    );
+}
+
+#[test]
 fn delete_selected_logs_validation_failure() {
     let temp = TempDir::new().unwrap();
     let audit_path = temp.path().join("audit.jsonl");

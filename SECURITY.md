@@ -93,6 +93,21 @@ Things the trust model promises and that we treat as security issues:
 - **Permanent-delete on TOCTOU symlink** — `clean --permanent`
   following a symlink target swap.
 
+### TOCTOU protection boundary
+
+`clean` performs a final pre-delete validation for every selected
+candidate. That validation rejects symlinks, junctions/reparse points,
+hardlinked files, non-directories, protected user-data paths, and
+protected runtime/system paths immediately before deletion. On the
+supported Unix-like and Windows platforms, Rust's `remove_dir_all`
+also uses platform deletion primitives that do not follow symlinks
+during recursive permanent deletion.
+
+This protection is scoped to trusted local developer workspaces. It is
+not a lock over a contested filesystem, and it does not defend against
+an attacker who already controls the host, the user's account, or a
+shared directory being modified concurrently with the clean operation.
+
 ## Out of Scope
 
 Things that aren't security issues even though they involve data loss:

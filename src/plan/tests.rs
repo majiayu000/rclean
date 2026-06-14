@@ -13,6 +13,7 @@ fn report(root: &Path, candidate_path: &Path) -> ScanReport {
         scanned_at: "2026-05-06T00:00:00Z".to_string(),
         roots: vec![root.display().to_string()],
         disk_attribution: None,
+        warnings: Vec::new(),
         summary: Summary {
             projects_scanned: 1,
             projects_with_candidates: 1,
