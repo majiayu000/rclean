@@ -43,6 +43,12 @@ use super::safety::{apply_path_safety, is_skip_dir, is_skip_name};
 use super::sizer::DirSizes;
 use super::{IgnoreMatcher, ScanOptions, should_include};
 
+type WalkOutput = (
+    HashMap<PathBuf, Vec<CandidateDraft>>,
+    DirSizes,
+    Vec<ScanWarning>,
+);
+
 /// Thread-safe accumulator shared by every WalkParallel worker.
 pub(crate) struct WalkScratch {
     drafts_by_project: Mutex<HashMap<PathBuf, Vec<CandidateDraft>>>,
@@ -61,16 +67,7 @@ impl WalkScratch {
         }
     }
 
-    pub(crate) fn into_inner(
-        self,
-    ) -> Result<
-        (
-            HashMap<PathBuf, Vec<CandidateDraft>>,
-            DirSizes,
-            Vec<ScanWarning>,
-        ),
-        ScanError,
-    > {
+    pub(crate) fn into_inner(self) -> Result<WalkOutput, ScanError> {
         let WalkScratch {
             drafts_by_project,
             sizes,
