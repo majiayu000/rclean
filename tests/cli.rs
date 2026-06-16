@@ -840,6 +840,65 @@ fn scan_write_plan_then_clean_plan_dry_run() {
 }
 
 #[test]
+fn clean_plan_uses_permanent_delete_mode_from_plan() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    std::fs::write(temp.path().join("package.json"), "{}")?;
+    let candidate = temp.path().join("node_modules");
+    std::fs::create_dir(&candidate)?;
+    std::fs::write(candidate.join("blob"), "abc")?;
+    let plan = temp.path().join("plan.json");
+
+    let mut write_plan = Command::cargo_bin("rclean")?;
+    write_plan
+        .args([
+            "clean",
+            temp.path().to_str().unwrap(),
+            "--all",
+            "--dry-run",
+            "--permanent",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let mut dry_run = Command::cargo_bin("rclean")?;
+    dry_run
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mode: permanent (dry run)"));
+    assert!(candidate.exists(), "dry-run must not delete the candidate");
+
+    let audit_log = temp.path().join("audit.jsonl");
+    let mut replay = Command::cargo_bin("rclean")?;
+    replay
+        .args([
+            "clean",
+            "--plan",
+            plan.to_str().unwrap(),
+            "--yes",
+            "--audit-log",
+            audit_log.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Cleaned: 1"));
+
+    assert!(
+        !candidate.exists(),
+        "permanent plan replay should remove the candidate"
+    );
+    let raw = std::fs::read_to_string(&audit_log)?;
+    let entry: Value = serde_json::from_str(raw.lines().next().unwrap())?;
+    assert_eq!(entry["mode"], "permanent");
+    assert_eq!(entry["permanent"], true);
+    Ok(())
+}
+
+#[test]
 fn ruby_vendor_bundle_plan_dry_run_replays_successfully() {
     let temp = TempDir::new().unwrap();
     std::fs::write(

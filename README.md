@@ -114,7 +114,7 @@ rclean doctor                                # see which global rules apply
 rclean scan --home --min-size 100mb          # report candidates
 rclean scan --home --write-plan plan.json    # auditable plan
 rclean clean --plan plan.json --dry-run      # preview
-rclean clean --plan plan.json --yes          # execute (defaults to Trash)
+rclean clean --plan plan.json --yes          # execute using the plan's deleteMode
 ```
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
