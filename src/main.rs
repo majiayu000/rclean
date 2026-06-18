@@ -120,7 +120,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                         .map(std::path::PathBuf::from)
                         .collect();
                     clean::check_broad_roots(&plan_roots)?;
-                } else {
+                } else if !args.common.tmp {
                     clean::check_broad_roots(&args.common.paths_or_current_dir())?;
                 }
             }

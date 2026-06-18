@@ -99,6 +99,7 @@ cargo run --bin rclean -- explain ~/code/app/target
 cargo run --bin rclean -- rules
 cargo run --bin rclean -- doctor
 cargo run --bin rclean -- scan --home
+cargo run --bin rclean -- scan --tmp --min-size 100mb
 cargo run --bin rclean -- agent doctor codex
 cargo run --bin rclean -- agent optimize codex --disable-auto-update
 ```
@@ -116,6 +117,19 @@ rclean scan --home --write-plan plan.json    # auditable plan
 rclean clean --plan plan.json --dry-run      # preview
 rclean clean --plan plan.json --yes          # execute (defaults to Trash)
 ```
+
+Temporary AI-agent and review worktrees can also leave large rebuildable
+artifacts under system temp roots:
+
+```bash
+rclean scan --tmp --min-size 100mb
+rclean clean --tmp --all --dry-run --min-size 100mb
+```
+
+`--tmp` scans existing system temp roots such as `/tmp` and `/private/tmp`
+on macOS, but cleanup still only selects candidates matched by rclean rules
+and safety policy. It does not clear all of `/tmp` or delete arbitrary
+temporary worktrees by name.
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, `~/.bundle`, `~/.kube`,

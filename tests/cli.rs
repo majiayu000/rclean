@@ -27,6 +27,29 @@ fn home_flag_conflicts_with_positional_paths() {
 }
 
 #[test]
+fn tmp_flag_conflicts_with_positional_paths_and_home() {
+    let mut with_path = Command::cargo_bin("rclean").unwrap();
+    with_path
+        .args(["scan", "--tmp", "/tmp/somepath"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .or(predicate::str::contains("conflicts with")),
+        );
+
+    let mut with_home = Command::cargo_bin("rclean").unwrap();
+    with_home
+        .args(["scan", "--tmp", "--home"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .or(predicate::str::contains("conflicts with")),
+        );
+}
+
+#[test]
 fn home_flag_runs_without_panicking_on_empty_home() {
     // With HOME pointed at a temp dir containing none of the
     // toolchain dirs, --home should still exit cleanly (just with
@@ -38,6 +61,63 @@ fn home_flag_runs_without_panicking_on_empty_home() {
         .args(["scan", "--home", "--json", "--min-size", "0"])
         .assert()
         .code(3); // no candidates because no toolchain dirs exist
+}
+
+#[test]
+fn tmp_flag_runs_without_panicking_on_empty_tmp_root() {
+    let temp = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("RCLEAN_TMP_ROOTS", temp.path())
+        .args(["scan", "--tmp", "--json", "--min-size", "0"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn tmp_flag_scans_rust_targets_under_temp_worktree() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let worktree = temp.path().join("remem-review");
+    let target = worktree.join("target");
+    std::fs::create_dir_all(&target)?;
+    std::fs::write(
+        worktree.join("Cargo.toml"),
+        "[package]\nname = \"tmp-review\"\n",
+    )?;
+    std::fs::write(target.join("blob"), "x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("RCLEAN_TMP_ROOTS", temp.path())
+        .args(["scan", "--tmp", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ruleId\": \"rust.target\""))
+        .stdout(predicate::str::contains("\"safety\": \"safe\""))
+        .stdout(predicate::str::contains("remem-review"));
+    Ok(())
+}
+
+#[test]
+fn clean_tmp_all_dry_run_selects_temp_target() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let worktree = temp.path().join("rclean-review");
+    let target = worktree.join("target");
+    std::fs::create_dir_all(&target)?;
+    std::fs::write(
+        worktree.join("Cargo.toml"),
+        "[package]\nname = \"tmp-review\"\n",
+    )?;
+    std::fs::write(target.join("blob"), "x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("RCLEAN_TMP_ROOTS", temp.path())
+        .args(["clean", "--tmp", "--all", "--dry-run", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+
+    assert!(target.exists(), "dry-run must not delete the target dir");
+    Ok(())
 }
 
 #[test]
