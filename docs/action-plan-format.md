@@ -10,8 +10,12 @@ rclean scan <paths> --write-plan rclean-plan.json
 and replayed by:
 
 ```bash
-rclean clean --plan rclean-plan.json [--dry-run|--yes] [--permanent]
+rclean clean --plan rclean-plan.json [--dry-run|--yes]
 ```
+
+Replay uses the plan's persisted `deleteMode`. Passing a conflicting
+delete-mode flag at clean time is rejected; regenerate the plan if the
+intended mode changed after review.
 
 This document is the contract for that file. Treat any deviation as
 a bug.
@@ -148,9 +152,10 @@ refuses to delete inside `/`, `$HOME`, `/etc`, `/usr` unless
 ### 4. Deletion
 
 Only after all of the above pass does `clean::delete_selected` move
-each path to the Trash (default) or unlink it permanently
-(`--permanent` was set at scan-write time, or it is being passed at
-clean time on a `permanent` plan).
+each path according to the plan's `deleteMode`: Trash, permanent
+deletion, or the graveyard. Clean-time delete-mode flags are allowed
+only when they match the plan; they cannot override the reviewed
+mode.
 
 A failure in any of the validation steps aborts the entire clean —
 nothing is deleted partially.
