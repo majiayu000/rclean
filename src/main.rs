@@ -110,11 +110,20 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Commands::Clean(args) => {
-            let delete_mode = requested_delete_mode(&args);
+        Commands::Clean(mut args) => {
+            let action_plan = args
+                .plan
+                .as_deref()
+                .map(plan::read_action_plan)
+                .transpose()?;
+            let delete_mode = if let Some(action_plan) = &action_plan {
+                enforce_action_plan_delete_mode(&mut args, &action_plan.delete_mode)?;
+                action_plan.delete_mode.clone()
+            } else {
+                requested_delete_mode(&args).to_string()
+            };
             if !args.allow_broad_root {
-                if let Some(plan_path) = &args.plan {
-                    let action_plan = plan::read_action_plan(plan_path)?;
+                if let Some(action_plan) = &action_plan {
                     let plan_roots: Vec<std::path::PathBuf> = action_plan
                         .roots
                         .iter()
@@ -125,10 +134,9 @@ fn run() -> Result<ExitCode, RcleanError> {
                     clean::check_broad_roots(&clean_roots_for_broad_check(&args)?)?;
                 }
             }
-            let (selected, report) = if let Some(plan_path) = &args.plan {
-                let action_plan = plan::read_action_plan(plan_path)?;
-                let selected = plan::selected_from_action_plan(&action_plan)?;
-                plan::revalidate_selected(&action_plan, &selected)?;
+            let (selected, report) = if let Some(action_plan) = &action_plan {
+                let selected = plan::selected_from_action_plan(action_plan)?;
+                plan::revalidate_selected(action_plan, &selected)?;
                 (selected, None)
             } else {
                 let options = args.common.to_scan_options()?;
@@ -139,7 +147,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                         plan_path,
                         args.common.include_caution,
                         args.permanent,
-                        delete_mode,
+                        &delete_mode,
                     )?;
                     // User-facing success confirmation. Bypass the tracing
                     // filter (default `warn` would hide info!) so the message
@@ -158,7 +166,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 }
             }
             if !args.common.json {
-                clean::print_plan(&selected, delete_mode, args.dry_run);
+                clean::print_plan(&selected, &delete_mode, args.dry_run);
             }
 
             if selected.is_empty() {
@@ -328,6 +336,74 @@ fn requested_delete_mode(args: &cli::CleanArgs) -> &'static str {
         return "graveyard";
     }
     "trash"
+}
+
+fn requested_explicit_delete_mode(args: &cli::CleanArgs) -> Option<&'static str> {
+    if args.permanent {
+        return Some("permanent");
+    }
+    #[cfg(feature = "graveyard")]
+    if args.graveyard {
+        return Some("graveyard");
+    }
+    None
+}
+
+fn enforce_action_plan_delete_mode(
+    args: &mut cli::CleanArgs,
+    plan_delete_mode: &str,
+) -> Result<(), RcleanError> {
+    if let Some(cli_delete_mode) = requested_explicit_delete_mode(args)
+        && cli_delete_mode != plan_delete_mode
+    {
+        return Err(error::CleanError::Generic(format!(
+            "CLI delete mode {cli_delete_mode:?} conflicts with action plan deleteMode \
+             {plan_delete_mode:?}; replay the plan without a mode flag or regenerate it with \
+             the intended delete mode"
+        ))
+        .into());
+    }
+
+    match plan_delete_mode {
+        "trash" => {
+            args.permanent = false;
+            #[cfg(feature = "graveyard")]
+            {
+                args.graveyard = false;
+            }
+            Ok(())
+        }
+        "permanent" => {
+            args.permanent = true;
+            #[cfg(feature = "graveyard")]
+            {
+                args.graveyard = false;
+            }
+            Ok(())
+        }
+        "graveyard" => {
+            #[cfg(feature = "graveyard")]
+            {
+                args.permanent = false;
+                args.graveyard = true;
+                Ok(())
+            }
+            #[cfg(not(feature = "graveyard"))]
+            {
+                Err(error::CleanError::Generic(
+                    "action plan deleteMode \"graveyard\" requires a build with the graveyard \
+                     feature; rebuild with default features or regenerate the plan with deleteMode \
+                     \"trash\" or \"permanent\""
+                        .to_string(),
+                )
+                .into())
+            }
+        }
+        other => Err(error::CleanError::Generic(format!(
+            "unsupported action plan deleteMode {other:?}; expected trash, graveyard, or permanent"
+        ))
+        .into()),
+    }
 }
 
 fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {

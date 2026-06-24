@@ -67,6 +67,36 @@ Existing tools already clean `node_modules`, `target`, and other artifacts.
 - dirty git worktrees marked as caution
 - package name `rclean-cli`, installed command `rclean`
 
+## Product Boundaries
+
+`rclean` remains a conservative developer-cleanup tool. It is not a
+general privacy cleaner, malware scanner, app uninstaller, browser-history
+wipe tool, or visual disk-usage explorer. It should not grow into a broad
+"make my machine clean" product by treating every large directory as a
+candidate.
+
+The safe expansion path is narrow:
+
+- add exact-anchor rules for rebuildable developer artifacts and caches;
+- keep high-cost but user-owned data, such as local model stores, as
+  `report-only` unless a later workflow proves a safer deletion model;
+- route destructive work through scan output, `explain`, and reviewable
+  [ActionPlan](docs/action-plan-format.md) files before cleanup;
+- do not add automatic `sudo`; system-scope cleanup may suggest explicit
+  commands for a human to run, but `rclean` itself does not escalate.
+
+Automatic background deletion remains out of scope. A daemon, cron job, or
+"clean while idle" mode would need to be manually validated first as a normal
+interactive workflow, then promoted through the same safety model instead of
+starting as automation.
+
+See the [safety model](docs/safety-model.md), the
+[MVP non-goals](docs/specs/mvp-spec.md#non-goals), the
+[v0.2 developer-tool boundary](docs/specs/v0.2-developer-mole.md#2-non-goals),
+and the
+[v0.3 whole-machine boundary](docs/specs/v0.3-developer-toolchain-extra.md)
+for the detailed scope rules.
+
 ## Install
 
 From this checkout during development:
@@ -115,7 +145,7 @@ rclean doctor                                # see which global rules apply
 rclean scan --home --min-size 100mb          # report candidates
 rclean scan --home --write-plan plan.json    # auditable plan
 rclean clean --plan plan.json --dry-run      # preview
-rclean clean --plan plan.json --yes          # execute (defaults to Trash)
+rclean clean --plan plan.json --yes          # execute using the plan's deleteMode
 ```
 
 Temporary AI-agent and review worktrees can also leave large rebuildable
@@ -160,6 +190,18 @@ Write and review an ActionPlan:
 rclean scan ~/code --write-plan rclean-plan.json
 rclean clean --plan rclean-plan.json --dry-run
 ```
+
+Preview stale stamped artifacts before cleanup:
+
+```bash
+rclean stamp ~/code --min-size 100mb
+rclean stamp ~/code --sweep --write-plan rclean-stamp-sweep.json --min-size 100mb
+rclean clean --plan rclean-stamp-sweep.json --dry-run
+```
+
+`stamp --sweep` only writes an ActionPlan for previously stamped candidates
+that have not changed since they were stamped. Use `clean --plan ... --dry-run`
+to review exactly what would be removed before running a real cleanup.
 
 ## Safety Model
 
