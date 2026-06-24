@@ -51,6 +51,107 @@ fn go_module_cache_clean_uses_go_clean_modcache() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[test]
+fn go_module_cache_dry_run_does_not_execute_go() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let module_cache = temp.path().join("go").join("pkg").join("mod");
+    let download = module_cache.join("cache").join("download");
+    std::fs::create_dir_all(&download)?;
+    std::fs::write(download.join("blob"), "x")?;
+
+    let fake_bin = temp.path().join("bin");
+    std::fs::create_dir(&fake_bin)?;
+    let fake_go_output = temp.path().join("fake-go-output.txt");
+    write_fake_go(&fake_bin)?;
+
+    let path = path_with_fake_go(&fake_bin)?;
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .env("PATH", path)
+        .env("FAKE_GO_OUT", &fake_go_output)
+        .args([
+            "clean",
+            "--home",
+            "--all",
+            "--include-caution",
+            "--permanent",
+            "--dry-run",
+            "--min-size",
+            "0",
+            "--rule",
+            "go.module_cache",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mode: permanent (dry run)"));
+
+    assert!(
+        !fake_go_output.exists(),
+        "dry-run must not execute go clean"
+    );
+    Ok(())
+}
+
+#[test]
+fn go_module_cache_plan_replay_uses_go_clean_modcache() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let module_cache = temp.path().join("go").join("pkg").join("mod");
+    let download = module_cache.join("cache").join("download");
+    std::fs::create_dir_all(&download)?;
+    std::fs::write(download.join("blob"), "x")?;
+
+    let fake_bin = temp.path().join("bin");
+    std::fs::create_dir(&fake_bin)?;
+    let fake_go_output = temp.path().join("fake-go-output.txt");
+    write_fake_go(&fake_bin)?;
+
+    let plan = temp.path().join("go-plan.json");
+    let path = path_with_fake_go(&fake_bin)?;
+    let mut write_plan = Command::cargo_bin("rclean")?;
+    write_plan
+        .env("HOME", temp.path())
+        .env("PATH", &path)
+        .env("FAKE_GO_OUT", &fake_go_output)
+        .args([
+            "clean",
+            "--home",
+            "--all",
+            "--include-caution",
+            "--permanent",
+            "--dry-run",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+            "--rule",
+            "go.module_cache",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        !fake_go_output.exists(),
+        "writing a dry-run plan must not execute go clean"
+    );
+
+    let mut replay = Command::cargo_bin("rclean")?;
+    replay
+        .env("HOME", temp.path())
+        .env("PATH", &path)
+        .env("FAKE_GO_OUT", &fake_go_output)
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mode: permanent"))
+        .stdout(predicate::str::contains("Cleaned: 1 candidates"));
+
+    let fake_output = std::fs::read_to_string(fake_go_output)?;
+    assert!(fake_output.contains("clean"));
+    assert!(fake_output.contains("-modcache"));
+    assert!(fake_output.contains("GOMODCACHE="));
+    Ok(())
+}
+
 fn path_with_fake_go(
     fake_bin: &std::path::Path,
 ) -> Result<std::ffi::OsString, std::env::JoinPathsError> {
