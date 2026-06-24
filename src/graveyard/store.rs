@@ -77,13 +77,6 @@ impl Graveyard {
         let payload_path = grave_dir.join("payload");
         let grave_path_rel = PathBuf::from(&date_subdir).join(&leaf);
 
-        fs::create_dir_all(&grave_dir).map_err(|source| GraveyardError::Io {
-            path: grave_dir.clone(),
-            source,
-        })?;
-
-        move_into(input.original_path, &payload_path)?;
-
         let record = ManifestRecord {
             schema_version: MANIFEST_SCHEMA_VERSION,
             id,
@@ -99,18 +92,39 @@ impl Graveyard {
             tool_version: input.tool_version.to_string(),
             grave_path: grave_path_rel,
         };
+        let meta_json = serde_json::to_string_pretty(&record)?;
+
+        fs::create_dir_all(&grave_dir).map_err(|source| GraveyardError::Io {
+            path: grave_dir.clone(),
+            source,
+        })?;
+
+        move_into(input.original_path, &payload_path)?;
 
         // Write the per-grave meta.json next to the payload — lets a
         // human inspect one grave with just `cat meta.json` without
         // grepping the global manifest.
         let meta_path = grave_dir.join("meta.json");
-        let meta_json = serde_json::to_string_pretty(&record)?;
-        fs::write(&meta_path, meta_json).map_err(|source| GraveyardError::Io {
+        if let Err(err) = fs::write(&meta_path, meta_json).map_err(|source| GraveyardError::Io {
             path: meta_path,
             source,
-        })?;
+        }) {
+            return Err(rollback_bury(
+                input.original_path,
+                &payload_path,
+                &grave_dir,
+                err,
+            ));
+        }
 
-        RecordWriter::new(&self.root).append(&record)?;
+        if let Err(err) = RecordWriter::new(&self.root).append(&record) {
+            return Err(rollback_bury(
+                input.original_path,
+                &payload_path,
+                &grave_dir,
+                err,
+            ));
+        }
 
         Ok(Grave {
             record,
@@ -287,6 +301,59 @@ where
 {
     let kept: Vec<ManifestRecord> = records.iter().filter(|r| keep(r)).cloned().collect();
     rewrite_manifest_atomic(root, &kept)
+}
+
+fn rollback_bury(
+    original_path: &Path,
+    payload_path: &Path,
+    grave_dir: &Path,
+    original_failure: GraveyardError,
+) -> GraveyardError {
+    if let Err(rollback_failure) = move_into(payload_path, original_path) {
+        return rollback_failed(
+            original_path,
+            payload_path,
+            grave_dir,
+            original_failure,
+            "moving payload back to the original path",
+            rollback_failure,
+        );
+    }
+
+    if let Err(source) = fs::remove_dir_all(grave_dir) {
+        return rollback_failed(
+            original_path,
+            payload_path,
+            grave_dir,
+            original_failure,
+            "cleaning orphan grave directory after payload restore",
+            GraveyardError::Io {
+                path: grave_dir.to_path_buf(),
+                source,
+            },
+        );
+    }
+
+    original_failure
+}
+
+fn rollback_failed(
+    original_path: &Path,
+    payload_path: &Path,
+    grave_dir: &Path,
+    original_failure: GraveyardError,
+    rollback_step: &str,
+    rollback_failure: GraveyardError,
+) -> GraveyardError {
+    GraveyardError::Generic(format!(
+        "graveyard bury failed after moving payload from {} to {}; original failure: {}; rollback failed while {} for grave dir {}: {}",
+        original_path.display(),
+        payload_path.display(),
+        original_failure,
+        rollback_step,
+        grave_dir.display(),
+        rollback_failure
+    ))
 }
 
 /// Local copy of the RAII lock guard so we can use it from this file
@@ -469,5 +536,69 @@ mod tests {
         assert_eq!(records.len(), 3);
         let unique: std::collections::HashSet<_> = records.iter().map(|r| r.id.clone()).collect();
         assert_eq!(unique.len(), 3, "every grave id must be unique");
+    }
+
+    #[test]
+    fn bury_rolls_back_payload_and_grave_dir_when_manifest_append_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let workspace = TempDir::new()?;
+        let graveyard = TempDir::new()?;
+        let yard = Graveyard::open(graveyard.path().to_path_buf());
+
+        let victim = workspace.path().join("node_modules");
+        fs::create_dir(&victim)?;
+        fs::write(victim.join("blob"), b"abc")?;
+
+        fs::write(graveyard.path().join("manifest.jsonl.lock"), b"stale")?;
+
+        let err = match yard.bury(make_input(&victim)) {
+            Ok(_) => panic!("bury unexpectedly succeeded despite manifest lock contention"),
+            Err(err) => err,
+        };
+
+        assert!(matches!(
+            err,
+            GraveyardError::ManifestLockContention { attempts: 5 }
+        ));
+        assert!(victim.is_dir(), "original path should be restored");
+        assert_eq!(fs::read(victim.join("blob"))?, b"abc");
+        assert!(
+            !graveyard.path().join("manifest.jsonl").exists(),
+            "failed manifest append should not create a manifest"
+        );
+        assert!(
+            grave_leaf_dirs(graveyard.path())?.is_empty(),
+            "rollback should remove orphan grave directories"
+        );
+        Ok(())
+    }
+
+    fn grave_leaf_dirs(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+        let mut out = Vec::new();
+        collect_grave_leaf_dirs(root, root, &mut out)?;
+        Ok(out)
+    }
+
+    fn collect_grave_leaf_dirs(
+        root: &Path,
+        dir: &Path,
+        out: &mut Vec<PathBuf>,
+    ) -> Result<(), std::io::Error> {
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let depth = relative.components().count();
+            if depth == 4 {
+                out.push(path);
+            } else {
+                collect_grave_leaf_dirs(root, &path, out)?;
+            }
+        }
+        Ok(())
     }
 }

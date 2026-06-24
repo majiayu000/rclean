@@ -107,3 +107,102 @@ fn clean_graveyard_write_plan_marks_delete_mode() {
     assert!(raw.contains(r#""id": "#));
     assert!(raw.contains(r#""riskScore": "#));
 }
+
+#[test]
+fn clean_graveyard_plan_replays_into_graveyard_without_flag() {
+    let workspace = TempDir::new().unwrap();
+    let graveyard_root = TempDir::new().unwrap();
+    build_node_project(&workspace);
+    let plan = workspace.path().join("plan.json");
+    let candidate = workspace.path().join("node_modules");
+
+    let mut write_plan = Command::cargo_bin("rclean").unwrap();
+    write_plan
+        .env("XDG_DATA_HOME", graveyard_root.path())
+        .args([
+            "clean",
+            workspace.path().to_str().unwrap(),
+            "--all",
+            "--dry-run",
+            "--graveyard",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let mut replay = Command::cargo_bin("rclean").unwrap();
+    replay
+        .env("XDG_DATA_HOME", graveyard_root.path())
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Cleaned: 1"));
+
+    assert!(
+        !candidate.exists(),
+        "candidate should have been moved into the graveyard"
+    );
+    let manifest = graveyard_root
+        .path()
+        .join("rclean")
+        .join("graveyard")
+        .join("manifest.jsonl");
+    assert!(
+        manifest.is_file(),
+        "plan replay should honor deleteMode=graveyard"
+    );
+    let body = fs::read_to_string(&manifest).unwrap();
+    assert!(body.contains("\"node.node_modules\""));
+}
+
+#[test]
+fn clean_plan_rejects_conflicting_cli_delete_mode() {
+    let workspace = TempDir::new().unwrap();
+    let graveyard_root = TempDir::new().unwrap();
+    build_node_project(&workspace);
+    let plan = workspace.path().join("plan.json");
+    let candidate = workspace.path().join("node_modules");
+
+    let mut write_plan = Command::cargo_bin("rclean").unwrap();
+    write_plan
+        .env("XDG_DATA_HOME", graveyard_root.path())
+        .args([
+            "clean",
+            workspace.path().to_str().unwrap(),
+            "--all",
+            "--dry-run",
+            "--graveyard",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let mut replay = Command::cargo_bin("rclean").unwrap();
+    replay
+        .env("XDG_DATA_HOME", graveyard_root.path())
+        .args([
+            "clean",
+            "--plan",
+            plan.to_str().unwrap(),
+            "--permanent",
+            "--yes",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("conflicts with action plan deleteMode")
+                .and(predicate::str::contains("graveyard"))
+                .and(predicate::str::contains("permanent")),
+        );
+
+    assert!(
+        candidate.exists(),
+        "conflicting mode must fail before deleting the candidate"
+    );
+}
