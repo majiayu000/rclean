@@ -14,9 +14,9 @@ stores, daemon-owned state, or installed artifacts.
 | Daemon or API cleanup | The storage is owned by a running service or daemon and direct deletion can corrupt metadata or violate references. | Use the daemon API or official CLI command only, with explicit scope and confirmation semantics. Do not delete internal storage paths directly. |
 
 Native-tool operations are not restorable by moving files to the rclean
-graveyard. A rule that requires a native command must either run in permanent
-mode through that command or be skipped/reported in graveyard mode with an
-explicit reason.
+graveyard or system Trash. A rule that requires a native command must either
+run in permanent mode through that command or be skipped/reported in
+trash/graveyard mode with an explicit reason.
 
 ## Implementation contract
 
@@ -43,7 +43,7 @@ explicit reason.
 | Yarn | Native command cleanup | Yarn Classic and modern Yarn expose `yarn cache clean`; project `.yarn/cache` can also be an intentional offline mirror. | Future rule should use `yarn cache clean` for tool-owned cache roots. Do not classify project `.yarn/cache` as a global disposable cache without repository-specific evidence. |
 | Gradle | Direct deletion only for narrow cache subtrees; daemon-aware policy for global caches | Gradle performs periodic cache cleanup during/around builds and daemon lifecycle, and global user-home caches can be in use by Gradle daemons. | Project build directories may remain direct-delete candidates. Global `~/.gradle` cache cleanup should be report-only or require a future daemon-aware design; do not delete the entire user home. |
 | Maven | Conservative direct deletion for narrow repository subtrees; no full repository wipe | The local repository can contain remote artifacts and locally installed artifacts that may not be redownloadable. Maven's dependency plugin supports project-scoped purging, not a universal safe global clean. | Do not auto-clean all `~/.m2/repository`. Future rules may target narrow remote-artifact cache subtrees or use project-scoped Maven purge commands. |
-| pip | Native command cleanup | pip documents `pip cache` for listing, removing, and purging wheel/HTTP cache entries. | Future rule should use `pip cache purge` or targeted `pip cache remove`, not raw deletion of the whole pip cache root. |
+| pip | Native command cleanup | pip documents `pip cache` for listing, removing, and purging wheel/HTTP cache entries. | Implemented for `pip.cache`: run `pip cache purge` with `PIP_CACHE_DIR` set to the selected pip cache root. |
 | uv | Native command cleanup | uv documents `uv cache clean`; uv also warns that symlink link mode can couple installed packages to cache contents. | Future rule should use `uv cache clean` and mark as caution because some link modes can make cache removal user-visible. |
 | Poetry | Native command cleanup | Poetry exposes `poetry cache clear` for package repository caches. | Future rule should use `poetry cache clear --all` or repository-specific `poetry cache clear <repo> --all` with noninteractive execution. Do not infer every Poetry cache directory is disposable. |
 | Homebrew | Native command cleanup | Homebrew owns Cellar/Caskroom and cache relationships and runs `brew cleanup` automatically in some install/upgrade flows. | Future rule should use `brew cleanup` with explicit options. Never direct-delete Homebrew's Cellar, Caskroom, taps, or package metadata. |

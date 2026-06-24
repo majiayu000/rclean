@@ -11,6 +11,13 @@ use super::types::{CleanResult, SelectedCandidate};
 use super::validation::validate_candidate_for_deletion;
 
 const GO_CLEAN_MODCACHE_TIMEOUT: Duration = Duration::from_secs(60);
+const PIP_CACHE_PURGE_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Copy)]
+enum NativeToolCleanup {
+    GoModcache,
+    PipCache,
+}
 
 pub fn delete_selected(
     selected: &[SelectedCandidate],
@@ -33,8 +40,12 @@ pub fn delete_selected(
             continue;
         }
 
-        let outcome = if is_go_modcache_rule(&candidate.rule_id) {
-            clean_go_modcache(candidate).map_err(|err| err.to_string())
+        let outcome = if let Some(cleanup) = native_tool_cleanup_for_rule(&candidate.rule_id) {
+            if permanent {
+                clean_native_tool(candidate, cleanup).map_err(|err| err.to_string())
+            } else {
+                Err(native_tool_requires_permanent_reason(cleanup, "trash"))
+            }
         } else if permanent {
             fs::remove_dir_all(&candidate.path).map_err(|err| err.to_string())
         } else {
@@ -99,9 +110,8 @@ pub fn delete_selected_into_graveyard(
             continue;
         }
 
-        if is_go_modcache_rule(&candidate.rule_id) {
-            let reason = "Go module cache cleanup must run `go clean -modcache`; graveyard mode cannot preserve that tool-managed operation"
-                .to_string();
+        if let Some(cleanup) = native_tool_cleanup_for_rule(&candidate.rule_id) {
+            let reason = native_tool_requires_permanent_reason(cleanup, "graveyard");
             log_audit(
                 &mut audit_logger,
                 candidate,
@@ -153,17 +163,23 @@ pub fn delete_selected_into_graveyard(
     Ok(result)
 }
 
-fn is_go_modcache_rule(rule_id: &str) -> bool {
-    matches!(rule_id, "go.module_cache" | "go.module_download_cache")
+fn native_tool_cleanup_for_rule(rule_id: &str) -> Option<NativeToolCleanup> {
+    match rule_id {
+        "go.module_cache" | "go.module_download_cache" => Some(NativeToolCleanup::GoModcache),
+        "pip.cache" => Some(NativeToolCleanup::PipCache),
+        _ => None,
+    }
 }
 
 fn delete_mode_for_candidate(candidate: &SelectedCandidate, permanent: bool) -> DeleteAuditMode {
-    if is_go_modcache_rule(&candidate.rule_id) {
-        DeleteAuditMode::GoModcache
-    } else if permanent {
-        DeleteAuditMode::Permanent
-    } else {
-        DeleteAuditMode::Trash
+    if !permanent {
+        return DeleteAuditMode::Trash;
+    }
+
+    match native_tool_cleanup_for_rule(&candidate.rule_id) {
+        Some(NativeToolCleanup::GoModcache) => DeleteAuditMode::GoModcache,
+        Some(NativeToolCleanup::PipCache) => DeleteAuditMode::PipCache,
+        None => DeleteAuditMode::Permanent,
     }
 }
 
@@ -182,6 +198,42 @@ fn log_audit(
 
 fn clean_go_modcache(candidate: &SelectedCandidate) -> Result<(), CleanError> {
     clean_go_modcache_with_tool(candidate, "go", GO_CLEAN_MODCACHE_TIMEOUT)
+}
+
+fn clean_native_tool(
+    candidate: &SelectedCandidate,
+    cleanup: NativeToolCleanup,
+) -> Result<(), CleanError> {
+    match cleanup {
+        NativeToolCleanup::GoModcache => clean_go_modcache(candidate),
+        NativeToolCleanup::PipCache => {
+            clean_pip_cache_with_tool(candidate, "pip", PIP_CACHE_PURGE_TIMEOUT)
+        }
+    }
+}
+
+fn native_tool_requires_permanent_reason(cleanup: NativeToolCleanup, mode: &str) -> String {
+    format!(
+        "{} cleanup must run `{}`; {mode} mode cannot preserve that tool-managed operation; rerun with --permanent",
+        cleanup.label(),
+        cleanup.command()
+    )
+}
+
+impl NativeToolCleanup {
+    fn label(self) -> &'static str {
+        match self {
+            NativeToolCleanup::GoModcache => "Go module cache",
+            NativeToolCleanup::PipCache => "pip cache",
+        }
+    }
+
+    fn command(self) -> &'static str {
+        match self {
+            NativeToolCleanup::GoModcache => "go clean -modcache",
+            NativeToolCleanup::PipCache => "pip cache purge",
+        }
+    }
 }
 
 fn clean_go_modcache_with_tool(
@@ -206,6 +258,26 @@ fn clean_go_modcache_with_tool(
         CleanError::Generic(format!(
             "go clean -modcache failed for {}: {err}",
             modcache.display()
+        ))
+    })
+}
+
+fn clean_pip_cache_with_tool(
+    candidate: &SelectedCandidate,
+    program: &str,
+    timeout: Duration,
+) -> Result<(), CleanError> {
+    let envs = [("PIP_CACHE_DIR", candidate.path.as_os_str())];
+    run_native_tool(NativeToolCommand {
+        program,
+        args: &["cache", "purge"],
+        envs: &envs,
+        timeout,
+    })
+    .map_err(|err| {
+        CleanError::Generic(format!(
+            "pip cache purge failed for {}: {err}",
+            candidate.path.display()
         ))
     })
 }
