@@ -336,6 +336,7 @@ impl CommonScanArgs {
             include_blocked: self.include_blocked,
             verbose: self.verbose,
             disk_attribution: self.disk_attribution,
+            tmp_roots: self.tmp,
             ignore_globs: self.ignore.clone(),
             git_timeout: (self.git_timeout > 0).then(|| Duration::from_secs(self.git_timeout)),
         })

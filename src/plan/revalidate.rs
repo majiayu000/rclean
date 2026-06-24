@@ -125,6 +125,10 @@ fn classify_plan_candidate(
     candidate: &PlanCandidate,
     path: &Path,
 ) -> Option<CandidateDraft> {
+    if let Some(draft) = classify_agent_tmp_worktree_from_plan(plan, candidate, path) {
+        return Some(draft);
+    }
+
     plan.projects
         .iter()
         .filter(|project| {
@@ -135,6 +139,58 @@ fn classify_plan_candidate(
         })
         .find_map(|project| classify_from_project_context(plan, project, path))
         .or_else(|| classify_from_path_parent(plan, path))
+}
+
+fn classify_agent_tmp_worktree_from_plan(
+    plan: &ActionPlan,
+    candidate: &PlanCandidate,
+    path: &Path,
+) -> Option<CandidateDraft> {
+    if candidate.rule_id != "agent.tmp_worktree" || !is_immediate_child_of_tmp_plan_root(plan, path)
+    {
+        return None;
+    }
+
+    let parent = path.parent()?;
+    let name = path_file_name(path)?;
+    rules::classify_agent_tmp_worktree(parent, name, path)
+}
+
+fn is_immediate_child_of_tmp_plan_root(plan: &ActionPlan, path: &Path) -> bool {
+    plan.roots.iter().map(PathBuf::from).any(|root| {
+        is_allowed_tmp_plan_root(&root)
+            && path.strip_prefix(&root).is_ok_and(|relative| {
+                let mut components = relative.components();
+                matches!(components.next(), Some(Component::Normal(_)))
+                    && components.next().is_none()
+            })
+    })
+}
+
+fn is_allowed_tmp_plan_root(root: &Path) -> bool {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    candidate_tmp_roots()
+        .into_iter()
+        .filter_map(|tmp_root| tmp_root.canonicalize().ok())
+        .any(|tmp_root| tmp_root == root)
+}
+
+fn candidate_tmp_roots() -> Vec<PathBuf> {
+    if let Some(roots) = std::env::var_os("RCLEAN_TMP_ROOTS") {
+        return std::env::split_paths(&roots).collect();
+    }
+
+    let mut roots = vec![std::env::temp_dir()];
+    #[cfg(target_os = "macos")]
+    {
+        roots.push(PathBuf::from("/private/tmp"));
+        roots.push(PathBuf::from("/tmp"));
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        roots.push(PathBuf::from("/tmp"));
+    }
+    roots
 }
 
 fn classify_from_project_context(

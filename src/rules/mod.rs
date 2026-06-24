@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{CandidateDraft, Category};
 
+mod agent_tmp;
 mod ai_models;
 mod app_caches;
 mod browser_global;
@@ -34,6 +35,7 @@ mod rust;
 mod user_tool_caches;
 mod xcode;
 
+pub use agent_tmp::classify as classify_agent_tmp_worktree;
 pub use project::{detect_project_kind, is_candidate_name, is_global_rule, is_project_marker_name};
 
 use markers::is_shared_cargo_target;

@@ -124,6 +124,87 @@ fn clean_tmp_all_dry_run_selects_temp_target() -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+#[test]
+fn clean_tmp_worktree_requires_include_caution() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let worktree = temp.path().join("rclean-whole-worktree");
+    std::fs::create_dir(&worktree)?;
+    std::fs::write(
+        worktree.join("Cargo.toml"),
+        "[package]\nname = \"tmp-whole-worktree\"\n",
+    )?;
+    std::fs::write(worktree.join("source.rs"), "fn main() {}\n")?;
+
+    let mut default_clean = Command::cargo_bin("rclean")?;
+    default_clean
+        .env("RCLEAN_TMP_ROOTS", temp.path())
+        .args(["clean", "--tmp", "--all", "--dry-run", "--min-size", "0"])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("rclean-whole-worktree"))
+        .stdout(predicate::str::contains("caution"))
+        .stdout(predicate::str::contains("Nothing selected."));
+
+    let mut include_caution_clean = Command::cargo_bin("rclean")?;
+    include_caution_clean
+        .env("RCLEAN_TMP_ROOTS", temp.path())
+        .args([
+            "clean",
+            "--tmp",
+            "--all",
+            "--include-caution",
+            "--dry-run",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"))
+        .stdout(predicate::str::contains("agent.tmp_worktree"));
+
+    assert!(worktree.exists(), "dry-run must not delete the worktree");
+    Ok(())
+}
+
+#[test]
+fn tmp_worktree_action_plan_revalidates() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let worktree = temp.path().join("rclean-plan-worktree");
+    let plan = temp.path().join("plan.json");
+    std::fs::create_dir(&worktree)?;
+    std::fs::write(
+        worktree.join("Cargo.toml"),
+        "[package]\nname = \"tmp-plan-worktree\"\n",
+    )?;
+    std::fs::write(worktree.join("source.rs"), "fn main() {}\n")?;
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    scan.env("RCLEAN_TMP_ROOTS", temp.path())
+        .args([
+            "scan",
+            "--tmp",
+            "--include-caution",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let mut clean = Command::cargo_bin("rclean")?;
+    clean
+        .env("RCLEAN_TMP_ROOTS", temp.path())
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"))
+        .stdout(predicate::str::contains("agent.tmp_worktree"));
+
+    assert!(worktree.exists(), "dry-run must not delete the worktree");
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn clean_tmp_all_rejects_broad_rclean_tmp_roots_without_override() {
@@ -1248,6 +1329,7 @@ fn rules_lists_every_classifier_emitted_id() {
         "ai.vllm_compile_cache",
         "ai.whisper_models",
         "node.npm_transient",
+        "agent.tmp_worktree",
         "ruby.bundle_compact_index",
         "cloud.kube_cache",
         "cloud.gcloud_logs",

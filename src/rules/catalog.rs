@@ -394,6 +394,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "No restore needed; persistent remem state lives outside this dry-run temp path",
     },
     RuleInfo {
+        rule_id: "agent.tmp_worktree",
+        category: Category::Cache,
+        candidate: "remem-*, rclean-*, loom-*, *review-target*",
+        restore_hint: "Recreate or reclone the temporary worktree",
+    },
+    RuleInfo {
         rule_id: "apple.wallpaper_aerial_videos",
         category: Category::Cache,
         candidate: "videos",
