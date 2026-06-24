@@ -204,8 +204,14 @@ pub struct CommonScanArgs {
     /// node.npm_cacache, node.pnpm_store, node.yarn_cache,
     /// pip.cache, xcode.simulators) without forcing the user to
     /// remember every path.
-    #[arg(long, conflicts_with = "paths")]
+    #[arg(long, conflicts_with_all = ["paths", "tmp"])]
     pub home: bool,
+
+    /// Expand to system temporary roots (for example /tmp and /private/tmp)
+    /// and scan them for rebuildable artifacts left by temporary worktrees.
+    /// Conflicts with positional `paths` and `--home`.
+    #[arg(long, conflicts_with_all = ["paths", "home"])]
+    pub tmp: bool,
 
     /// On macOS, include APFS/System/Data volume attribution in the scan report.
     #[arg(long)]
@@ -295,6 +301,9 @@ impl CommonScanArgs {
     pub fn paths_or_current_dir(&self) -> Vec<PathBuf> {
         if self.home {
             return home_toolchain_paths();
+        }
+        if self.tmp {
+            return tmp_workspace_paths();
         }
         if self.paths.is_empty() {
             vec![PathBuf::from(".")]
@@ -445,4 +454,39 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
     candidates.sort();
     candidates.dedup();
     candidates
+}
+
+/// Roots `--tmp` expands into. Only existing directories are returned.
+///
+/// `RCLEAN_TMP_ROOTS` is an internal test hook and accepts the platform path
+/// separator, matching `PATH`/`GOPATH` style env vars.
+fn tmp_workspace_paths() -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(roots) = std::env::var_os("RCLEAN_TMP_ROOTS") {
+        candidates.extend(std::env::split_paths(&roots));
+    } else {
+        candidates.push(std::env::temp_dir());
+
+        #[cfg(target_os = "macos")]
+        {
+            candidates.push(PathBuf::from("/private/tmp"));
+            candidates.push(PathBuf::from("/tmp"));
+        }
+
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        {
+            candidates.push(PathBuf::from("/tmp"));
+        }
+    }
+
+    let mut roots = Vec::new();
+    for path in candidates {
+        if !path.is_dir() {
+            continue;
+        }
+        roots.push(path.canonicalize().unwrap_or(path));
+    }
+    roots.sort();
+    roots.dedup();
+    roots
 }
