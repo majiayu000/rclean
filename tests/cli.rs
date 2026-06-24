@@ -205,6 +205,63 @@ fn tmp_worktree_action_plan_revalidates() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+#[test]
+fn tmp_worktree_action_plan_rejects_non_tmp_root() -> Result<(), Box<dyn std::error::Error>> {
+    let tmp_root = TempDir::new()?;
+    let worktree = tmp_root.path().join("rclean-plan-worktree");
+    let plan = tmp_root.path().join("plan.json");
+    std::fs::create_dir(&worktree)?;
+    std::fs::write(
+        worktree.join("Cargo.toml"),
+        "[package]\nname = \"tmp-plan-worktree\"\n",
+    )?;
+    std::fs::write(worktree.join("source.rs"), "fn main() {}\n")?;
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    scan.env("RCLEAN_TMP_ROOTS", tmp_root.path())
+        .args([
+            "scan",
+            "--tmp",
+            "--include-caution",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let outside = TempDir::new()?;
+    let outside_worktree = outside.path().join("rclean-plan-worktree");
+    std::fs::create_dir(&outside_worktree)?;
+    std::fs::write(
+        outside_worktree.join("Cargo.toml"),
+        "[package]\nname = \"outside-worktree\"\n",
+    )?;
+    std::fs::write(outside_worktree.join("source.rs"), "fn main() {}\n")?;
+
+    let mut json: Value = serde_json::from_str(&std::fs::read_to_string(&plan)?)?;
+    json["roots"] = Value::Array(vec![Value::String(outside.path().display().to_string())]);
+    json["selected"][0]["path"] = Value::String(outside_worktree.display().to_string());
+    std::fs::write(&plan, serde_json::to_string_pretty(&json)?)?;
+
+    let mut clean = Command::cargo_bin("rclean")?;
+    clean
+        .env("RCLEAN_TMP_ROOTS", tmp_root.path())
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "is not recognized by any current rule",
+        ));
+
+    assert!(
+        outside_worktree.exists(),
+        "rejected tampered plan must not delete the outside worktree"
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn clean_tmp_all_rejects_broad_rclean_tmp_roots_without_override() {
