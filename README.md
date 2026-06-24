@@ -262,8 +262,11 @@ let rclean find every applicable cache automatically:
 | --- | --- | --- | --- |
 | `cargo.registry_cache` | `~/.cargo/registry/cache` | safe | next `cargo build` |
 | `cargo.git_db` | `~/.cargo/git/db` | safe | next `cargo build` |
+| `homebrew.downloads` | `~/Library/Caches/Homebrew/downloads` (macOS) / `~/.cache/Homebrew/downloads` (Linux/XDG) | safe | next `brew install` / `brew upgrade` |
 | `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
 | `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
+| `dart.pub_hosted_cache` | `~/.pub-cache/hosted` | caution | next `dart pub get` / `flutter pub get` |
+| `dart.pub_git_cache` | `~/.pub-cache/git` | caution | next `dart pub get` / `flutter pub get` |
 | `node.npm_cacache` | `~/.npm/_cacache` | safe | next `npm install` |
 | `node.npm_transient` | `~/.npm/_npx`, `~/.npm/_logs`, `~/.npm/_prebuilds` | safe | npm recreates them as needed |
 | `node.pnpm_store` | `~/.pnpm-store/vN` / `~/Library/pnpm/store` (macOS) / `~/.local/share/pnpm/store` (Linux) | safe | next `pnpm install` |
@@ -274,6 +277,8 @@ let rclean find every applicable cache automatically:
 | `cloud.gcloud_logs` | `~/.config/gcloud/logs` | safe | gcloud recreates logs |
 | `ai.huggingface_hub` | `~/.cache/huggingface/hub` | caution | `huggingface-cli delete-cache` |
 | `ai.torch_hub` | `~/.cache/torch/hub` | safe | next `torch.hub.load()` |
+| `ai.vllm_compile_cache` | `~/.cache/vllm/torch_compile_cache` | caution | next vLLM model/server start |
+| `ai.whisper_models` | `~/.cache/whisper` | caution | next Whisper run redownloads the selected model |
 | `ai.ollama_models` | `~/.ollama/models` | **report-only** (user data, never selected) | `ollama pull <model>` |
 | `python.uv_cache` | `~/Library/Caches/uv` or `~/.cache/uv` (XDG override active on macOS too) | caution | `uv cache clean` |
 | `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
@@ -322,7 +327,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 26 rules applicable on this machine.
+10 of 51 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

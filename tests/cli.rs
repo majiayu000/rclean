@@ -535,6 +535,50 @@ fn home_flag_reports_ollama_models_as_report_only_never_selected()
 }
 
 #[test]
+fn home_flag_reports_homebrew_dart_vllm_and_whisper_caches()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    for path in [
+        temp.path()
+            .join(".cache")
+            .join("Homebrew")
+            .join("downloads"),
+        temp.path().join(".pub-cache").join("hosted"),
+        temp.path().join(".pub-cache").join("git"),
+        temp.path()
+            .join(".cache")
+            .join("vllm")
+            .join("torch_compile_cache"),
+        temp.path().join(".cache").join("whisper"),
+    ] {
+        std::fs::create_dir_all(&path)?;
+        std::fs::write(path.join("blob"), "x")?;
+    }
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"homebrew.downloads\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"dart.pub_hosted_cache\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"dart.pub_git_cache\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ai.vllm_compile_cache\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ai.whisper_models\"",
+        ));
+    Ok(())
+}
+
+#[test]
 fn home_flag_reports_user_tool_safe_caches() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     for path in [
@@ -684,7 +728,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("go.module_download_cache"))
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
-        .stdout(predicate::str::contains("of 46 rules applicable"));
+        .stdout(predicate::str::contains("of 51 rules applicable"));
 }
 
 #[test]
@@ -1193,11 +1237,16 @@ fn rules_lists_every_classifier_emitted_id() {
         "java.gradle_cache_local",
         "dart.build",
         "dart.tool",
+        "dart.pub_hosted_cache",
+        "dart.pub_git_cache",
         "dotnet.bin",
         "dotnet.obj",
         "ruby.bundle",
         "ruby.vendor_bundle",
         "generic.coverage",
+        "homebrew.downloads",
+        "ai.vllm_compile_cache",
+        "ai.whisper_models",
         "node.npm_transient",
         "ruby.bundle_compact_index",
         "cloud.kube_cache",
