@@ -16,6 +16,7 @@ pub enum DeleteAuditMode {
     Permanent,
     Graveyard,
     GoModcache,
+    PipCache,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -150,7 +151,12 @@ impl DeleteAuditLogger {
             path: candidate.path.clone(),
             size_bytes: candidate.bytes,
             rule_id: candidate.rule_id.clone(),
-            permanent: matches!(mode, DeleteAuditMode::Permanent),
+            permanent: matches!(
+                mode,
+                DeleteAuditMode::Permanent
+                    | DeleteAuditMode::GoModcache
+                    | DeleteAuditMode::PipCache
+            ),
             mode,
             result,
             reason,

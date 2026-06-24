@@ -1,5 +1,6 @@
 mod audit;
 mod deletion;
+mod native_tool;
 mod output;
 mod roots;
 mod selection;
