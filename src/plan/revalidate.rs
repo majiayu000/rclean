@@ -180,16 +180,26 @@ fn candidate_tmp_roots() -> Vec<PathBuf> {
         return std::env::split_paths(&roots).collect();
     }
 
+    default_tmp_roots()
+}
+
+#[cfg(target_os = "macos")]
+fn default_tmp_roots() -> Vec<PathBuf> {
     let mut roots = vec![std::env::temp_dir()];
-    #[cfg(target_os = "macos")]
-    {
-        roots.push(PathBuf::from("/private/tmp"));
-        roots.push(PathBuf::from("/tmp"));
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        roots.push(PathBuf::from("/tmp"));
-    }
+    roots.push(PathBuf::from("/private/tmp"));
+    roots.push(PathBuf::from("/tmp"));
+    roots
+}
+
+#[cfg(target_os = "windows")]
+fn default_tmp_roots() -> Vec<PathBuf> {
+    vec![std::env::temp_dir()]
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn default_tmp_roots() -> Vec<PathBuf> {
+    let mut roots = vec![std::env::temp_dir()];
+    roots.push(PathBuf::from("/tmp"));
     roots
 }
 
