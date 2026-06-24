@@ -164,6 +164,11 @@ are reported only for exact top-level names like `remem-*`, `rclean-*`,
 `loom-*`, or `*review-target*` with a project marker and require
 `--include-caution`.
 
+On macOS, `rclean scan --system` reports only the exact system cache
+anchor `/Library/Application Support/com.apple.idleassetsd`. It is
+`report-only`, marked `requiresSudo`, never selected by `clean`, and
+`rclean` will not run `sudo`.
+
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, `~/.bundle`, `~/.kube`,
 `~/.config/gcloud`, editor extension/version roots, plus
@@ -330,7 +335,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 51 rules applicable on this machine.
+10 of 52 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are
@@ -436,6 +441,7 @@ from the bulk selection regardless of these settings.
 | `--include-caution` | off | Include caution candidates in `clean --all`. |
 | `--include-blocked` | off | Show blocked candidates in the report. They are still never selected by `--all`. |
 | `--ignore <GLOB>` | none | Repeatable. Drops candidates matching a `.gitignore`-style glob. |
+| `--system` | off | macOS only. Report the exact system cache allowlist; candidates are report-only and require manual administrator cleanup. |
 | `--allow-broad-root` | off | `clean` only. Allow a scan root that resolves to a broad system or user path (e.g. `/`, `$HOME`, `/etc`, `/usr`). |
 
 ## `.rcleanignore`

@@ -17,6 +17,7 @@ pub struct SelectedCandidate {
     pub rule_id: String,
     pub category: Category,
     pub safety: Safety,
+    pub requires_sudo: bool,
     pub risk_score: f32,
 }
 

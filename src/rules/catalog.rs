@@ -406,6 +406,12 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "System Settings > Wallpaper will redownload selected aerials on demand",
     },
     RuleInfo {
+        rule_id: "apple.idleassetsd",
+        category: Category::Cache,
+        candidate: "com.apple.idleassetsd",
+        restore_hint: "System Settings > Wallpaper will redownload selected idle assets on demand",
+    },
+    RuleInfo {
         rule_id: "chrome.opt_guide_model",
         category: Category::Cache,
         candidate: "OptGuideOnDeviceModel",

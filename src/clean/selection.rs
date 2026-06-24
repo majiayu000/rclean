@@ -64,7 +64,10 @@ fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
             // ReportOnly is excluded from selectable candidates at the
             // same level as Blocked: never offered for cleanup even
             // with `--include-blocked`.
-            if candidate.safety != Safety::Blocked && candidate.safety != Safety::ReportOnly {
+            if candidate.safety != Safety::Blocked
+                && candidate.safety != Safety::ReportOnly
+                && !candidate.requires_sudo
+            {
                 candidates.push(SelectableCandidate {
                     project_path: &project.path,
                     candidate,
@@ -199,6 +202,7 @@ fn to_selected(candidate: &Candidate) -> SelectedCandidate {
         rule_id: candidate.rule_id.clone(),
         category: candidate.category,
         safety: candidate.safety,
+        requires_sudo: candidate.requires_sudo,
         risk_score: candidate.risk_score,
     }
 }

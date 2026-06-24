@@ -412,6 +412,13 @@ pub fn diagnose() -> DoctorReport {
                 .join("aerials"),
             "no macOS aerial wallpaper cache detected",
         ));
+        entries.push(skipped_anchor(
+            "apple.idleassetsd",
+            PathBuf::from("/Library")
+                .join("Application Support")
+                .join("com.apple.idleassetsd"),
+            "system-scope candidate checked by scan --system",
+        ));
         entries.push(check_anchor(
             "chrome.opt_guide_model",
             home.join("Library")
@@ -490,6 +497,7 @@ pub fn diagnose() -> DoctorReport {
             "macos.chrome_code_sign_clone",
             "macos.remem_dry_run_tmp",
             "apple.wallpaper_aerial_videos",
+            "apple.idleassetsd",
             "chrome.opt_guide_model",
             "app.lark_update",
             "macos.geod_map_tiles",
@@ -675,8 +683,9 @@ mod tests {
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
         // plus the Go modcache root cleanup rule. #160/#162 add 5 more
-        // exact-anchor global cache rules.
-        assert_eq!(report.total_count(), 51);
+        // exact-anchor global cache rules. #158 adds one system-scope
+        // report-only rule.
+        assert_eq!(report.total_count(), 52);
     }
 
     #[test]

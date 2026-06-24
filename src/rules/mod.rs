@@ -52,6 +52,10 @@ pub fn rule_catalog() -> Vec<RuleInfo> {
     catalog::RULES.to_vec()
 }
 
+pub fn system_scan_paths() -> Vec<PathBuf> {
+    macos_system::system_scan_paths()
+}
+
 pub struct ClassifyContext<'a> {
     pub project_dir: &'a Path,
     pub name: &'a str,
@@ -171,4 +175,8 @@ pub fn allows_protected_user_data_path(rule_id: &str) -> bool {
         rule_id,
         "macos.geod_map_tiles" | "macos.mediaanalysisd_cache" | "macos.mediaanalysisd_tmp"
     )
+}
+
+pub fn requires_sudo(rule_id: &str) -> bool {
+    matches!(rule_id, "apple.idleassetsd")
 }

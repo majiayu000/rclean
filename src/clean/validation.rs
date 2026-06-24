@@ -17,6 +17,13 @@ pub(super) fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
 pub(super) fn validate_candidate_for_deletion(
     candidate: &SelectedCandidate,
 ) -> Result<(), CleanError> {
+    if candidate.requires_sudo {
+        return Err(CleanError::Generic(format!(
+            "refusing to delete {}: rule {} requires administrator access; rclean will not run sudo. Review and remove it manually with administrator privileges if desired",
+            candidate.path.display(),
+            candidate.rule_id
+        )));
+    }
     validate_for_deletion_with_rule(&candidate.path, Some(&candidate.rule_id))
 }
 
