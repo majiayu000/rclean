@@ -65,6 +65,21 @@ pub fn diagnose() -> DoctorReport {
             home.join(".cargo").join("git"),
             "no Cargo git deps detected",
         ),
+        check_any_anchor(
+            "homebrew.downloads",
+            homebrew_download_anchors(&home),
+            "no Homebrew download cache detected",
+        ),
+        check_anchor(
+            "dart.pub_hosted_cache",
+            home.join(".pub-cache").join("hosted"),
+            "no Dart pub hosted cache detected",
+        ),
+        check_anchor(
+            "dart.pub_git_cache",
+            home.join(".pub-cache").join("git"),
+            "no Dart pub git cache detected",
+        ),
         check_anchor(
             "go.module_download_cache",
             home.join("go").join("pkg").join("mod").join("cache"),
@@ -222,6 +237,16 @@ pub fn diagnose() -> DoctorReport {
         "ai.torch_hub",
         home.join(".cache").join("torch").join("hub"),
         "no PyTorch hub cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.vllm_compile_cache",
+        home.join(".cache").join("vllm").join("torch_compile_cache"),
+        "no vLLM compile cache detected",
+    ));
+    entries.push(check_anchor(
+        "ai.whisper_models",
+        home.join(".cache").join("whisper"),
+        "no Whisper model cache detected",
     ));
     entries.push(check_anchor(
         "ai.ollama_models",
@@ -537,6 +562,26 @@ fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
     }
 }
 
+/// Canonical anchors for Homebrew's downloaded bottle/source archive
+/// cache. Homebrew on macOS normally uses `~/Library/Caches/Homebrew`,
+/// while Linux/XDG-style layouts use `~/.cache/Homebrew`.
+fn homebrew_download_anchors(home: &std::path::Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library")
+                .join("Caches")
+                .join("Homebrew")
+                .join("downloads"),
+            home.join(".cache").join("Homebrew").join("downloads"),
+        ]
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        vec![home.join(".cache").join("Homebrew").join("downloads")]
+    }
+}
+
 /// Canonical anchors for Deno's remote-dependency cache. macOS native
 /// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
 /// uses `%LOCALAPPDATA%\deno`.
@@ -629,8 +674,9 @@ mod tests {
         // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
-        // plus the Go modcache root cleanup rule.
-        assert_eq!(report.total_count(), 46);
+        // plus the Go modcache root cleanup rule. #160/#162 add 5 more
+        // exact-anchor global cache rules.
+        assert_eq!(report.total_count(), 51);
     }
 
     #[test]

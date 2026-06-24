@@ -40,6 +40,9 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "cache"
             | "download"
             | "db"
+            | "downloads"
+            | "hosted"
+            | "git"
             | "go-build"
             | "store"
             | "_cacache"
@@ -49,6 +52,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "Yarn"
             | "pip"
             | "hub"
+            | "torch_compile_cache"
+            | "whisper"
             | "models"
             | "puppeteer"
             | "pre-commit"
@@ -95,11 +100,16 @@ pub fn is_global_rule(rule_id: &str) -> bool {
         "xcode.derived_data"
             | "cargo.registry_cache"
             | "cargo.git_db"
+            | "homebrew.downloads"
+            | "dart.pub_hosted_cache"
+            | "dart.pub_git_cache"
             | "node.npm_cacache"
             | "node.yarn_cache"
             | "node.pnpm_store"
             | "ai.huggingface_hub"
             | "ai.torch_hub"
+            | "ai.vllm_compile_cache"
+            | "ai.whisper_models"
             | "ai.ollama_models"
             | "browser.puppeteer"
             | "js.deno_cache"
@@ -239,6 +249,9 @@ mod tests {
             "LarkInternational",
             "com.google.Chrome.code_sign_clone",
             "remem-dry-run-123",
+            "downloads",
+            "hosted",
+            "git",
             "videos",
             "OptGuideOnDeviceModel",
             "update",
@@ -250,6 +263,8 @@ mod tests {
             "_npx",
             "_logs",
             "_prebuilds",
+            "torch_compile_cache",
+            "whisper",
             "Code Cache",
             "DawnGraphiteCache",
             "publisher.tool-1.2.0",

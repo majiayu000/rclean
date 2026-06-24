@@ -360,6 +360,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".m2"),
         home.join(".npm"),
         home.join(".pnpm-store"),
+        home.join(".pub-cache"),
         home.join(".ollama"),
         home.join(".bun"),
         home.join(".bundle"),
@@ -434,9 +435,17 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
     {
         let local_app_data = home.join("AppData").join("Local");
         let xdg_cache = home.join(".cache");
-        if ["huggingface", "pre-commit", "puppeteer", "torch"]
-            .iter()
-            .any(|name| xdg_cache.join(name).is_dir())
+        if [
+            "Homebrew",
+            "huggingface",
+            "pre-commit",
+            "puppeteer",
+            "torch",
+            "vllm",
+            "whisper",
+        ]
+        .iter()
+        .any(|name| xdg_cache.join(name).is_dir())
         {
             candidates.push(xdg_cache);
         }

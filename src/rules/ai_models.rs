@@ -13,6 +13,11 @@
 //!   `huggingface-cli delete-cache` so the user can choose models.
 //! - `ai.torch_hub` (safe) — `torch.hub.load()` weights cache.
 //!   Recreated automatically on the next `torch.hub.load()` call.
+//! - `ai.vllm_compile_cache` (caution) — vLLM compiled graph/kernel
+//!   cache. Rebuildable, but regeneration can be slow and model/server
+//!   startup-visible.
+//! - `ai.whisper_models` (caution) — Whisper downloaded model cache.
+//!   Re-downloads can be large and user-visible.
 //! - `ai.ollama_models` (**report-only**, NOT cache) — user-pulled
 //!   Ollama model weights. Equivalent to user-installed binaries:
 //!   re-pulling a 70B model is hours of network time. Never selected
@@ -59,6 +64,41 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
             reasons: vec!["PyTorch hub weights cache".to_string()],
             warnings: Vec::new(),
             restore_hint: "Recreated automatically on the next `torch.hub.load()`".to_string(),
+        });
+    }
+
+    // vLLM compile cache: ~/.cache/vllm/torch_compile_cache
+    if name == "torch_compile_cache" && parent_ends_with(project_dir, &[".cache", "vllm"]) {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "ai.vllm_compile_cache".to_string(),
+            category: Category::Cache,
+            safety: Safety::Caution,
+            reasons: vec!["vLLM compiled graph/kernel cache".to_string()],
+            warnings: vec![
+                "Deleting vLLM compile artifacts can make the next model server startup slow while kernels and graphs are rebuilt"
+                    .to_string(),
+            ],
+            restore_hint: "vLLM will rebuild compile artifacts on the next model/server start"
+                .to_string(),
+        });
+    }
+
+    // Whisper model cache: ~/.cache/whisper
+    if name == "whisper" && parent_ends_with(project_dir, &[".cache"]) {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "ai.whisper_models".to_string(),
+            category: Category::Cache,
+            safety: Safety::Caution,
+            reasons: vec!["Whisper downloaded model cache".to_string()],
+            warnings: vec![
+                "Whisper model files may be large; deleting them forces re-download before the next transcription"
+                    .to_string(),
+            ],
+            restore_hint: "Whisper will re-download the selected model on the next run".to_string(),
         });
     }
 
@@ -121,6 +161,54 @@ mod tests {
         assert_eq!(draft.rule_id, "ai.torch_hub");
         assert_eq!(draft.safety, Safety::Safe);
         assert!(draft.warnings.is_empty(), "torch hub is safe");
+    }
+
+    // ---- vLLM compile cache ----
+
+    #[test]
+    fn classifies_vllm_compile_cache() {
+        let parent = PathBuf::from("/Users/me/.cache/vllm");
+        let path = parent.join("torch_compile_cache");
+        let draft = classify(&parent, "torch_compile_cache", &path).expect("should classify");
+        assert_eq!(draft.rule_id, "ai.vllm_compile_cache");
+        assert_eq!(draft.category, Category::Cache);
+        assert_eq!(draft.safety, Safety::Caution);
+        assert!(
+            draft.warnings.iter().any(|w| w.contains("startup slow")),
+            "vLLM draft should warn about startup rebuild cost; got {:?}",
+            draft.warnings
+        );
+    }
+
+    #[test]
+    fn rejects_torch_compile_cache_outside_vllm_parent() {
+        let parent = PathBuf::from("/Users/me/.cache/torch");
+        let path = parent.join("torch_compile_cache");
+        assert!(classify(&parent, "torch_compile_cache", &path).is_none());
+    }
+
+    // ---- Whisper model cache ----
+
+    #[test]
+    fn classifies_whisper_models_cache() {
+        let parent = PathBuf::from("/Users/me/.cache");
+        let path = parent.join("whisper");
+        let draft = classify(&parent, "whisper", &path).expect("should classify");
+        assert_eq!(draft.rule_id, "ai.whisper_models");
+        assert_eq!(draft.category, Category::Cache);
+        assert_eq!(draft.safety, Safety::Caution);
+        assert!(
+            draft.warnings.iter().any(|w| w.contains("re-download")),
+            "Whisper draft should warn about redownload cost; got {:?}",
+            draft.warnings
+        );
+    }
+
+    #[test]
+    fn rejects_whisper_outside_xdg_cache_parent() {
+        let parent = PathBuf::from("/Users/me/project");
+        let path = parent.join("whisper");
+        assert!(classify(&parent, "whisper", &path).is_none());
     }
 
     // ---- Ollama (report-only) ----

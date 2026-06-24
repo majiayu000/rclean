@@ -16,6 +16,11 @@ fn make_dir(parent: &Path, name: &str) {
     fs::write(parent.join(name).join("placeholder"), b"x").unwrap();
 }
 
+fn make_non_empty_path(path: &Path) {
+    fs::create_dir_all(path).unwrap();
+    fs::write(path.join("placeholder"), b"x").unwrap();
+}
+
 fn scan_and_expect_rule(temp: &TempDir, expected_rule: &str) {
     let mut cmd = Command::cargo_bin("rclean").unwrap();
     cmd.args([
@@ -312,6 +317,141 @@ fn cargo_git_db_is_classified_under_cargo_git() {
     .success()
     .stdout(predicate::str::contains("\"ruleId\": \"cargo.git_db\""))
     .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn homebrew_downloads_is_classified_under_homebrew_cache() {
+    let temp = TempDir::new().unwrap();
+    let homebrew_cache = temp.path().join("Library").join("Caches").join("Homebrew");
+    fs::create_dir_all(&homebrew_cache).unwrap();
+    make_dir(&homebrew_cache, "downloads");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        homebrew_cache.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"homebrew.downloads\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""))
+    .stdout(predicate::str::contains("\"category\": \"cache\""));
+}
+
+#[test]
+fn homebrew_downloads_outside_exact_anchor_is_not_classified() {
+    let temp = TempDir::new().unwrap();
+    let not_homebrew = temp
+        .path()
+        .join("Library")
+        .join("Caches")
+        .join("NotHomebrew");
+    fs::create_dir_all(&not_homebrew).unwrap();
+    make_dir(&not_homebrew, "downloads");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        not_homebrew.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"homebrew.downloads\"").not());
+}
+
+#[test]
+fn dart_pub_caches_are_classified_under_pub_cache() {
+    let temp = TempDir::new().unwrap();
+    let pub_cache = temp.path().join(".pub-cache");
+    fs::create_dir_all(&pub_cache).unwrap();
+    make_dir(&pub_cache, "hosted");
+    make_dir(&pub_cache, "git");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        pub_cache.to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"dart.pub_hosted_cache\"",
+    ))
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"dart.pub_git_cache\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""));
+}
+
+#[test]
+fn dart_pub_cache_names_outside_exact_anchor_are_not_classified() {
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "hosted");
+    make_dir(temp.path(), "git");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"dart.pub_hosted_cache\"").not())
+    .stdout(predicate::str::contains("\"ruleId\": \"dart.pub_git_cache\"").not());
+}
+
+#[test]
+fn vllm_compile_cache_and_whisper_models_are_classified_under_xdg_cache() {
+    let temp = TempDir::new().unwrap();
+    let xdg = temp.path().join(".cache");
+    make_non_empty_path(&xdg.join("vllm").join("torch_compile_cache"));
+    make_non_empty_path(&xdg.join("whisper"));
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["scan", xdg.to_str().unwrap(), "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ai.vllm_compile_cache\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ai.whisper_models\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""));
+}
+
+#[test]
+fn ai_cache_names_outside_exact_anchors_are_not_classified() {
+    let temp = TempDir::new().unwrap();
+    make_dir(temp.path(), "torch_compile_cache");
+    make_dir(temp.path(), "whisper");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .code(3)
+    .stdout(predicate::str::contains("\"ruleId\": \"ai.vllm_compile_cache\"").not())
+    .stdout(predicate::str::contains("\"ruleId\": \"ai.whisper_models\"").not());
 }
 
 #[test]

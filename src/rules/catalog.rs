@@ -196,6 +196,24 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Cargo will re-clone git dependencies on the next build",
     },
     RuleInfo {
+        rule_id: "homebrew.downloads",
+        category: Category::Cache,
+        candidate: "downloads",
+        restore_hint: "Homebrew will redownload bottles or source archives on the next install/upgrade",
+    },
+    RuleInfo {
+        rule_id: "dart.pub_hosted_cache",
+        category: Category::Cache,
+        candidate: "hosted",
+        restore_hint: "Hosted packages will redownload on the next `dart pub get` or `flutter pub get`",
+    },
+    RuleInfo {
+        rule_id: "dart.pub_git_cache",
+        category: Category::Cache,
+        candidate: "git",
+        restore_hint: "Git dependencies will reclone on the next `dart pub get` or `flutter pub get`",
+    },
+    RuleInfo {
         rule_id: "go.module_download_cache",
         category: Category::Cache,
         candidate: "download",
@@ -260,6 +278,18 @@ pub(super) static RULES: &[RuleInfo] = &[
         category: Category::Cache,
         candidate: "hub",
         restore_hint: "Recreated automatically on the next `torch.hub.load()`",
+    },
+    RuleInfo {
+        rule_id: "ai.vllm_compile_cache",
+        category: Category::Cache,
+        candidate: "torch_compile_cache",
+        restore_hint: "vLLM will rebuild compile artifacts on the next model/server start",
+    },
+    RuleInfo {
+        rule_id: "ai.whisper_models",
+        category: Category::Cache,
+        candidate: "whisper",
+        restore_hint: "Whisper will re-download the selected model on the next run",
     },
     RuleInfo {
         rule_id: "ai.ollama_models",
