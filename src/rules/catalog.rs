@@ -202,6 +202,30 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Homebrew will redownload bottles or source archives on the next install/upgrade",
     },
     RuleInfo {
+        rule_id: "jetbrains.system_caches",
+        category: Category::Cache,
+        candidate: "JetBrains IDE caches",
+        restore_hint: "Close the IDE first; it will recreate logs and caches on the next launch",
+    },
+    RuleInfo {
+        rule_id: "jetbrains.logs",
+        category: Category::Cache,
+        candidate: "JetBrains IDE logs",
+        restore_hint: "Close the IDE first; it will recreate logs and caches on the next launch",
+    },
+    RuleInfo {
+        rule_id: "android_studio.system_caches",
+        category: Category::Cache,
+        candidate: "Android Studio caches",
+        restore_hint: "Close Android Studio first; it will recreate logs and caches on the next launch",
+    },
+    RuleInfo {
+        rule_id: "android_studio.logs",
+        category: Category::Cache,
+        candidate: "Android Studio logs",
+        restore_hint: "Close Android Studio first; it will recreate logs and caches on the next launch",
+    },
+    RuleInfo {
         rule_id: "dart.pub_hosted_cache",
         category: Category::Cache,
         candidate: "hosted",

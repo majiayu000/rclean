@@ -193,7 +193,7 @@ pub struct CommonScanArgs {
     /// Expand to all developer toolchain cache locations under $HOME
     /// (~/.cargo, ~/go, ~/.gradle, ~/.m2, ~/.npm, ~/.pnpm-store,
     /// plus platform-specific paths like ~/Library/Caches,
-    /// ~/Library/pnpm, ~/Library/Developer, and
+    /// ~/Library/Logs/<IDE vendor>, ~/Library/pnpm, ~/Library/Developer, and
     /// ~/Library/Application Support/Google on macOS, ~/.cache and
     /// ~/.local/share/pnpm on Linux). Conflicts with positional `paths`.
     ///
@@ -391,6 +391,8 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         candidates.push(home.join("Library").join("Caches"));
+        candidates.push(home.join("Library").join("Logs").join("JetBrains"));
+        candidates.push(home.join("Library").join("Logs").join("Google"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
         candidates.push(
@@ -468,6 +470,8 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         } else {
             candidates.push(local_app_data.join("pnpm"));
         }
+        candidates.push(local_app_data.join("JetBrains"));
+        candidates.push(local_app_data.join("Google"));
     }
 
     candidates.retain(|p| p.is_dir());

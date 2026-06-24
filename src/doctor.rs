@@ -11,7 +11,14 @@
 //!
 //! See `docs/specs/v0.2-developer-mole.md` §4.3.
 
+mod anchors;
+
 use std::path::PathBuf;
+
+use anchors::{
+    browser_cache_anchors, deno_cache_anchors, homebrew_download_anchors, ide_log_anchors,
+    ide_system_anchors, python_cache_anchors,
+};
 
 #[derive(Debug)]
 pub struct DoctorReport {
@@ -287,6 +294,26 @@ pub fn diagnose() -> DoctorReport {
         browser_cache_anchors(&home, "puppeteer"),
         "no Puppeteer install detected",
     ));
+    entries.push(check_any_anchor(
+        "jetbrains.system_caches",
+        ide_system_anchors(&home, "JetBrains"),
+        "no JetBrains IDE system cache detected",
+    ));
+    entries.push(check_any_anchor(
+        "jetbrains.logs",
+        ide_log_anchors(&home, "JetBrains"),
+        "no JetBrains IDE logs detected",
+    ));
+    entries.push(check_any_anchor(
+        "android_studio.system_caches",
+        ide_system_anchors(&home, "Google"),
+        "no Android Studio system cache detected",
+    ));
+    entries.push(check_any_anchor(
+        "android_studio.logs",
+        ide_log_anchors(&home, "Google"),
+        "no Android Studio logs detected",
+    ));
 
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
@@ -549,92 +576,6 @@ fn skipped_anchor(rule_id: &'static str, anchor: PathBuf, reason: &'static str) 
     }
 }
 
-/// Canonical anchors for a browser-automation cache directory.
-/// macOS defaults to `~/Library/Caches/<tool>` but may also use
-/// `~/.cache/<tool>` as an XDG fallback.
-fn browser_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            home.join("Library").join("Caches").join(tool),
-            home.join(".cache").join(tool),
-        ]
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        vec![home.join(".cache").join(tool)]
-    }
-    #[cfg(target_os = "windows")]
-    {
-        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
-    }
-}
-
-/// Canonical anchors for Homebrew's downloaded bottle/source archive
-/// cache. Homebrew on macOS normally uses `~/Library/Caches/Homebrew`,
-/// while Linux/XDG-style layouts use `~/.cache/Homebrew`.
-fn homebrew_download_anchors(home: &std::path::Path) -> Vec<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            home.join("Library")
-                .join("Caches")
-                .join("Homebrew")
-                .join("downloads"),
-            home.join(".cache").join("Homebrew").join("downloads"),
-        ]
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        vec![home.join(".cache").join("Homebrew").join("downloads")]
-    }
-}
-
-/// Canonical anchors for Deno's remote-dependency cache. macOS native
-/// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
-/// uses `%LOCALAPPDATA%\deno`.
-fn deno_cache_anchors(home: &std::path::Path) -> Vec<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            home.join("Library").join("Caches").join("deno"),
-            home.join(".cache").join("deno"),
-        ]
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        vec![home.join(".cache").join("deno")]
-    }
-    #[cfg(target_os = "windows")]
-    {
-        vec![home.join("AppData").join("Local").join("deno")]
-    }
-}
-
-/// Canonical anchors for a Python toolchain cache directory.
-///
-/// macOS hosts may resolve to either the native `~/Library/Caches/<tool>`
-/// or the XDG override `~/.cache/<tool>` — the empirical dev box behind
-/// issue #101 had uv at `~/.cache/uv` while the platformdirs default is
-/// `~/Library/Caches/uv`. Linux and Windows have a single canonical path.
-fn python_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        vec![
-            home.join("Library").join("Caches").join(tool),
-            home.join(".cache").join(tool),
-        ]
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        vec![home.join(".cache").join(tool)]
-    }
-    #[cfg(target_os = "windows")]
-    {
-        vec![home.join("AppData").join("Local").join(tool).join("Cache")]
-    }
-}
-
 fn check_any_anchor(
     rule_id: &'static str,
     anchors: Vec<PathBuf>,
@@ -682,10 +623,10 @@ mod tests {
         // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
-        // plus the Go modcache root cleanup rule. #160/#162 add 5 more
+        // plus the Go modcache root cleanup rule. #160/#162 add 9 more
         // exact-anchor global cache rules. #158 adds one system-scope
         // report-only rule.
-        assert_eq!(report.total_count(), 52);
+        assert_eq!(report.total_count(), 56);
     }
 
     #[test]
