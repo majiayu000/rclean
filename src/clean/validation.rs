@@ -74,6 +74,7 @@ fn requires_closed_process_gate(rule_id: &str) -> bool {
         rule_id,
         "macos.chrome_code_sign_clone"
             | "macos.remem_dry_run_tmp"
+            | "agent.tmp_worktree"
             | "rust.target"
             | "app.lark_cache"
             | "app.lark_update"
@@ -142,6 +143,7 @@ mod tests {
     fn closed_process_gate_applies_to_app_and_temp_rules() {
         assert!(requires_closed_process_gate("macos.chrome_code_sign_clone"));
         assert!(requires_closed_process_gate("macos.remem_dry_run_tmp"));
+        assert!(requires_closed_process_gate("agent.tmp_worktree"));
         assert!(requires_closed_process_gate("rust.target"));
         assert!(requires_closed_process_gate("app.lark_update"));
         assert!(!requires_closed_process_gate("node.node_modules"));

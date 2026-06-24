@@ -158,8 +158,11 @@ rclean clean --tmp --all --dry-run --min-size 100mb
 
 `--tmp` scans existing system temp roots such as `/tmp` and `/private/tmp`
 on macOS, but cleanup still only selects candidates matched by rclean rules
-and safety policy. It does not clear all of `/tmp` or delete arbitrary
-temporary worktrees by name.
+and safety policy. It does not clear all of `/tmp`: safe nested artifacts
+such as `target/` are selected by default, while whole temporary worktrees
+are reported only for exact top-level names like `remem-*`, `rclean-*`,
+`loom-*`, or `*review-target*` with a project marker and require
+`--include-caution`.
 
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, `~/.bundle`, `~/.kube`,

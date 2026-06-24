@@ -25,7 +25,9 @@ mod safety;
 mod sizer;
 mod walker;
 
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use chrono::Utc;
@@ -33,7 +35,7 @@ use tracing::warn;
 
 use crate::error::ScanError;
 use crate::model::{CandidateDraft, Category, Explanation, Safety, ScanReport, ScanWarning};
-use crate::path_util::path_file_name;
+use crate::path_util::{path_file_name, path_file_name_string};
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
@@ -61,6 +63,9 @@ pub struct ScanOptions {
     pub include_blocked: bool,
     pub verbose: bool,
     pub disk_attribution: bool,
+    /// True when roots came from explicit `--tmp` expansion. Whole
+    /// temporary worktree fallbacks are only allowed in this mode.
+    pub tmp_roots: bool,
     /// Extra gitignore-style globs from `--ignore` CLI flags, layered on
     /// top of any `.rcleanignore` file at the scan root.
     pub ignore_globs: Vec<String>,
@@ -79,6 +84,7 @@ impl Default for ScanOptions {
             include_blocked: false,
             verbose: false,
             disk_attribution: false,
+            tmp_roots: false,
             ignore_globs: Vec::new(),
             git_timeout: Some(DEFAULT_GIT_TIMEOUT),
         }
@@ -154,8 +160,15 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         let walk = WalkScratch::new();
         walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
-        let (drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
+        let (mut drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
         warnings.extend(walk_warnings);
+        add_tmp_worktree_fallbacks(
+            &root,
+            options,
+            &matcher,
+            &mut drafts_by_project,
+            &mut warnings,
+        )?;
         let source_sizes = SourceSizeIndex::from_dir_sizes(&walk_sizes);
 
         // Phase 2: serial post-processing per project so dir_size,
@@ -202,6 +215,90 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         summary,
         projects,
     })
+}
+
+fn add_tmp_worktree_fallbacks(
+    root: &Path,
+    options: &ScanOptions,
+    matcher: &IgnoreMatcher,
+    drafts_by_project: &mut HashMap<PathBuf, Vec<CandidateDraft>>,
+    warnings: &mut Vec<ScanWarning>,
+) -> Result<(), ScanError> {
+    if !options.tmp_roots || options.max_depth == 0 {
+        return Ok(());
+    }
+
+    let top_levels_with_nested_cleanable =
+        top_level_children_with_cleanable_candidates(root, drafts_by_project);
+    let entries = fs::read_dir(root).map_err(|source| {
+        ScanError::Generic(format!(
+            "failed to read tmp root {} for worktree fallback scan: {source}",
+            root.display()
+        ))
+    })?;
+    let mut children = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => children.push(entry.path()),
+            Err(err) => warnings.push(ScanWarning::WalkError {
+                path: Some(root.to_path_buf()),
+                error: err.to_string(),
+            }),
+        }
+    }
+    children.sort();
+
+    for child in children {
+        if top_levels_with_nested_cleanable.contains(&child) || matcher.is_ignored(&child, true) {
+            continue;
+        }
+        let Some(name) = path_file_name_string(&child) else {
+            continue;
+        };
+        let metadata = match fs::symlink_metadata(&child) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                warnings.push(ScanWarning::MetadataError {
+                    path: child,
+                    error: err.to_string(),
+                });
+                continue;
+            }
+        };
+        if !metadata.is_dir() && !metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        let Some(mut draft) = rules::classify_agent_tmp_worktree(root, &name, &child) else {
+            continue;
+        };
+        apply_path_safety(root, &mut draft);
+        if should_include(&draft, options) {
+            drafts_by_project.entry(child).or_default().push(draft);
+        }
+    }
+
+    Ok(())
+}
+
+fn top_level_children_with_cleanable_candidates(
+    root: &Path,
+    drafts_by_project: &HashMap<PathBuf, Vec<CandidateDraft>>,
+) -> HashSet<PathBuf> {
+    drafts_by_project
+        .values()
+        .flat_map(|drafts| drafts.iter())
+        .filter(|draft| matches!(draft.safety, Safety::Safe | Safety::Caution))
+        .filter_map(|draft| top_level_child(root, &draft.path))
+        .collect()
+}
+
+fn top_level_child(root: &Path, path: &Path) -> Option<PathBuf> {
+    let mut components = path.strip_prefix(root).ok()?.components();
+    let Component::Normal(name) = components.next()? else {
+        return None;
+    };
+    Some(root.join(name))
 }
 
 pub fn explain_path_with_activity_depth(

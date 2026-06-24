@@ -19,9 +19,135 @@ fn options() -> ScanOptions {
         include_blocked: true,
         verbose: false,
         disk_attribution: false,
+        tmp_roots: false,
         ignore_globs: Vec::new(),
         git_timeout: Some(DEFAULT_GIT_TIMEOUT),
     }
+}
+
+fn tmp_options() -> ScanOptions {
+    ScanOptions {
+        tmp_roots: true,
+        ..options()
+    }
+}
+
+#[test]
+fn tmp_worktree_fallback_matches_exact_top_level_patterns() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let accepted = [
+        "remem-alpha",
+        "rclean-issue-166",
+        "loom-review",
+        "codex-review-target-123",
+        "review-target",
+    ];
+    let rejected = [
+        "remem",
+        "xremem-alpha",
+        "rclean",
+        "rclean_alpha",
+        "loom",
+        "loomalpha",
+        "review_target",
+        "reviewtarget",
+    ];
+
+    for name in accepted.iter().chain(rejected.iter()).copied() {
+        let worktree = temp.path().join(name);
+        fs::create_dir(&worktree).unwrap();
+        fs::write(worktree.join("Cargo.toml"), "[package]\nname = \"tmp\"\n").unwrap();
+        fs::write(worktree.join("source.rs"), "fn main() {}\n").unwrap();
+    }
+
+    let report = scan(&[temp.path().to_path_buf()], &tmp_options()).unwrap();
+    let candidates = report
+        .projects
+        .iter()
+        .flat_map(|project| project.candidates.iter())
+        .collect::<Vec<_>>();
+
+    assert_eq!(candidates.len(), accepted.len());
+    for name in accepted {
+        let path = root.join(name).display().to_string();
+        let candidate = candidates
+            .iter()
+            .find(|candidate| candidate.path == path)
+            .unwrap_or_else(|| panic!("{name} should be reported"));
+        assert_eq!(candidate.rule_id, "agent.tmp_worktree");
+        assert_eq!(candidate.safety, Safety::Caution);
+    }
+    for name in rejected {
+        let path = root.join(name).display().to_string();
+        assert!(
+            candidates.iter().all(|candidate| candidate.path != path),
+            "{name} should not be reported"
+        );
+    }
+}
+
+#[test]
+fn tmp_worktree_fallback_requires_project_marker() {
+    let temp = TempDir::new().unwrap();
+    let worktree = temp.path().join("rclean-no-marker");
+    fs::create_dir(&worktree).unwrap();
+    fs::write(worktree.join("notes.txt"), "not a project").unwrap();
+
+    let report = scan(&[temp.path().to_path_buf()], &tmp_options()).unwrap();
+
+    assert_eq!(report.summary.candidates, 0);
+}
+
+#[test]
+fn tmp_worktree_fallback_only_emits_when_no_nested_cleanable_candidate_exists() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+
+    let with_nested = temp.path().join("rclean-with-target");
+    fs::create_dir(&with_nested).unwrap();
+    fs::write(
+        with_nested.join("Cargo.toml"),
+        "[package]\nname = \"with-target\"\n",
+    )
+    .unwrap();
+    fs::create_dir(with_nested.join("target")).unwrap();
+    fs::write(with_nested.join("target").join("blob"), "artifact").unwrap();
+
+    let fallback = temp.path().join("rclean-no-target");
+    fs::create_dir(&fallback).unwrap();
+    fs::write(
+        fallback.join("Cargo.toml"),
+        "[package]\nname = \"no-target\"\n",
+    )
+    .unwrap();
+    fs::write(fallback.join("source.rs"), "fn main() {}\n").unwrap();
+
+    let report = scan(&[temp.path().to_path_buf()], &tmp_options()).unwrap();
+    let candidates = report
+        .projects
+        .iter()
+        .flat_map(|project| project.candidates.iter())
+        .map(|candidate| (candidate.path.as_str(), candidate.rule_id.as_str()))
+        .collect::<Vec<_>>();
+
+    assert!(candidates.iter().any(|(path, rule_id)| {
+        *path
+            == root
+                .join("rclean-with-target")
+                .join("target")
+                .display()
+                .to_string()
+            && *rule_id == "rust.target"
+    }));
+    assert!(candidates.iter().all(|(path, rule_id)| {
+        !(*path == root.join("rclean-with-target").display().to_string()
+            && *rule_id == "agent.tmp_worktree")
+    }));
+    assert!(candidates.iter().any(|(path, rule_id)| {
+        *path == root.join("rclean-no-target").display().to_string()
+            && *rule_id == "agent.tmp_worktree"
+    }));
 }
 
 #[test]

@@ -102,9 +102,15 @@ pub(crate) fn summarize(
         })
         .collect();
 
+    let source_bytes = if drafts.iter().any(|draft| draft.path == project_dir) {
+        0
+    } else {
+        source_sizes.bytes_under(project_dir)
+    };
+
     SizeSummary {
         candidate_bytes,
-        source_bytes: source_sizes.bytes_under(project_dir),
+        source_bytes,
     }
 }
 
