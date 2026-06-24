@@ -18,6 +18,7 @@ mod tui;
 mod user_rules;
 mod watch;
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -130,7 +131,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                         .collect();
                     clean::check_broad_roots(&plan_roots)?;
                 } else {
-                    clean::check_broad_roots(&args.common.paths_or_current_dir())?;
+                    clean::check_broad_roots(&clean_roots_for_broad_check(&args)?)?;
                 }
             }
             let (selected, report) = if let Some(action_plan) = &action_plan {
@@ -286,6 +287,44 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         },
     }
+}
+
+fn clean_roots_for_broad_check(args: &cli::CleanArgs) -> Result<Vec<PathBuf>, RcleanError> {
+    let roots = args.common.paths_or_current_dir();
+    if !args.common.tmp || std::env::var_os("RCLEAN_TMP_ROOTS").is_some() {
+        return Ok(roots);
+    }
+
+    roots
+        .into_iter()
+        .filter_map(|root| match is_builtin_tmp_root(&root) {
+            Ok(true) => None,
+            Ok(false) => Some(Ok(root)),
+            Err(err) => Some(Err(err)),
+        })
+        .collect()
+}
+
+fn is_builtin_tmp_root(path: &Path) -> Result<bool, RcleanError> {
+    let canonical = path.canonicalize().map_err(|source| {
+        RcleanError::Clean(crate::error::CleanError::Generic(format!(
+            "failed to canonicalize temp root {}: {source}",
+            path.display()
+        )))
+    })?;
+
+    #[cfg(target_os = "macos")]
+    let roots = [Path::new("/private/tmp"), Path::new("/tmp")];
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let roots = [Path::new("/tmp")];
+    #[cfg(target_os = "windows")]
+    let roots: [&Path; 0] = [];
+
+    Ok(roots.iter().any(|root| {
+        root.canonicalize()
+            .map(|builtin| builtin == canonical)
+            .unwrap_or_else(|_| *root == canonical)
+    }))
 }
 
 fn requested_delete_mode(args: &cli::CleanArgs) -> &'static str {
