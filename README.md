@@ -177,6 +177,18 @@ rclean scan ~/code --write-plan rclean-plan.json
 rclean clean --plan rclean-plan.json --dry-run
 ```
 
+Preview stale stamped artifacts before cleanup:
+
+```bash
+rclean stamp ~/code --min-size 100mb
+rclean stamp ~/code --sweep --write-plan rclean-stamp-sweep.json --min-size 100mb
+rclean clean --plan rclean-stamp-sweep.json --dry-run
+```
+
+`stamp --sweep` only writes an ActionPlan for previously stamped candidates
+that have not changed since they were stamped. Use `clean --plan ... --dry-run`
+to review exactly what would be removed before running a real cleanup.
+
 ## Safety Model
 
 - `scan` never deletes files.
