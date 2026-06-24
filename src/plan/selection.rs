@@ -12,8 +12,9 @@ pub(super) fn collect_selected(report: &ScanReport, include_caution: bool) -> Ve
         .iter()
         .flat_map(|project| project.candidates.iter())
         .filter(|candidate| {
-            candidate.safety == Safety::Safe
-                || (include_caution && candidate.safety == Safety::Caution)
+            !candidate.requires_sudo
+                && (candidate.safety == Safety::Safe
+                    || (include_caution && candidate.safety == Safety::Caution))
         })
         .map(to_plan_candidate)
         .collect()
@@ -33,7 +34,7 @@ pub(super) fn collect_selected_paths(
         .projects
         .iter()
         .flat_map(|project| project.candidates.iter())
-        .filter(|candidate| selected_paths.contains(&candidate.path))
+        .filter(|candidate| selected_paths.contains(&candidate.path) && !candidate.requires_sudo)
         .map(to_plan_candidate)
         .collect()
 }
@@ -70,6 +71,7 @@ fn to_plan_candidate(candidate: &Candidate) -> PlanCandidate {
         rule_id: candidate.rule_id.clone(),
         bytes: candidate.bytes,
         safety: candidate.safety,
+        requires_sudo: candidate.requires_sudo,
         category: candidate.category,
         risk_score: candidate.risk_score,
     }

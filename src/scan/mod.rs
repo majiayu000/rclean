@@ -66,6 +66,9 @@ pub struct ScanOptions {
     /// True when roots came from explicit `--tmp` expansion. Whole
     /// temporary worktree fallbacks are only allowed in this mode.
     pub tmp_roots: bool,
+    /// True when roots came from explicit `--system` expansion. System
+    /// roots are exact report-only anchors, not traversal roots.
+    pub system_roots: bool,
     /// Extra gitignore-style globs from `--ignore` CLI flags, layered on
     /// top of any `.rcleanignore` file at the scan root.
     pub ignore_globs: Vec<String>,
@@ -85,6 +88,7 @@ impl Default for ScanOptions {
             verbose: false,
             disk_attribution: false,
             tmp_roots: false,
+            system_roots: false,
             ignore_globs: Vec::new(),
             git_timeout: Some(DEFAULT_GIT_TIMEOUT),
         }
@@ -155,20 +159,27 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         let (matcher, matcher_warnings) = IgnoreMatcher::build(&root, &options.ignore_globs)?;
         warnings.extend(matcher_warnings);
 
-        // Phase 1: parallel walk collects (project_dir, drafts) and
-        // per-dir file_bytes into thread-safe accumulators.
-        let walk = WalkScratch::new();
-        walk_parallel(&root, options, &matcher, &user_rules, &walk);
+        let (drafts_by_project, walk_sizes) = if options.system_roots {
+            let mut drafts_by_project = HashMap::new();
+            add_system_root_candidate(&root, options, &mut drafts_by_project);
+            (drafts_by_project, HashMap::new())
+        } else {
+            // Phase 1: parallel walk collects (project_dir, drafts) and
+            // per-dir file_bytes into thread-safe accumulators.
+            let walk = WalkScratch::new();
+            walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
-        let (mut drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
-        warnings.extend(walk_warnings);
-        add_tmp_worktree_fallbacks(
-            &root,
-            options,
-            &matcher,
-            &mut drafts_by_project,
-            &mut warnings,
-        )?;
+            let (mut drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
+            warnings.extend(walk_warnings);
+            add_tmp_worktree_fallbacks(
+                &root,
+                options,
+                &matcher,
+                &mut drafts_by_project,
+                &mut warnings,
+            )?;
+            (drafts_by_project, walk_sizes)
+        };
         let source_sizes = SourceSizeIndex::from_dir_sizes(&walk_sizes);
 
         // Phase 2: serial post-processing per project so dir_size,
@@ -215,6 +226,32 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         summary,
         projects,
     })
+}
+
+fn add_system_root_candidate(
+    root: &Path,
+    options: &ScanOptions,
+    drafts_by_project: &mut HashMap<PathBuf, Vec<CandidateDraft>>,
+) {
+    if !options.system_roots {
+        return;
+    }
+    let Some(name) = path_file_name_string(root) else {
+        return;
+    };
+    let Some(parent) = root.parent() else {
+        return;
+    };
+    let Some(mut draft) = rules::classify_candidate(parent, &name, root.to_path_buf()) else {
+        return;
+    };
+    apply_path_safety(root, &mut draft);
+    if should_include(&draft, options) {
+        drafts_by_project
+            .entry(root.to_path_buf())
+            .or_default()
+            .push(draft);
+    }
 }
 
 fn add_tmp_worktree_fallbacks(

@@ -5,13 +5,41 @@
 //! `/private/var/folders`, `T`, `C`, `X`, `~/Library/Containers`, or
 //! application support roots wholesale.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::model::CandidateDraft;
 #[cfg(target_os = "macos")]
 use crate::model::{Category, Safety};
 #[cfg(target_os = "macos")]
 use crate::rules::markers::parent_ends_with;
+
+#[cfg(target_os = "macos")]
+const IDLEASSETSD_NAME: &str = "com.apple.idleassetsd";
+#[cfg(target_os = "macos")]
+const IDLEASSETSD_PATH: &str = "/Library/Application Support/com.apple.idleassetsd";
+#[cfg(all(target_os = "macos", debug_assertions))]
+const TEST_SYSTEM_ROOTS_ENV: &str = "RCLEAN_TEST_SYSTEM_ROOTS";
+
+pub(crate) fn system_scan_paths() -> Vec<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut roots = configured_idleassetsd_anchors()
+            .into_iter()
+            .filter(|path| path.is_dir())
+            .filter(|path| is_idleassetsd_anchor_shape(path))
+            .filter(|path| !is_under_home(path))
+            .map(|path| path.canonicalize().unwrap_or(path))
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        roots
+    }
+}
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
     #[cfg(not(target_os = "macos"))]
@@ -26,6 +54,27 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
 
 #[cfg(target_os = "macos")]
 fn classify_macos(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
+    if name == IDLEASSETSD_NAME && is_allowed_idleassetsd_anchor(path) {
+        return Some(CandidateDraft {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+            rule_id: "apple.idleassetsd".to_string(),
+            category: Category::Cache,
+            safety: Safety::ReportOnly,
+            reasons: vec![
+                "macOS system idle assets cache; requires administrator access and rclean will not run sudo"
+                    .to_string(),
+            ],
+            warnings: vec![
+                "Manual cleanup only: review this path and use administrator privileges if desired"
+                    .to_string(),
+            ],
+            restore_hint:
+                "System Settings > Wallpaper will redownload selected idle assets on demand"
+                    .to_string(),
+        });
+    }
+
     if name == "com.google.Chrome.code_sign_clone"
         && is_private_var_folders_parent(project_dir, "X")
     {
@@ -191,6 +240,53 @@ fn classify_macos(project_dir: &Path, name: &str, path: &Path) -> Option<Candida
     }
 
     None
+}
+
+#[cfg(target_os = "macos")]
+fn is_allowed_idleassetsd_anchor(path: &Path) -> bool {
+    if !is_idleassetsd_anchor_shape(path) || is_under_home(path) {
+        return false;
+    }
+    let candidate = normalize_path(path);
+    configured_idleassetsd_anchors()
+        .into_iter()
+        .filter(|anchor| is_idleassetsd_anchor_shape(anchor))
+        .filter(|anchor| !is_under_home(anchor))
+        .map(|anchor| normalize_path(&anchor))
+        .any(|anchor| anchor == candidate)
+}
+
+#[cfg(target_os = "macos")]
+fn configured_idleassetsd_anchors() -> Vec<PathBuf> {
+    // Internal test hook: exact candidate roots only, still rejected under HOME.
+    #[cfg(debug_assertions)]
+    if let Some(roots) = std::env::var_os(TEST_SYSTEM_ROOTS_ENV) {
+        return std::env::split_paths(&roots).collect();
+    }
+
+    vec![PathBuf::from(IDLEASSETSD_PATH)]
+}
+
+#[cfg(target_os = "macos")]
+fn is_idleassetsd_anchor_shape(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some(IDLEASSETSD_NAME)
+        && path
+            .parent()
+            .is_some_and(|parent| parent_ends_with(parent, &["Library", "Application Support"]))
+}
+
+#[cfg(target_os = "macos")]
+fn is_under_home(path: &Path) -> bool {
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let home = normalize_path(Path::new(&home));
+    normalize_path(path).starts_with(home)
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(target_os = "macos")]

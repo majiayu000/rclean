@@ -94,7 +94,9 @@ pub(super) fn stampable_candidates(report: &ScanReport) -> impl Iterator<Item = 
         .projects
         .iter()
         .flat_map(|project| project.candidates.iter())
-        .filter(|candidate| matches!(candidate.safety, Safety::Safe | Safety::Caution))
+        .filter(|candidate| {
+            matches!(candidate.safety, Safety::Safe | Safety::Caution) && !candidate.requires_sudo
+        })
 }
 
 pub(super) fn to_selected(candidate: &Candidate) -> SelectedCandidate {
@@ -105,6 +107,7 @@ pub(super) fn to_selected(candidate: &Candidate) -> SelectedCandidate {
         rule_id: candidate.rule_id.clone(),
         category: candidate.category,
         safety: candidate.safety,
+        requires_sudo: candidate.requires_sudo,
         risk_score: candidate.risk_score,
     }
 }

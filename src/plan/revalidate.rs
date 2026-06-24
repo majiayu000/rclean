@@ -15,6 +15,12 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
     let mut selected = Vec::with_capacity(plan.selected.len());
     for candidate in &plan.selected {
         let path = PathBuf::from(&candidate.path);
+        if candidate.requires_sudo {
+            return Err(PlanError::Generic(requires_sudo_plan_reason(
+                &candidate.path,
+                &candidate.rule_id,
+            )));
+        }
         if is_protected_user_data_path(&path)
             && !rules::allows_protected_user_data_path(&candidate.rule_id)
         {
@@ -38,6 +44,13 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             )));
         }
 
+        if rules::requires_sudo(&draft.rule_id) {
+            return Err(PlanError::Generic(requires_sudo_plan_reason(
+                &candidate.path,
+                &draft.rule_id,
+            )));
+        }
+
         if draft.safety == Safety::Blocked
             || draft.safety == Safety::Unknown
             || draft.safety == Safety::ReportOnly
@@ -55,10 +68,17 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
             rule_id: draft.rule_id,
             category: draft.category,
             safety: draft.safety,
+            requires_sudo: rules::requires_sudo(&candidate.rule_id),
             risk_score: candidate.risk_score,
         });
     }
     Ok(selected)
+}
+
+fn requires_sudo_plan_reason(path: &str, rule_id: &str) -> String {
+    format!(
+        "{path} requires administrator access for rule {rule_id}; rclean will not run sudo or delete it. Review and remove it manually with administrator privileges if desired"
+    )
 }
 
 pub fn revalidate_selected(

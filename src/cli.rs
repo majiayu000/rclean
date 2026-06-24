@@ -204,14 +204,20 @@ pub struct CommonScanArgs {
     /// node.npm_cacache, node.pnpm_store, node.yarn_cache,
     /// pip.cache, xcode.simulators) without forcing the user to
     /// remember every path.
-    #[arg(long, conflicts_with_all = ["paths", "tmp"])]
+    #[arg(long, conflicts_with_all = ["paths", "tmp", "system"])]
     pub home: bool,
 
     /// Expand to system temporary roots (for example /tmp and /private/tmp)
     /// and scan them for rebuildable artifacts left by temporary worktrees.
-    /// Conflicts with positional `paths` and `--home`.
-    #[arg(long, conflicts_with_all = ["paths", "home"])]
+    /// Conflicts with positional `paths`, `--home`, and `--system`.
+    #[arg(long, conflicts_with_all = ["paths", "home", "system"])]
     pub tmp: bool,
+
+    /// On macOS, scan the narrow system cache allowlist. This is report-only:
+    /// rclean will not run sudo or delete these candidates.
+    /// Conflicts with positional `paths`, `--home`, and `--tmp`.
+    #[arg(long, conflicts_with_all = ["paths", "home", "tmp"])]
+    pub system: bool,
 
     /// On macOS, include APFS/System/Data volume attribution in the scan report.
     #[arg(long)]
@@ -305,6 +311,9 @@ impl CommonScanArgs {
         if self.tmp {
             return tmp_workspace_paths();
         }
+        if self.system {
+            return crate::rules::system_scan_paths();
+        }
         if self.paths.is_empty() {
             vec![PathBuf::from(".")]
         } else {
@@ -337,6 +346,7 @@ impl CommonScanArgs {
             verbose: self.verbose,
             disk_attribution: self.disk_attribution,
             tmp_roots: self.tmp,
+            system_roots: self.system,
             ignore_globs: self.ignore.clone(),
             git_timeout: (self.git_timeout > 0).then(|| Duration::from_secs(self.git_timeout)),
         })

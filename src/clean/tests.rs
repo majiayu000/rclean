@@ -157,6 +157,7 @@ fn delete_selected_skips_swapped_symlink_target() {
         rule_id: "test".to_string(),
         category: crate::model::Category::Build,
         safety: Safety::Safe,
+        requires_sudo: false,
         risk_score: 0.0,
     }];
 
@@ -186,6 +187,7 @@ fn delete_selected_skips_swapped_file_candidate() {
         rule_id: "test".to_string(),
         category: crate::model::Category::Build,
         safety: Safety::Safe,
+        requires_sudo: false,
         risk_score: 0.0,
     }];
 
@@ -216,6 +218,7 @@ fn delete_selected_logs_validation_failure() {
         rule_id: "test".to_string(),
         category: crate::model::Category::Build,
         safety: Safety::Safe,
+        requires_sudo: false,
         risk_score: 0.0,
     }];
 
@@ -236,6 +239,35 @@ fn delete_selected_logs_validation_failure() {
 }
 
 #[test]
+fn delete_selected_refuses_requires_sudo_candidate_before_deletion() {
+    let temp = TempDir::new().unwrap();
+    let candidate_path = temp
+        .path()
+        .join("Library")
+        .join("Application Support")
+        .join("com.apple.idleassetsd");
+    fs::create_dir_all(&candidate_path).unwrap();
+    fs::write(candidate_path.join("blob"), b"x").unwrap();
+    let selected = vec![SelectedCandidate {
+        id: None,
+        path: candidate_path.clone(),
+        bytes: 1,
+        rule_id: "apple.idleassetsd".to_string(),
+        category: crate::model::Category::Cache,
+        safety: Safety::ReportOnly,
+        requires_sudo: true,
+        risk_score: 0.0,
+    }];
+
+    let result = delete_selected(&selected, true, None).unwrap();
+
+    assert!(result.cleaned.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert!(candidate_path.exists(), "requires-sudo path must remain");
+    assert!(result.failed[0].1.contains("will not run sudo"));
+}
+
+#[test]
 fn validate_audit_log_path_rejects_selected_descendant() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let candidate_path = temp.path().join("node_modules");
@@ -247,6 +279,7 @@ fn validate_audit_log_path_rejects_selected_descendant() -> Result<(), Box<dyn s
         rule_id: "node.node_modules".to_string(),
         category: crate::model::Category::Deps,
         safety: Safety::Safe,
+        requires_sudo: false,
         risk_score: 0.0,
     }];
 

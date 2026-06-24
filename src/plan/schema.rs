@@ -25,6 +25,8 @@ pub struct PlanCandidate {
     pub rule_id: String,
     pub bytes: u64,
     pub safety: Safety,
+    #[serde(default)]
+    pub requires_sudo: bool,
     pub category: Category,
     pub risk_score: f32,
 }

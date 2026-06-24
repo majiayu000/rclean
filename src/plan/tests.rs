@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
+use super::schema::PlanCandidate;
 use super::*;
 use crate::model::{ActivityInfo, Candidate, Category, ProjectReport, Safety, ScanReport, Summary};
 
@@ -40,6 +41,7 @@ fn report(root: &Path, candidate_path: &Path) -> ScanReport {
                 category: Category::Deps,
                 bytes: 3,
                 safety: Safety::Safe,
+                requires_sudo: false,
                 reasons: vec!["test".to_string()],
                 warnings: Vec::new(),
                 restore_hint: "install".to_string(),
@@ -95,6 +97,102 @@ fn writes_schema_v2_candidate_id_and_risk_score() {
         "candidate id should use Crockford ULID alphabet"
     );
     assert!((plan.selected[0].risk_score - 0.42).abs() < f32::EPSILON);
+    assert!(!plan.selected[0].requires_sudo);
+}
+
+#[test]
+fn old_plan_candidate_missing_requires_sudo_defaults_false() {
+    let temp = TempDir::new().unwrap();
+    let plan_path = temp.path().join("plan.json");
+    fs::write(
+        &plan_path,
+        r#"{
+            "schemaVersion": 2,
+            "toolVersion": "0.1.0",
+            "generatedAt": "2026-05-06T00:00:00Z",
+            "deleteMode": "trash",
+            "roots": [],
+            "summary": {
+                "projectsScanned": 0,
+                "projectsWithCandidates": 0,
+                "candidates": 1,
+                "safeCandidates": 1,
+                "cautionCandidates": 0,
+                "blockedCandidates": 0,
+                "totalBytes": 3
+            },
+            "selected": [{
+                "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "path": "/tmp/project/node_modules",
+                "ruleId": "node.node_modules",
+                "bytes": 3,
+                "safety": "safe",
+                "category": "deps",
+                "riskScore": 0.0
+            }],
+            "projects": []
+        }"#,
+    )
+    .unwrap();
+
+    let plan = read_action_plan(&plan_path).unwrap();
+
+    assert!(!plan.selected[0].requires_sudo);
+}
+
+#[test]
+fn plan_candidate_serializes_requires_sudo_as_camel_case_when_true() {
+    let candidate = PlanCandidate {
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
+        path: "/Library/Application Support/com.apple.idleassetsd".to_string(),
+        rule_id: "apple.idleassetsd".to_string(),
+        bytes: 1,
+        safety: Safety::ReportOnly,
+        requires_sudo: true,
+        category: Category::Cache,
+        risk_score: 0.0,
+    };
+
+    let value = serde_json::to_value(candidate).unwrap();
+
+    assert_eq!(value["requiresSudo"], true);
+}
+
+#[test]
+fn selected_from_action_plan_refuses_requires_sudo_candidate() {
+    let temp = TempDir::new().unwrap();
+    let plan = ActionPlan {
+        schema_version: ACTION_PLAN_SCHEMA_VERSION,
+        tool_version: "0.1.0".to_string(),
+        generated_at: "2026-05-06T00:00:00Z".to_string(),
+        delete_mode: "trash".to_string(),
+        roots: vec![temp.path().display().to_string()],
+        summary: Summary::default(),
+        selected: vec![PlanCandidate {
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
+            path: temp
+                .path()
+                .join("Library")
+                .join("Application Support")
+                .join("com.apple.idleassetsd")
+                .display()
+                .to_string(),
+            rule_id: "apple.idleassetsd".to_string(),
+            bytes: 1,
+            safety: Safety::ReportOnly,
+            requires_sudo: true,
+            category: Category::Cache,
+            risk_score: 0.0,
+        }],
+        projects: Vec::new(),
+    };
+
+    let err = selected_from_action_plan(&plan)
+        .expect_err("requires-sudo plan candidates must be refused")
+        .to_string();
+
+    assert!(err.contains("requires administrator access"));
+    assert!(err.contains("will not run sudo"));
 }
 
 #[test]

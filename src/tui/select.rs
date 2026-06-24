@@ -36,6 +36,7 @@ struct CandidateRow {
     category: Category,
     bytes: u64,
     safety: Safety,
+    requires_sudo: bool,
     risk_score: f32,
     reason: String,
     rule_id: String,
@@ -244,6 +245,7 @@ impl SelectorApp {
         };
         if self.rows[index].safety == Safety::Blocked
             || self.rows[index].safety == Safety::ReportOnly
+            || self.rows[index].requires_sudo
         {
             return;
         }
@@ -254,7 +256,7 @@ impl SelectorApp {
 
     fn select_all_safe(&mut self) {
         for (index, row) in self.rows.iter().enumerate() {
-            if row.safety == Safety::Safe {
+            if row.safety == Safety::Safe && !row.requires_sudo {
                 self.selected.insert(index);
             }
         }
@@ -272,6 +274,7 @@ impl SelectorApp {
                     rule_id: row.rule_id.clone(),
                     category: row.category,
                     safety: row.safety,
+                    requires_sudo: row.requires_sudo,
                     risk_score: row.risk_score,
                 }
             })
@@ -288,7 +291,11 @@ impl SelectorApp {
     fn reclaimable_bytes(&self) -> u64 {
         self.rows
             .iter()
-            .filter(|row| row.safety != Safety::Blocked && row.safety != Safety::ReportOnly)
+            .filter(|row| {
+                row.safety != Safety::Blocked
+                    && row.safety != Safety::ReportOnly
+                    && !row.requires_sudo
+            })
             .map(|row| row.bytes)
             .sum()
     }
@@ -318,6 +325,7 @@ fn row_from_candidate(candidate: &Candidate) -> CandidateRow {
         category: candidate.category,
         bytes: candidate.bytes,
         safety: candidate.safety,
+        requires_sudo: candidate.requires_sudo,
         risk_score: candidate.risk_score,
         reason: candidate
             .reasons

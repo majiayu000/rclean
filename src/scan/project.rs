@@ -82,6 +82,7 @@ pub(crate) fn build_project_report(
         }
 
         let risk_score = compute_risk_score(git.as_ref(), activity_time, dir);
+        let requires_sudo = rules::requires_sudo(&draft.rule_id);
 
         candidates.push(Candidate {
             path: draft.path.display().to_string(),
@@ -90,6 +91,7 @@ pub(crate) fn build_project_report(
             category: draft.category,
             bytes,
             safety: draft.safety,
+            requires_sudo,
             reasons: draft.reasons,
             warnings: draft.warnings,
             restore_hint: draft.restore_hint,

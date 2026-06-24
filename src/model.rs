@@ -220,6 +220,8 @@ pub struct Candidate {
     pub category: Category,
     pub bytes: u64,
     pub safety: Safety,
+    #[serde(default)]
+    pub requires_sudo: bool,
     pub reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub restore_hint: String,

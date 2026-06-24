@@ -319,6 +319,7 @@ mod tests {
             rule_id: "go.module_cache".to_string(),
             category: Category::Cache,
             safety: Safety::Caution,
+            requires_sudo: false,
             risk_score: 0.0,
         };
         assert_eq!(
@@ -336,6 +337,7 @@ mod tests {
             rule_id: "go.module_download_cache".to_string(),
             category: Category::Cache,
             safety: Safety::Caution,
+            requires_sudo: false,
             risk_score: 0.0,
         };
         assert_eq!(
@@ -422,6 +424,7 @@ mod tests {
             rule_id: "go.module_cache".to_string(),
             category: Category::Cache,
             safety: Safety::Caution,
+            requires_sudo: false,
             risk_score: 0.0,
         }
     }
