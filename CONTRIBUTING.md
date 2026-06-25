@@ -49,6 +49,14 @@ If your change is performance-sensitive, also run the benchmark suite
 (see `benches/` and `docs/perf/`) and include the before/after numbers
 in the PR body.
 
+## Agent-assisted workflow
+
+AI agents should start with [`AGENTS.md`](AGENTS.md). Small docs-only
+changes can be handled directly with focused verification. Substantial
+rule, safety, CLI, or multi-module changes need a linked GitHub issue
+and, when behavior is ambiguous or risky, a SpecRail packet under
+`specs/GH<number>/`.
+
 ## PR shape
 
 - Use the repository PR template and fill in the safety/scope and
