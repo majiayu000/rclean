@@ -24,7 +24,7 @@ model and reporting workflow.
 ## Toolchain
 
 - **Edition**: Rust 2024.
-- **MSRV**: `rust-version = "1.88"` in `Cargo.toml`. CI verifies the
+- **MSRV**: `rust-version = "1.95"` in `Cargo.toml`. CI verifies the
   pinned MSRV on Ubuntu; PRs that need a newer toolchain must bump
   `rust-version` and explain why in the commit message.
 - **OS coverage**: CI runs `fmt`, `clippy`, `test`, and a release build
@@ -37,10 +37,12 @@ model and reporting workflow.
 Run these before opening a PR — they mirror what CI runs:
 
 ```bash
-cargo fmt --check
+cargo fmt -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo build --release
+rustup run 1.95 cargo build --all-targets --all-features
+rustup run 1.95 cargo test
 ```
 
 If your change is performance-sensitive, also run the benchmark suite

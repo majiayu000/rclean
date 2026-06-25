@@ -81,3 +81,11 @@ body:
       description: Links to package-manager docs, project conventions, or related issues can help triage.
     validations:
       required: false
+  - type: input
+    id: linked_spec
+    attributes:
+      label: Linked SpecRail spec
+      description: Required when the fix is substantial or changes rule behavior.
+      placeholder: "specs/GH123/product.md"
+    validations:
+      required: false
