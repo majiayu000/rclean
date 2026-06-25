@@ -59,3 +59,42 @@ body:
       description: If there is already a manual workaround, include it here.
     validations:
       required: false
+  - type: dropdown
+    id: specrail_route
+    attributes:
+      label: SpecRail route
+      description: Choose the expected workflow before implementation.
+      options:
+        - docs-only direct
+        - write_spec before implementation
+        - implement from approved spec
+        - security/private maintainer review
+    validations:
+      required: true
+  - type: input
+    id: product_spec
+    attributes:
+      label: Product spec path
+      description: Required before implementation for substantial user-facing or rule behavior changes.
+      placeholder: "specs/GH123/product.md"
+    validations:
+      required: false
+  - type: input
+    id: tech_spec
+    attributes:
+      label: Tech spec path
+      description: Required before implementation for multi-module, risky, or ambiguous changes.
+      placeholder: "specs/GH123/tech.md"
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Include docs, tests, and verification commands that should prove this change.
+      placeholder: |
+        - [ ] README table updated
+        - [ ] Positive and negative tests added
+        - [ ] cargo test passes
+    validations:
+      required: true

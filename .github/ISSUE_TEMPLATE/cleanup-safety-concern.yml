@@ -84,3 +84,23 @@ body:
       description: Include whether files were actually deleted, moved to Trash, or only shown in a dry run.
     validations:
       required: false
+  - type: dropdown
+    id: specrail_route
+    attributes:
+      label: SpecRail route
+      description: Choose how this should be handled before implementation.
+      options:
+        - maintainer review before public details
+        - write_spec before implementation
+        - bugfix with regression test
+        - docs-only direct
+    validations:
+      required: true
+  - type: input
+    id: linked_spec
+    attributes:
+      label: Linked SpecRail spec
+      description: Required before implementation for trust-model behavior changes.
+      placeholder: "specs/GH123/product.md"
+    validations:
+      required: false
