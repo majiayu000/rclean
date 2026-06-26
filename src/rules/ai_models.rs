@@ -23,11 +23,15 @@
 //!   re-pulling a 70B model is hours of network time. Never selected
 //!   for cleanup even with `--include-blocked`. Reported so the user
 //!   can see the size and decide manually.
+//! - `ai.llama_cpp_cache`, `ai.whisper_cpp_models`, and
+//!   `ai.comfyui_models` (**report-only**) — model stores where path
+//!   shape alone cannot prove user intent or cheap restore cost.
 
 use std::path::Path;
 
 use crate::model::{CandidateDraft, Category, Safety};
-use crate::rules::markers::parent_ends_with;
+use crate::path_util::path_file_name;
+use crate::rules::markers::{has_marker, parent_ends_with};
 
 pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<CandidateDraft> {
     // HuggingFace hub: ~/.cache/huggingface/hub
@@ -102,6 +106,19 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
         });
     }
 
+    // llama.cpp model cache/root. The directory commonly stores model weights,
+    // so it is reported for visibility but never selected by rclean.
+    if name == "llama.cpp" && is_llama_cpp_cache_parent(project_dir) {
+        return Some(report_only_model_store(
+            path,
+            name,
+            "ai.llama_cpp_cache",
+            "llama.cpp model cache/store",
+            "llama.cpp model files can be large and user-curated; rclean reports this path but never selects it automatically",
+            "Re-download or restore the model files you need for llama.cpp",
+        ));
+    }
+
     // Ollama model store — user data, NOT cache.
     if name == "models" && parent_ends_with(project_dir, &[".ollama"]) {
         return Some(CandidateDraft {
@@ -124,7 +141,67 @@ pub fn classify(project_dir: &Path, name: &str, path: &Path) -> Option<Candidate
         });
     }
 
+    if name == "models" && is_whisper_cpp_model_store(project_dir, path) {
+        return Some(report_only_model_store(
+            path,
+            name,
+            "ai.whisper_cpp_models",
+            "whisper.cpp downloaded model store",
+            "whisper.cpp model files are selected/downloaded by the user; rclean reports this path but never selects it automatically",
+            "Run whisper.cpp's model download script again for models you want back",
+        ));
+    }
+
+    if name == "models" && is_comfyui_model_store(project_dir) {
+        return Some(report_only_model_store(
+            path,
+            name,
+            "ai.comfyui_models",
+            "ComfyUI model store",
+            "ComfyUI model directories contain user-curated checkpoints and related assets; rclean reports this path but never selects it automatically",
+            "Restore models from your ComfyUI sources or download them again",
+        ));
+    }
+
     None
+}
+
+fn is_llama_cpp_cache_parent(parent: &Path) -> bool {
+    parent_ends_with(parent, &[".cache"])
+        || parent_ends_with(parent, &["Library", "Caches"])
+        || parent_ends_with(parent, &["AppData", "Local"])
+}
+
+fn is_whisper_cpp_model_store(project_dir: &Path, path: &Path) -> bool {
+    path_file_name(project_dir) == Some("whisper.cpp")
+        && path.join("download-ggml-model.sh").is_file()
+}
+
+fn is_comfyui_model_store(project_dir: &Path) -> bool {
+    path_file_name(project_dir) == Some("ComfyUI")
+        && has_marker(project_dir, "folder_paths.py")
+        && (has_marker(project_dir, "main.py")
+            || has_marker(project_dir, "extra_model_paths.yaml.example"))
+}
+
+fn report_only_model_store(
+    path: &Path,
+    name: &str,
+    rule_id: &str,
+    reason: &str,
+    warning: &str,
+    restore_hint: &str,
+) -> CandidateDraft {
+    CandidateDraft {
+        path: path.to_path_buf(),
+        name: name.to_string(),
+        rule_id: rule_id.to_string(),
+        category: Category::Deps,
+        safety: Safety::ReportOnly,
+        reasons: vec![reason.to_string()],
+        warnings: vec![warning.to_string()],
+        restore_hint: restore_hint.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -243,5 +320,77 @@ mod tests {
         let parent = PathBuf::from("/Users/me/.ollama");
         let path = parent.join("logs");
         assert!(classify(&parent, "logs", &path).is_none());
+    }
+
+    // ---- llama.cpp / whisper.cpp / ComfyUI report-only stores ----
+
+    #[test]
+    fn classifies_llama_cpp_cache_as_report_only() {
+        for parent in [
+            "/Users/me/.cache",
+            "/Users/me/Library/Caches",
+            "C:/Users/me/AppData/Local",
+        ] {
+            let parent = PathBuf::from(parent);
+            let path = parent.join("llama.cpp");
+            let draft = classify(&parent, "llama.cpp", &path).expect("should classify");
+            assert_eq!(draft.rule_id, "ai.llama_cpp_cache");
+            assert_eq!(draft.category, Category::Deps);
+            assert_eq!(draft.safety, Safety::ReportOnly);
+        }
+    }
+
+    #[test]
+    fn rejects_llama_cpp_outside_exact_cache_parent() {
+        let parent = PathBuf::from("/Users/me/projects");
+        let path = parent.join("llama.cpp");
+        assert!(classify(&parent, "llama.cpp", &path).is_none());
+    }
+
+    #[test]
+    fn classifies_whisper_cpp_models_with_downloader_marker() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let project = temp.path().join("whisper.cpp");
+        let models = project.join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(models.join("download-ggml-model.sh"), "echo download").unwrap();
+
+        let draft = classify(&project, "models", &models).expect("should classify");
+        assert_eq!(draft.rule_id, "ai.whisper_cpp_models");
+        assert_eq!(draft.safety, Safety::ReportOnly);
+    }
+
+    #[test]
+    fn rejects_whisper_cpp_models_without_downloader_marker() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let project = temp.path().join("whisper.cpp");
+        let models = project.join("models");
+        std::fs::create_dir_all(&models).unwrap();
+
+        assert!(classify(&project, "models", &models).is_none());
+    }
+
+    #[test]
+    fn classifies_comfyui_models_with_project_markers() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let project = temp.path().join("ComfyUI");
+        let models = project.join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::write(project.join("folder_paths.py"), "").unwrap();
+        std::fs::write(project.join("main.py"), "").unwrap();
+
+        let draft = classify(&project, "models", &models).expect("should classify");
+        assert_eq!(draft.rule_id, "ai.comfyui_models");
+        assert_eq!(draft.safety, Safety::ReportOnly);
+    }
+
+    #[test]
+    fn rejects_comfyui_models_without_project_markers() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let project = temp.path().join("ComfyUI");
+        let models = project.join("models");
+        std::fs::create_dir_all(&models).unwrap();
+
+        assert!(classify(&project, "models", &models).is_none());
     }
 }

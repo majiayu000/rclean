@@ -248,6 +248,11 @@ pub fn diagnose() -> DoctorReport {
         home.join(".cache").join("whisper"),
         "no Whisper model cache detected",
     ));
+    entries.push(check_any_anchor(
+        "ai.llama_cpp_cache",
+        simple_cache_anchors(&home, "llama.cpp"),
+        "no llama.cpp model cache detected",
+    ));
     entries.push(check_anchor(
         "ai.ollama_models",
         home.join(".ollama").join("models"),
@@ -277,7 +282,7 @@ pub fn diagnose() -> DoctorReport {
     // platform and user environment.
     entries.push(check_any_anchor(
         "js.deno_cache",
-        deno_cache_anchors(&home),
+        simple_cache_anchors(&home, "deno"),
         "no Deno install detected",
     ));
 
@@ -590,24 +595,24 @@ fn homebrew_download_anchors(home: &std::path::Path) -> Vec<PathBuf> {
     }
 }
 
-/// Canonical anchors for Deno's remote-dependency cache. macOS native
-/// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
-/// uses `%LOCALAPPDATA%\deno`.
-fn deno_cache_anchors(home: &std::path::Path) -> Vec<PathBuf> {
+/// Canonical anchors for simple user cache roots. macOS native is
+/// `~/Library/Caches/<tool>` with XDG fallback, Linux uses
+/// `~/.cache/<tool>`, and Windows uses `%LOCALAPPDATA%\<tool>`.
+fn simple_cache_anchors(home: &std::path::Path, tool: &str) -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         vec![
-            home.join("Library").join("Caches").join("deno"),
-            home.join(".cache").join("deno"),
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
         ]
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
-        vec![home.join(".cache").join("deno")]
+        vec![home.join(".cache").join(tool)]
     }
     #[cfg(target_os = "windows")]
     {
-        vec![home.join("AppData").join("Local").join("deno")]
+        vec![home.join("AppData").join("Local").join(tool)]
     }
 }
 
@@ -682,10 +687,10 @@ mod tests {
         // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
-        // plus the Go modcache root cleanup rule. #160/#162 add 5 more
+        // plus the Go modcache root cleanup rule. #160/#162 add 6 more
         // exact-anchor global cache rules. #158 adds one system-scope
         // report-only rule.
-        assert_eq!(report.total_count(), 52);
+        assert_eq!(report.total_count(), 53);
     }
 
     #[test]

@@ -673,6 +673,41 @@ fn home_flag_reports_ollama_models_as_report_only_never_selected()
 }
 
 #[test]
+fn home_flag_reports_llama_cpp_cache_as_report_only_never_selected()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let models = temp.path().join(".cache").join("llama.cpp");
+    std::fs::create_dir_all(&models)?;
+    std::fs::write(models.join("model.gguf"), "x")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args(["scan", "--home", "--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"ai.llama_cpp_cache\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"report-only\""));
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.env("HOME", temp.path())
+        .args([
+            "clean",
+            "--home",
+            "--all",
+            "--include-caution",
+            "--include-blocked",
+            "--dry-run",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .code(3);
+    Ok(())
+}
+
+#[test]
 fn home_flag_reports_homebrew_dart_vllm_and_whisper_caches()
 -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
@@ -867,7 +902,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
         .stdout(predicate::str::contains("apple.idleassetsd"))
-        .stdout(predicate::str::contains("of 52 rules applicable"));
+        .stdout(predicate::str::contains("of 53 rules applicable"));
 }
 
 #[test]
@@ -1386,6 +1421,9 @@ fn rules_lists_every_classifier_emitted_id() {
         "homebrew.downloads",
         "ai.vllm_compile_cache",
         "ai.whisper_models",
+        "ai.llama_cpp_cache",
+        "ai.whisper_cpp_models",
+        "ai.comfyui_models",
         "node.npm_transient",
         "agent.tmp_worktree",
         "ruby.bundle_compact_index",

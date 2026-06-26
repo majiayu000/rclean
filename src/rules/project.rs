@@ -54,6 +54,7 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "hub"
             | "torch_compile_cache"
             | "whisper"
+            | "llama.cpp"
             | "models"
             | "puppeteer"
             | "pre-commit"
@@ -111,6 +112,7 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "ai.torch_hub"
             | "ai.vllm_compile_cache"
             | "ai.whisper_models"
+            | "ai.llama_cpp_cache"
             | "ai.ollama_models"
             | "browser.puppeteer"
             | "js.deno_cache"
@@ -267,6 +269,7 @@ mod tests {
             "_prebuilds",
             "torch_compile_cache",
             "whisper",
+            "llama.cpp",
             "Code Cache",
             "DawnGraphiteCache",
             "publisher.tool-1.2.0",
