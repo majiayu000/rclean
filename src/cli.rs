@@ -466,7 +466,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         // needs its parent as the scan root. Keep pnpm targeted when
         // the Go build cache is absent.
         if local_app_data.join("go-build").is_dir() {
-            candidates.push(local_app_data);
+            candidates.push(local_app_data.clone());
         } else {
             candidates.push(local_app_data.join("pnpm"));
         }
