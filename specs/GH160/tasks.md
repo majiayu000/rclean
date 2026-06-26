@@ -1,6 +1,7 @@
 # GH160 tasks: conservative developer cache rules
 
 - [x] Add Homebrew download cache classification.
+- [x] Add Android SDK download-intermediate and legacy build-cache classification.
 - [x] Add Dart pub hosted/git cache classification.
 - [x] Add exact JetBrains IDE cache/log classification.
 - [x] Add exact Android Studio cache/log classification.

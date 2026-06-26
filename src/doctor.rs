@@ -16,8 +16,8 @@ mod anchors;
 use std::path::PathBuf;
 
 use anchors::{
-    browser_cache_anchors, deno_cache_anchors, homebrew_download_anchors, ide_log_anchors,
-    ide_system_anchors, python_cache_anchors,
+    android_sdk_anchors, browser_cache_anchors, deno_cache_anchors, homebrew_download_anchors,
+    ide_log_anchors, ide_system_anchors, python_cache_anchors,
 };
 
 #[derive(Debug)]
@@ -76,6 +76,16 @@ pub fn diagnose() -> DoctorReport {
             "homebrew.downloads",
             homebrew_download_anchors(&home),
             "no Homebrew download cache detected",
+        ),
+        check_any_anchor(
+            "android_sdk.download_intermediates",
+            android_sdk_anchors(&home),
+            "no Android SDK root detected",
+        ),
+        check_anchor(
+            "android_sdk.legacy_build_cache",
+            home.join(".android").join("build-cache"),
+            "no legacy Android build cache detected",
         ),
         check_anchor(
             "dart.pub_hosted_cache",
@@ -626,7 +636,7 @@ mod tests {
         // plus the Go modcache root cleanup rule. #160/#162 add 9 more
         // exact-anchor global cache rules. #158 adds one system-scope
         // report-only rule.
-        assert_eq!(report.total_count(), 56);
+        assert_eq!(report.total_count(), 58);
     }
 
     #[test]

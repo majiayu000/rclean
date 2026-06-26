@@ -867,7 +867,7 @@ fn doctor_prints_rule_status_table() {
         .stdout(predicate::str::contains("node.pnpm_store"))
         .stdout(predicate::str::contains("xcode.derived_data"))
         .stdout(predicate::str::contains("apple.idleassetsd"))
-        .stdout(predicate::str::contains("of 56 rules applicable"));
+        .stdout(predicate::str::contains("of 58 rules applicable"));
 }
 
 #[test]
@@ -1384,6 +1384,8 @@ fn rules_lists_every_classifier_emitted_id() {
         "ruby.vendor_bundle",
         "generic.coverage",
         "homebrew.downloads",
+        "android_sdk.download_intermediates",
+        "android_sdk.legacy_build_cache",
         "jetbrains.system_caches",
         "jetbrains.logs",
         "android_studio.system_caches",

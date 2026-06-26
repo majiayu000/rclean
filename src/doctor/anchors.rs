@@ -41,6 +41,31 @@ pub(super) fn homebrew_download_anchors(home: &Path) -> Vec<PathBuf> {
     }
 }
 
+/// Canonical anchors for Android SDK caches managed by Android Studio or
+/// sdkmanager.
+pub(super) fn android_sdk_anchors(home: &Path) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![home.join("Library").join("Android").join("sdk")]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![
+            home.join("Android").join("Sdk"),
+            home.join("Android").join("sdk"),
+        ]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![
+            home.join("AppData")
+                .join("Local")
+                .join("Android")
+                .join("Sdk"),
+        ]
+    }
+}
+
 /// Canonical anchors for Deno's remote-dependency cache. macOS native
 /// is `~/Library/Caches/deno`; Linux uses `~/.cache/deno`; Windows
 /// uses `%LOCALAPPDATA%\deno`.

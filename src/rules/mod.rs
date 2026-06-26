@@ -4,6 +4,7 @@ use crate::model::{CandidateDraft, Category};
 
 mod agent_tmp;
 mod ai_models;
+mod android_sdk;
 mod app_caches;
 mod browser_global;
 mod bun;
@@ -87,6 +88,7 @@ static IOS_RULES: RuleFn = RuleFn(ios::classify);
 static XCODE_RULES: RuleFn = RuleFn(xcode::classify);
 static CARGO_GLOBAL_RULES: RuleFn = RuleFn(cargo_global::classify);
 static HOMEBREW_RULES: RuleFn = RuleFn(homebrew::classify);
+static ANDROID_SDK_RULES: RuleFn = RuleFn(android_sdk::classify);
 static IDE_CACHES_RULES: RuleFn = RuleFn(ide_caches::classify);
 static DART_GLOBAL_RULES: RuleFn = RuleFn(dart_global::classify);
 static NODE_GLOBAL_RULES: RuleFn = RuleFn(node_global::classify);
@@ -105,7 +107,7 @@ static APP_CACHES_RULES: RuleFn = RuleFn(app_caches::classify);
 static USER_TOOL_CACHES_RULES: RuleFn = RuleFn(user_tool_caches::classify);
 static GENERIC_RULES: RuleFn = RuleFn(generic::classify);
 
-static BUILTIN_RULES: [&dyn RuleSet; 29] = [
+static BUILTIN_RULES: [&dyn RuleSet; 30] = [
     &RUST_RULES,
     &JVM_RULES,
     &FLUTTER_RULES,
@@ -118,6 +120,7 @@ static BUILTIN_RULES: [&dyn RuleSet; 29] = [
     &XCODE_RULES,
     &CARGO_GLOBAL_RULES,
     &HOMEBREW_RULES,
+    &ANDROID_SDK_RULES,
     &IDE_CACHES_RULES,
     &DART_GLOBAL_RULES,
     &NODE_GLOBAL_RULES,

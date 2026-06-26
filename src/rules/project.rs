@@ -42,6 +42,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "download"
             | "db"
             | "downloads"
+            | ".downloadIntermediates"
+            | "build-cache"
             | "hosted"
             | "git"
             | "go-build"
@@ -105,6 +107,8 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "cargo.registry_cache"
             | "cargo.git_db"
             | "homebrew.downloads"
+            | "android_sdk.download_intermediates"
+            | "android_sdk.legacy_build_cache"
             | "jetbrains.system_caches"
             | "jetbrains.logs"
             | "android_studio.system_caches"
@@ -259,6 +263,8 @@ mod tests {
             "com.google.Chrome.code_sign_clone",
             "remem-dry-run-123",
             "downloads",
+            ".downloadIntermediates",
+            "build-cache",
             "hosted",
             "git",
             "videos",

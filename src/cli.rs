@@ -372,6 +372,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         home.join(".npm"),
         home.join(".pnpm-store"),
         home.join(".pub-cache"),
+        home.join(".android"),
         home.join(".ollama"),
         home.join(".bun"),
         home.join(".bundle"),
@@ -393,6 +394,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         candidates.push(home.join("Library").join("Caches"));
         candidates.push(home.join("Library").join("Logs").join("JetBrains"));
         candidates.push(home.join("Library").join("Logs").join("Google"));
+        candidates.push(home.join("Library").join("Android").join("sdk"));
         candidates.push(home.join("Library").join("pnpm"));
         candidates.push(home.join("Library").join("Developer"));
         candidates.push(
@@ -441,6 +443,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         candidates.push(home.join(".cache"));
+        candidates.push(home.join("Android").join("Sdk"));
         candidates.push(home.join(".local").join("share").join("pnpm"));
     }
 
@@ -472,6 +475,7 @@ fn home_toolchain_paths() -> Vec<PathBuf> {
         }
         candidates.push(local_app_data.join("JetBrains"));
         candidates.push(local_app_data.join("Google"));
+        candidates.push(local_app_data.join("Android").join("Sdk"));
     }
 
     candidates.retain(|p| p.is_dir());

@@ -15,6 +15,8 @@ Every rule added for GH160 must define:
 | Rule id | Match | Safety | Notes |
 | --- | --- | --- | --- |
 | `homebrew.downloads` | `~/Library/Caches/Homebrew/downloads` or `~/.cache/Homebrew/downloads` | safe | Direct deletion of downloaded archives only. |
+| `android_sdk.download_intermediates` | `<Android SDK>/.downloadIntermediates` | caution | SDK Manager download intermediates only. |
+| `android_sdk.legacy_build_cache` | `~/.android/build-cache` | caution | Legacy Android Gradle Plugin cache only. |
 | `dart.pub_hosted_cache` | `~/.pub-cache/hosted` | caution | Global package cache, redownload required. |
 | `dart.pub_git_cache` | `~/.pub-cache/git` | caution | Global git dependency cache, reclone required. |
 | `jetbrains.system_caches` | JetBrains product `caches` under system cache roots | caution | Exact versioned IDE product anchors only. |
@@ -24,8 +26,8 @@ Every rule added for GH160 must define:
 
 ## Files
 
-- Rule code: `src/rules/homebrew.rs`, `src/rules/dart_global.rs`,
-  `src/rules/ide_caches.rs`
+- Rule code: `src/rules/homebrew.rs`, `src/rules/android_sdk.rs`,
+  `src/rules/dart_global.rs`, `src/rules/ide_caches.rs`
 - Registration: `src/rules/mod.rs`, `src/rules/catalog.rs`,
   `src/rules/project.rs`
 - Home roots: `src/cli.rs`
@@ -35,14 +37,16 @@ Every rule added for GH160 must define:
 
 ## Platform Roots
 
-- macOS: `~/Library/Caches`, `~/Library/Logs`, `~/.cache`, `.pub-cache`
-- Linux/XDG: `~/.cache`, `.pub-cache`
+- macOS: `~/Library/Caches`, `~/Library/Logs`, `~/Library/Android/sdk`,
+  `~/.cache`, `.pub-cache`, `.android`
+- Linux/XDG: `~/.cache`, `~/Android/Sdk`, `.pub-cache`, `.android`
 - Windows: `%LOCALAPPDATA%` equivalents under `AppData/Local`, plus `.cache`
   when relevant cache roots exist.
 
 ## Rejection Rules
 
-- Do not classify Android SDK paths such as `~/Library/Android/sdk`.
+- Do not classify installed Android SDK components such as `build-tools`,
+  `platforms`, `system-images`, NDKs, or arbitrary `caches` under the SDK root.
 - Do not classify AVD images under `.android/avd`.
 - Do not classify IDE settings under `Application Support`, `.config`, or
   `.local/share`.

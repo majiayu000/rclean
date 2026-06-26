@@ -156,6 +156,69 @@ fn ide_rules_reject_config_plugins_history_projects_sdks_and_avds() {
 }
 
 #[test]
+fn android_sdk_caches_are_classified_under_exact_anchors() {
+    let temp = TempDir::new().unwrap();
+    let sdk = temp.path().join("Library").join("Android").join("sdk");
+    let legacy = temp.path().join(".android");
+    make_non_empty_dir(&sdk.join(".downloadIntermediates"));
+    make_non_empty_dir(&legacy.join("build-cache"));
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.arg("scan")
+        .arg(&sdk)
+        .arg(&legacy)
+        .args(["--json", "--min-size", "0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"android_sdk.download_intermediates\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"ruleId\": \"android_sdk.legacy_build_cache\"",
+        ))
+        .stdout(predicate::str::contains("\"safety\": \"caution\""));
+}
+
+#[test]
+fn android_sdk_rules_reject_components_avds_and_noncanonical_caches() {
+    let temp = TempDir::new().unwrap();
+    for path in [
+        temp.path()
+            .join("Library")
+            .join("Android")
+            .join("sdk")
+            .join("build-tools"),
+        temp.path()
+            .join("Library")
+            .join("Android")
+            .join("sdk")
+            .join("system-images"),
+        temp.path()
+            .join("Library")
+            .join("Android")
+            .join("sdk")
+            .join("caches"),
+        temp.path().join("project").join(".downloadIntermediates"),
+        temp.path().join("project").join("build-cache"),
+        temp.path()
+            .join(".android")
+            .join("avd")
+            .join("Pixel_8.avd")
+            .join("cache.img"),
+    ] {
+        make_non_empty_dir(&path);
+    }
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.arg("scan")
+        .arg(temp.path())
+        .args(["--json", "--min-size", "0"])
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("android_sdk.").not());
+}
+
+#[test]
 fn home_flag_reports_ide_caches_and_logs_without_app_state() {
     let temp = TempDir::new().unwrap();
 
@@ -189,6 +252,12 @@ fn home_flag_reports_ide_caches_and_logs_without_app_state() {
             .join("Google")
             .join("AndroidStudio2024.3")
             .join("caches"),
+        temp.path()
+            .join("Library")
+            .join("Android")
+            .join("sdk")
+            .join(".downloadIntermediates"),
+        temp.path().join(".android").join("build-cache"),
     ];
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -218,6 +287,11 @@ fn home_flag_reports_ide_caches_and_logs_without_app_state() {
             .join("Google")
             .join("AndroidStudio2024.3")
             .join("caches"),
+        temp.path()
+            .join("Android")
+            .join("Sdk")
+            .join(".downloadIntermediates"),
+        temp.path().join(".android").join("build-cache"),
     ];
 
     #[cfg(target_os = "windows")]
@@ -252,6 +326,13 @@ fn home_flag_reports_ide_caches_and_logs_without_app_state() {
             .join("Google")
             .join("AndroidStudio2024.3")
             .join("caches"),
+        temp.path()
+            .join("AppData")
+            .join("Local")
+            .join("Android")
+            .join("Sdk")
+            .join(".downloadIntermediates"),
+        temp.path().join(".android").join("build-cache"),
     ];
 
     for path in &paths {
@@ -272,6 +353,8 @@ fn home_flag_reports_ide_caches_and_logs_without_app_state() {
     assert!(stdout.contains("\"ruleId\": \"jetbrains.logs\""));
     assert!(stdout.contains("\"ruleId\": \"android_studio.system_caches\""));
     assert!(stdout.contains("\"ruleId\": \"android_studio.logs\""));
+    assert!(stdout.contains("\"ruleId\": \"android_sdk.download_intermediates\""));
+    assert!(stdout.contains("\"ruleId\": \"android_sdk.legacy_build_cache\""));
     assert!(stdout.contains("\"safety\": \"caution\""));
     assert!(!stdout.contains("Application Support/Google/AndroidStudio2024.3/caches"));
     assert!(!stdout.contains(".config/Google/AndroidStudio2024.3/caches"));

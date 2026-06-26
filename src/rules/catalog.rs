@@ -202,6 +202,18 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Homebrew will redownload bottles or source archives on the next install/upgrade",
     },
     RuleInfo {
+        rule_id: "android_sdk.download_intermediates",
+        category: Category::Cache,
+        candidate: ".downloadIntermediates",
+        restore_hint: "Android Studio or sdkmanager will recreate SDK download intermediates",
+    },
+    RuleInfo {
+        rule_id: "android_sdk.legacy_build_cache",
+        category: Category::Cache,
+        candidate: "build-cache",
+        restore_hint: "Android Gradle Plugin will rebuild cache entries on the next build",
+    },
+    RuleInfo {
         rule_id: "jetbrains.system_caches",
         category: Category::Cache,
         candidate: "JetBrains IDE caches",
