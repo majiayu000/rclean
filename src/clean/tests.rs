@@ -143,6 +143,30 @@ fn validate_rejects_file() {
 }
 
 #[test]
+fn validate_rejects_docker_daemon_storage() {
+    let temp = TempDir::new().unwrap();
+    let project = temp
+        .path()
+        .join("var")
+        .join("lib")
+        .join("docker")
+        .join("project");
+    let target = project.join("target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(project.join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
+    fs::write(target.join("placeholder"), b"x").unwrap();
+
+    let err = validate_for_deletion_with_rule(&target, Some("rust.target"))
+        .expect_err("Docker daemon storage must not pass final delete validation")
+        .to_string();
+
+    assert!(
+        err.contains("Docker daemon storage"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn delete_selected_skips_swapped_symlink_target() {
     let temp = TempDir::new().unwrap();
     let real = temp.path().join("real");

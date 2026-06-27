@@ -6,7 +6,10 @@ use crate::error::PlanError;
 use crate::model::{CandidateDraft, ProjectReport, Safety};
 use crate::path_util::path_file_name;
 use crate::rules;
-use crate::scan::{dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path};
+use crate::scan::{
+    dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
+    is_runtime_or_system_path,
+};
 use crate::user_rules::UserRuleSet;
 
 use super::schema::{ActionPlan, PlanCandidate};
@@ -26,6 +29,12 @@ pub fn selected_from_action_plan(plan: &ActionPlan) -> Result<Vec<SelectedCandid
         {
             return Err(PlanError::Generic(format!(
                 "{} is protected user data; refusing to clean",
+                candidate.path
+            )));
+        }
+        if is_docker_storage_path(&path) {
+            return Err(PlanError::Generic(format!(
+                "{} is inside Docker daemon storage; refusing to clean",
                 candidate.path
             )));
         }
@@ -126,6 +135,12 @@ pub fn revalidate_selected(
         {
             return Err(PlanError::Generic(format!(
                 "{} resolves to protected user data",
+                candidate.path.display()
+            )));
+        }
+        if is_docker_storage_path(&canonical) {
+            return Err(PlanError::Generic(format!(
+                "{} resolves inside Docker daemon storage",
                 candidate.path.display()
             )));
         }

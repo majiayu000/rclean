@@ -5,7 +5,10 @@ use std::process::Command;
 
 use crate::error::CleanError;
 use crate::rules;
-use crate::scan::{dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path};
+use crate::scan::{
+    dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
+    is_runtime_or_system_path,
+};
 
 use super::types::SelectedCandidate;
 
@@ -59,6 +62,12 @@ pub(super) fn validate_for_deletion_with_rule(
     {
         return Err(CleanError::Generic(format!(
             "refusing to delete {}: resolves to protected user data",
+            path.display()
+        )));
+    }
+    if is_docker_storage_path(&canonical) {
+        return Err(CleanError::Generic(format!(
+            "refusing to delete {}: resolves inside Docker daemon storage",
             path.display()
         )));
     }
