@@ -319,7 +319,7 @@ pub fn print_doctor(report: &DoctorReport) {
                 "applicable",
                 short_path(&entry.anchor.display().to_string()),
             ),
-            Status::Skipped { reason } => ("skipped", (*reason).to_string()),
+            Status::Skipped { reason } => ("skipped", reason.clone()),
         };
         println!("{:<26} {:<10} {}", entry.rule_id, status_label, detail);
     }

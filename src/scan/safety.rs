@@ -107,6 +107,14 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
         return;
     }
 
+    if is_docker_storage_path(&draft.path) {
+        draft.safety = Safety::Blocked;
+        draft
+            .warnings
+            .push("candidate is inside Docker daemon storage".to_string());
+        return;
+    }
+
     // Global rules target paths that live inside the user's Library /
     // runtime tree by design. Their classifier already establishes that
     // the path is a rebuildable cache, so the generic runtime/system-path
@@ -187,6 +195,21 @@ pub(crate) fn is_protected_user_data_path(path: &Path) -> bool {
     false
 }
 
+pub(crate) fn is_docker_storage_path(path: &Path) -> bool {
+    let components: Vec<&str> = path.components().filter_map(component_name).collect();
+    has_component_sequence(&components, &["var", "lib", "docker"])
+        || has_component_sequence(&components, &[".local", "share", "docker"])
+        || has_component_sequence(&components, &["Library", "Containers", "com.docker.docker"])
+        || has_component_sequence(&components, &["AppData", "Local", "Docker"])
+        || has_component_sequence(&components, &["AppData", "Local", "Docker Desktop"])
+}
+
+fn has_component_sequence(components: &[&str], sequence: &[&str]) -> bool {
+    components
+        .windows(sequence.len())
+        .any(|window| window == sequence)
+}
+
 fn component_name(component: std::path::Component<'_>) -> Option<&str> {
     component.as_os_str().to_str()
 }
@@ -194,7 +217,8 @@ fn component_name(component: std::path::Component<'_>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DangerousLink, dangerous_link_kind, is_protected_user_data_path, is_runtime_or_system_path,
+        DangerousLink, dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
+        is_runtime_or_system_path,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -321,6 +345,37 @@ mod tests {
             assert!(
                 is_protected_user_data_path(&PathBuf::from(path)),
                 "expected {path} to be protected"
+            );
+        }
+    }
+
+    #[test]
+    fn protects_docker_daemon_storage_paths() {
+        for path in [
+            "/var/lib/docker/overlay2/layer/target",
+            "/Users/me/.local/share/docker/buildx/cache",
+            "/Users/me/Library/Containers/com.docker.docker/Data/vms/0",
+            "C:/Users/me/AppData/Local/Docker/wsl/data/ext4.vhdx",
+            "C:/Users/me/AppData/Local/Docker Desktop/cache",
+        ] {
+            assert!(
+                is_docker_storage_path(&PathBuf::from(path)),
+                "expected {path} to be protected Docker daemon storage"
+            );
+        }
+    }
+
+    #[test]
+    fn docker_storage_path_requires_exact_component_sequence() {
+        for path in [
+            "/Users/me/project/docker/cache",
+            "/Users/me/.local/share/docker-tools/cache",
+            "/var/lib/docker-compose/cache",
+            "C:/Users/me/AppData/Local/Dockerfile/cache",
+        ] {
+            assert!(
+                !is_docker_storage_path(&PathBuf::from(path)),
+                "did not expect {path} to be Docker daemon storage"
             );
         }
     }

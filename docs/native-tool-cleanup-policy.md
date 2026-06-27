@@ -47,7 +47,7 @@ trash/graveyard mode with an explicit reason.
 | uv | Native command cleanup | uv documents `uv cache clean`; uv also warns that symlink link mode can couple installed packages to cache contents. | Future rule should use `uv cache clean` and mark as caution because some link modes can make cache removal user-visible. |
 | Poetry | Native command cleanup | Poetry exposes `poetry cache clear` for package repository caches. | Future rule should use `poetry cache clear --all` or repository-specific `poetry cache clear <repo> --all` with noninteractive execution. Do not infer every Poetry cache directory is disposable. |
 | Homebrew | Native command cleanup | Homebrew owns Cellar/Caskroom and cache relationships and runs `brew cleanup` automatically in some install/upgrade flows. | Future rule should use `brew cleanup` with explicit options. Never direct-delete Homebrew's Cellar, Caskroom, taps, or package metadata. |
-| Docker | Daemon/API cleanup | Docker stores images, layers, volumes, networks, containers, and build cache behind daemon-managed metadata. Official prune commands target unused objects through the daemon. | Future rule must use Docker CLI/API prune commands with explicit scope and filters. Never delete Docker storage directories directly. |
+| Docker | Daemon/API cleanup | Docker stores images, layers, volumes, networks, containers, and build cache behind daemon-managed metadata. Official prune commands target unused objects through the daemon. | Implemented first as `rclean docker report`: inspect-only daemon reporting with bounded Docker CLI calls and no delete/prune commands. Future deletion support must use Docker CLI/API commands with explicit scope and filters. Never delete Docker storage directories directly. |
 
 ## References
 

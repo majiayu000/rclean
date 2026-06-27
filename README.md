@@ -54,6 +54,7 @@ This is a from-scratch Rust CLI. It already supports:
 - numbered interactive selection
 - `agent doctor codex` for local Codex process, disk, power, and update diagnostics
 - `agent optimize codex --disable-auto-update` as a dry-run-first one-shot setting helper
+- `docker report` for inspect-only Docker daemon cleanup reporting with no prune/delete
 
 ## Why rclean
 
@@ -132,6 +133,7 @@ cargo run --bin rclean -- scan --home
 cargo run --bin rclean -- scan --tmp --min-size 100mb
 cargo run --bin rclean -- agent doctor codex
 cargo run --bin rclean -- agent optimize codex --disable-auto-update
+cargo run --bin rclean -- docker report
 ```
 
 ### Whole-machine cleanup
@@ -355,6 +357,26 @@ maven.local_repo           skipped    no Maven install detected
 
 10 of 59 rules applicable on this machine.
 ```
+
+### Docker report
+
+Docker resources are daemon-owned and are not filesystem candidates or
+ActionPlan entries. Use the separate report command to inspect reclaim
+opportunities without deleting anything:
+
+```bash
+rclean docker report
+rclean docker report --json --timeout 5s
+rclean doctor --docker
+```
+
+`docker report` uses the official Docker CLI with bounded subprocess timeouts
+and array arguments. It does not call `docker system prune`, `docker builder
+prune`, `docker rm`, `docker rmi`, `docker volume rm`, or any other deletion
+command. Build cache and dangling-image categories may be classified as
+`caution` in the report taxonomy, while volumes, named resources, networks, and
+tagged images remain `report-only`; all Docker rows are `selected=false` in this
+release.
 
 User records are not cleanup candidates. The following paths are
 treated as protected user data and refused at scan, plan replay, and

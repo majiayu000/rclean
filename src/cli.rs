@@ -21,6 +21,8 @@ pub struct Cli {
 pub enum Commands {
     /// Diagnose and one-shot optimize local AI agent tools.
     Agent(AgentArgs),
+    /// Inspect daemon-owned Docker cleanup opportunities without deleting.
+    Docker(DockerArgs),
     /// Scan for cleanable development artifacts. This never deletes files.
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
@@ -38,7 +40,7 @@ pub enum Commands {
     /// Diagnostic: list which global-cache rules are applicable on
     /// this machine right now. Tells you which toolchain caches
     /// exist under $HOME without running a full scan.
-    Doctor,
+    Doctor(DoctorArgs),
     /// Restore a grave from the rclean graveyard.
     #[cfg(feature = "graveyard")]
     Restore(RestoreArgs),
@@ -51,6 +53,36 @@ pub enum Commands {
 pub struct AgentArgs {
     #[command(subcommand)]
     pub command: AgentCommands,
+}
+
+#[derive(Debug, Args)]
+pub struct DockerArgs {
+    #[command(subcommand)]
+    pub command: DockerCommands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DockerCommands {
+    /// Report Docker cleanup opportunities without selecting or deleting them.
+    Report(DockerReportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DockerReportArgs {
+    /// Emit machine-readable JSON instead of a table.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Timeout for each Docker CLI inspection command. Examples: 5s, 1m.
+    #[arg(long, default_value = "5s")]
+    pub timeout: String,
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Also probe Docker daemon status with a bounded Docker CLI call.
+    #[arg(long)]
+    pub docker: bool,
 }
 
 #[derive(Debug, Subcommand)]

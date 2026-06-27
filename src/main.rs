@@ -1,6 +1,7 @@
 mod agent;
 mod clean;
 mod cli;
+mod docker;
 mod doctor;
 mod error;
 #[cfg(feature = "graveyard")]
@@ -87,6 +88,28 @@ fn run() -> Result<ExitCode, RcleanError> {
                     output::print_agent_optimize_result(&result);
                 }
                 Ok(ExitCode::SUCCESS)
+            }
+        },
+        Commands::Docker(args) => match args.command {
+            cli::DockerCommands::Report(report_args) => {
+                let timeout = parse::parse_duration(&report_args.timeout)?;
+                let report = docker::report(docker::DockerReportOptions {
+                    timeout,
+                    ..docker::DockerReportOptions::default()
+                });
+                let available = report.status.is_available();
+                if report_args.json {
+                    let json = serde_json::to_string_pretty(&report)
+                        .map_err(error::RcleanError::Output)?;
+                    println!("{json}");
+                } else {
+                    docker::print_report(&report);
+                }
+                if available {
+                    Ok(ExitCode::SUCCESS)
+                } else {
+                    Ok(ExitCode::from(3))
+                }
             }
         },
         Commands::Scan(args) => {
@@ -237,8 +260,14 @@ fn run() -> Result<ExitCode, RcleanError> {
             output::print_rules();
             Ok(ExitCode::SUCCESS)
         }
-        Commands::Doctor => {
-            let report = doctor::diagnose();
+        Commands::Doctor(args) => {
+            let report = if args.docker {
+                doctor::diagnose_with_options(doctor::DoctorOptions {
+                    include_docker: true,
+                })
+            } else {
+                doctor::diagnose()
+            };
             output::print_doctor(&report);
             if report.applicable_count() == 0 {
                 Ok(ExitCode::from(3))
