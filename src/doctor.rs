@@ -14,6 +14,7 @@
 mod anchors;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anchors::{
     android_sdk_anchors, browser_cache_anchors, deno_cache_anchors, homebrew_download_anchors,
@@ -35,7 +36,12 @@ pub struct DoctorEntry {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Status {
     Applicable,
-    Skipped { reason: &'static str },
+    Skipped { reason: String },
+}
+
+#[derive(Debug, Default)]
+pub struct DoctorOptions {
+    pub include_docker: bool,
 }
 
 impl DoctorReport {
@@ -52,6 +58,10 @@ impl DoctorReport {
 }
 
 pub fn diagnose() -> DoctorReport {
+    diagnose_with_options(DoctorOptions::default())
+}
+
+pub fn diagnose_with_options(options: DoctorOptions) -> DoctorReport {
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
         return DoctorReport {
             entries: Vec::new(),
@@ -358,21 +368,21 @@ pub fn diagnose() -> DoctorReport {
             rule_id: "node.yarn_cache",
             anchor: PathBuf::from("(macOS only)"),
             status: Status::Skipped {
-                reason: "rule only applies on macOS",
+                reason: "rule only applies on macOS".to_string(),
             },
         });
         entries.push(DoctorEntry {
             rule_id: "xcode.derived_data",
             anchor: PathBuf::from("(macOS only)"),
             status: Status::Skipped {
-                reason: "rule only applies on macOS",
+                reason: "rule only applies on macOS".to_string(),
             },
         });
         entries.push(DoctorEntry {
             rule_id: "xcode.simulators",
             anchor: PathBuf::from("(macOS only)"),
             status: Status::Skipped {
-                reason: "rule only applies on macOS",
+                reason: "rule only applies on macOS".to_string(),
             },
         });
     }
@@ -402,7 +412,7 @@ pub fn diagnose() -> DoctorReport {
             rule_id: "playwright.browsers",
             anchor: PathBuf::from("(macOS / Linux only)"),
             status: Status::Skipped {
-                reason: "rule only applies on macOS and Linux",
+                reason: "rule only applies on macOS and Linux".to_string(),
             },
         });
     }
@@ -553,10 +563,14 @@ pub fn diagnose() -> DoctorReport {
                 rule_id,
                 anchor: PathBuf::from("(macOS only)"),
                 status: Status::Skipped {
-                    reason: "rule only applies on macOS",
+                    reason: "rule only applies on macOS".to_string(),
                 },
             });
         }
+    }
+
+    if options.include_docker {
+        entries.push(check_docker_daemon(Duration::from_secs(5)));
     }
 
     DoctorReport { entries }
@@ -572,7 +586,7 @@ fn check_anchor(
         Status::Applicable
     } else {
         Status::Skipped {
-            reason: missing_reason,
+            reason: missing_reason.to_string(),
         }
     };
     DoctorEntry {
@@ -587,7 +601,9 @@ fn skipped_anchor(rule_id: &'static str, anchor: PathBuf, reason: &'static str) 
     DoctorEntry {
         rule_id,
         anchor,
-        status: Status::Skipped { reason },
+        status: Status::Skipped {
+            reason: reason.to_string(),
+        },
     }
 }
 
@@ -611,7 +627,24 @@ fn check_any_anchor(
             .next()
             .unwrap_or_else(|| PathBuf::from("(unknown)")),
         status: Status::Skipped {
-            reason: missing_reason,
+            reason: missing_reason.to_string(),
+        },
+    }
+}
+
+fn check_docker_daemon(timeout: Duration) -> DoctorEntry {
+    match crate::docker::probe_for_doctor(timeout) {
+        crate::docker::DockerDoctorStatus::Available { server_version } => DoctorEntry {
+            rule_id: "docker.daemon",
+            anchor: server_version
+                .map(|version| PathBuf::from(format!("Docker Server {version}")))
+                .unwrap_or_else(|| PathBuf::from("Docker daemon")),
+            status: Status::Applicable,
+        },
+        crate::docker::DockerDoctorStatus::Skipped { reason } => DoctorEntry {
+            rule_id: "docker.daemon",
+            anchor: PathBuf::from("docker"),
+            status: Status::Skipped { reason },
         },
     }
 }

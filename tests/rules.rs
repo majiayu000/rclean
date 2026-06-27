@@ -736,3 +736,34 @@ fn xcode_derived_data_outside_canonical_path_is_not_classified() {
     .code(3)
     .stdout(predicate::str::contains("\"ruleId\": \"xcode.derived_data\"").not());
 }
+
+#[test]
+fn docker_daemon_storage_candidates_are_blocked() {
+    let temp = TempDir::new().unwrap();
+    let project = temp
+        .path()
+        .join("var")
+        .join("lib")
+        .join("docker")
+        .join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
+    make_non_empty_path(&project.join("target"));
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+        "--include-blocked",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"rust.target\""))
+    .stdout(predicate::str::contains("\"safety\": \"blocked\""))
+    .stdout(predicate::str::contains(
+        "candidate is inside Docker daemon storage",
+    ));
+}

@@ -61,6 +61,15 @@ fn create_node_project(root: &Path) -> PathBuf {
     candidate
 }
 
+fn create_docker_storage_target(root: &Path) -> PathBuf {
+    let project = root.join("var").join("lib").join("docker").join("project");
+    let candidate = project.join("target");
+    fs::create_dir_all(&candidate).unwrap();
+    fs::write(project.join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
+    fs::write(candidate.join("placeholder"), b"x").unwrap();
+    candidate
+}
+
 #[test]
 fn writes_and_revalidates_plan() {
     let temp = TempDir::new().unwrap();
@@ -326,6 +335,65 @@ fn tampered_plan_pointing_at_codex_sessions_is_rejected() {
 
     assert!(
         err.contains("protected user data"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn tampered_plan_pointing_at_docker_storage_is_rejected() {
+    let temp = TempDir::new().unwrap();
+    let candidate = create_node_project(temp.path());
+    let docker_target = create_docker_storage_target(temp.path());
+    let plan_path = temp.path().join("plan.json");
+    let report = report(temp.path(), &candidate);
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+
+    let raw = fs::read_to_string(&plan_path).unwrap();
+    let mut plan: ActionPlan = serde_json::from_str(&raw).unwrap();
+    plan.selected[0].path = docker_target.display().to_string();
+    plan.selected[0].safety = Safety::Safe;
+    let tampered_json = serde_json::to_string_pretty(&plan).unwrap();
+    fs::write(&plan_path, tampered_json).unwrap();
+
+    let plan = read_action_plan(&plan_path).unwrap();
+    let err = selected_from_action_plan(&plan)
+        .expect_err("Docker daemon storage must never be selected from a plan")
+        .to_string();
+
+    assert!(
+        err.contains("Docker daemon storage"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn revalidate_selected_rejects_docker_storage_path() {
+    let temp = TempDir::new().unwrap();
+    let candidate = create_node_project(temp.path());
+    let docker_target = create_docker_storage_target(temp.path());
+    let plan_path = temp.path().join("plan.json");
+    let report = report(temp.path(), &candidate);
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+    let plan = read_action_plan(&plan_path).unwrap();
+    let selected = vec![crate::clean::SelectedCandidate {
+        id: Some("docker-storage-test".to_string()),
+        path: docker_target,
+        bytes: 1,
+        rule_id: "rust.target".to_string(),
+        category: Category::Build,
+        safety: Safety::Safe,
+        requires_sudo: false,
+        risk_score: 0.0,
+    }];
+
+    let err = revalidate_selected(&plan, &selected)
+        .expect_err("Docker daemon storage must fail replay revalidation")
+        .to_string();
+
+    assert!(
+        err.contains("Docker daemon storage"),
         "unexpected error: {err}"
     );
 }
