@@ -92,7 +92,7 @@ fn run() -> Result<ExitCode, RcleanError> {
         },
         Commands::Docker(args) => match args.command {
             cli::DockerCommands::Report(report_args) => {
-                let timeout = parse::parse_duration(&report_args.timeout)?;
+                let timeout = parse::parse_timeout_duration(&report_args.timeout)?;
                 let report = docker::report(docker::DockerReportOptions {
                     timeout,
                     ..docker::DockerReportOptions::default()

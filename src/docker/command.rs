@@ -35,6 +35,10 @@ enum DockerCommandErrorKind {
         stream: &'static str,
         source: std::io::Error,
     },
+    OutputTooLarge {
+        stream: &'static str,
+        limit: usize,
+    },
     TimedOut {
         timeout: Duration,
         stdout: String,
@@ -206,6 +210,12 @@ pub(super) fn status_from_command_error(error: DockerCommandError) -> DockerStat
         | DockerCommandErrorKind::Capture { stream, source } => DockerStatus::Error {
             reason: format!("failed to capture {stream} for {}: {source}", error.command),
         },
+        DockerCommandErrorKind::OutputTooLarge { stream, limit } => DockerStatus::Error {
+            reason: format!(
+                "{} {stream} exceeded {limit} bytes; Docker output was not parsed",
+                error.command
+            ),
+        },
         DockerCommandErrorKind::Wait(source)
         | DockerCommandErrorKind::Kill(source)
         | DockerCommandErrorKind::Reap(source) => DockerStatus::Error {
@@ -226,12 +236,21 @@ fn read_capture(
     let mut buffer = Vec::new();
     reader
         .by_ref()
-        .take(MAX_CAPTURE_BYTES as u64)
+        .take((MAX_CAPTURE_BYTES + 1) as u64)
         .read_to_end(&mut buffer)
         .map_err(|source| DockerCommandError {
             command: command_label.to_string(),
             kind: DockerCommandErrorKind::Capture { stream, source },
         })?;
+    if buffer.len() > MAX_CAPTURE_BYTES {
+        return Err(DockerCommandError {
+            command: command_label.to_string(),
+            kind: DockerCommandErrorKind::OutputTooLarge {
+                stream,
+                limit: MAX_CAPTURE_BYTES,
+            },
+        });
+    }
     Ok(String::from_utf8_lossy(&buffer).trim().to_string())
 }
 

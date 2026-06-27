@@ -200,14 +200,26 @@ pub(crate) fn is_docker_storage_path(path: &Path) -> bool {
     has_component_sequence(&components, &["var", "lib", "docker"])
         || has_component_sequence(&components, &[".local", "share", "docker"])
         || has_component_sequence(&components, &["Library", "Containers", "com.docker.docker"])
-        || has_component_sequence(&components, &["AppData", "Local", "Docker"])
-        || has_component_sequence(&components, &["AppData", "Local", "Docker Desktop"])
+        || has_component_sequence_ignore_ascii_case(&components, &["AppData", "Local", "Docker"])
+        || has_component_sequence_ignore_ascii_case(
+            &components,
+            &["AppData", "Local", "Docker Desktop"],
+        )
 }
 
 fn has_component_sequence(components: &[&str], sequence: &[&str]) -> bool {
     components
         .windows(sequence.len())
         .any(|window| window == sequence)
+}
+
+fn has_component_sequence_ignore_ascii_case(components: &[&str], sequence: &[&str]) -> bool {
+    components.windows(sequence.len()).any(|window| {
+        window
+            .iter()
+            .zip(sequence)
+            .all(|(component, expected)| component.eq_ignore_ascii_case(expected))
+    })
 }
 
 fn component_name(component: std::path::Component<'_>) -> Option<&str> {
@@ -357,6 +369,8 @@ mod tests {
             "/Users/me/Library/Containers/com.docker.docker/Data/vms/0",
             "C:/Users/me/AppData/Local/Docker/wsl/data/ext4.vhdx",
             "C:/Users/me/AppData/Local/Docker Desktop/cache",
+            "C:/Users/me/AppData/Local/docker/wsl/data/ext4.vhdx",
+            "C:/Users/me/appdata/local/docker desktop/cache",
         ] {
             assert!(
                 is_docker_storage_path(&PathBuf::from(path)),

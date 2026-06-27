@@ -140,6 +140,51 @@ fn docker_report_success_is_report_only_and_never_prunes() -> Result<(), Box<dyn
 
 #[cfg(unix)]
 #[test]
+fn docker_report_large_output_is_explicit_error() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let fake = write_fake_docker(
+        temp.path(),
+        r#"#!/bin/sh
+case "$*" in
+  'version --format {{json .Server}}')
+    printf '{"Version":"27.0.0"}\n'
+    ;;
+  'system df --format {{json .}}')
+    i=0
+    while [ "$i" -lt 5000 ]; do
+      printf '{"Type":"Images","TotalCount":"2","Active":"1","Size":"1GB","Reclaimable":"500MB"}\n'
+      i=$((i + 1))
+    done
+    ;;
+  *)
+    printf '{"ID":"ok"}\n'
+    ;;
+esac
+"#,
+    )?;
+
+    let output = Command::cargo_bin("rclean")?
+        .env("RCLEAN_DOCKER_BIN", &fake)
+        .args(["docker", "report", "--json"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let report: Value = serde_json::from_slice(&output)?;
+
+    assert_eq!(report["status"]["kind"].as_str(), Some("error"));
+    assert!(
+        report["status"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("exceeded 65536 bytes")),
+        "unexpected report: {report:#?}"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn doctor_default_does_not_probe_docker() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let log = temp.path().join("docker.log");
