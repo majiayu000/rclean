@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use super::ide_caches::is_dynamic_candidate_name as is_ide_dynamic_candidate_name;
 use super::macos_system::is_dynamic_candidate_name as is_macos_system_dynamic_candidate_name;
 use super::markers::{
     has_marker, has_prefixed_marker, is_dotnet_project, is_python_project, is_ruby_project,
@@ -41,6 +42,8 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "download"
             | "db"
             | "downloads"
+            | ".downloadIntermediates"
+            | "build-cache"
             | "hosted"
             | "git"
             | "go-build"
@@ -78,12 +81,14 @@ pub fn is_candidate_name(name: &str) -> bool {
             | "com.apple.idleassetsd"
             | "compact_index"
             | "logs"
+            | "log"
             | "Cache"
             | "CachedData"
             | "Code Cache"
             | "GPUCache"
     ) || is_pnpm_store_version_name(name)
         || is_shipit_candidate_name(name)
+        || is_ide_dynamic_candidate_name(name)
         || is_macos_system_dynamic_candidate_name(name)
         || is_user_tool_dynamic_candidate_name(name)
 }
@@ -102,6 +107,12 @@ pub fn is_global_rule(rule_id: &str) -> bool {
             | "cargo.registry_cache"
             | "cargo.git_db"
             | "homebrew.downloads"
+            | "android_sdk.download_intermediates"
+            | "android_sdk.legacy_build_cache"
+            | "jetbrains.system_caches"
+            | "jetbrains.logs"
+            | "android_studio.system_caches"
+            | "android_studio.logs"
             | "dart.pub_hosted_cache"
             | "dart.pub_git_cache"
             | "node.npm_cacache"
@@ -252,6 +263,8 @@ mod tests {
             "com.google.Chrome.code_sign_clone",
             "remem-dry-run-123",
             "downloads",
+            ".downloadIntermediates",
+            "build-cache",
             "hosted",
             "git",
             "videos",
