@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use anchors::{
     android_sdk_anchors, browser_cache_anchors, deno_cache_anchors, homebrew_download_anchors,
-    ide_log_anchors, ide_system_anchors, python_cache_anchors,
+    ide_log_anchors, ide_system_anchors, python_cache_anchors, simple_cache_anchors,
 };
 
 #[derive(Debug)]
@@ -264,6 +264,11 @@ pub fn diagnose() -> DoctorReport {
         "ai.whisper_models",
         home.join(".cache").join("whisper"),
         "no Whisper model cache detected",
+    ));
+    entries.push(check_any_anchor(
+        "ai.llama_cpp_cache",
+        simple_cache_anchors(&home, "llama.cpp"),
+        "no llama.cpp model cache detected",
     ));
     entries.push(check_anchor(
         "ai.ollama_models",
@@ -633,10 +638,10 @@ mod tests {
         // v0.3 Phase 2 + Python + Deno + Puppeteer + AI/ML had 26 entries;
         // #116 conservative user/app cache coverage adds 10 more;
         // #117 macOS whole-machine/app cache coverage adds 7 more anchors
-        // plus the Go modcache root cleanup rule. #160/#162 add 9 more
+        // plus the Go modcache root cleanup rule. #160/#162 add 10 more
         // exact-anchor global cache rules. #158 adds one system-scope
         // report-only rule.
-        assert_eq!(report.total_count(), 58);
+        assert_eq!(report.total_count(), 59);
     }
 
     #[test]

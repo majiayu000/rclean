@@ -328,10 +328,28 @@ pub(super) static RULES: &[RuleInfo] = &[
         restore_hint: "Whisper will re-download the selected model on the next run",
     },
     RuleInfo {
+        rule_id: "ai.llama_cpp_cache",
+        category: Category::Deps,
+        candidate: "llama.cpp",
+        restore_hint: "Re-download or restore llama.cpp model files manually",
+    },
+    RuleInfo {
         rule_id: "ai.ollama_models",
         category: Category::Deps,
         candidate: "models",
         restore_hint: "Run `ollama pull <model>` per model (user data, report-only)",
+    },
+    RuleInfo {
+        rule_id: "ai.whisper_cpp_models",
+        category: Category::Deps,
+        candidate: "models",
+        restore_hint: "Run whisper.cpp's model download script for models you want back",
+    },
+    RuleInfo {
+        rule_id: "ai.comfyui_models",
+        category: Category::Deps,
+        candidate: "models",
+        restore_hint: "Restore ComfyUI models from your sources or download them again",
     },
     RuleInfo {
         rule_id: "browser.puppeteer",

@@ -1,9 +1,9 @@
 # AI / ML model caches — spec
 
-Status: implemented (issue #102).
+Status: implemented (issues #102 and #162).
 
-This document explains the design decisions behind the three AI/ML
-cache rules and the new `Safety::ReportOnly` variant they introduced.
+This document explains the design decisions behind the AI/ML cache and
+model-store rules and the `Safety::ReportOnly` variant they rely on.
 
 ## Motivation
 
@@ -15,13 +15,18 @@ issue #102.
 Two of these are true rebuildable caches; one is **user data, not
 cache**, and the design must reflect that distinction.
 
-## The three rules
+## Cache and model-store rules
 
 | Rule id | Path | Safety | Restore |
 |---|---|---|---|
 | `ai.huggingface_hub` | `~/.cache/huggingface/hub` (every OS) | **caution** | `huggingface-cli delete-cache` |
 | `ai.torch_hub` | `~/.cache/torch/hub` (every OS) | safe | next `torch.hub.load()` |
+| `ai.vllm_compile_cache` | `~/.cache/vllm/torch_compile_cache` | **caution** | next vLLM model/server start |
+| `ai.whisper_models` | `~/.cache/whisper` | **caution** | next Whisper run redownloads the selected model |
+| `ai.llama_cpp_cache` | `~/.cache/llama.cpp`, `~/Library/Caches/llama.cpp`, `%LOCALAPPDATA%/llama.cpp` | **report-only** | manual restore/re-download |
 | `ai.ollama_models` | `~/.ollama/models` (every OS) | **report-only** | `ollama pull <model>` (per model) |
+| `ai.whisper_cpp_models` | `<whisper.cpp>/models` with downloader marker | **report-only** | rerun model download script |
+| `ai.comfyui_models` | `<ComfyUI>/models` with ComfyUI markers | **report-only** | restore or download models from configured sources |
 
 ## Cache vs user data: the key distinction
 
@@ -30,10 +35,10 @@ re-downloaded automatically by the framework on next use. They map
 to existing safety states (caution because of download cost, safe
 because of automatic restore).
 
-Ollama is **not a cache**. `~/.ollama/models` contains user-pulled
-model weights — equivalent to user-installed binaries. Re-pulling a
-70B model is hours of network time the user explicitly chose to
-spend.
+Ollama, llama.cpp, whisper.cpp project models, and ComfyUI models are
+**not normal caches**. They contain user-pulled or user-curated model
+weights — equivalent to user-installed binaries. Re-pulling a 70B
+model is hours of network time the user explicitly chose to spend.
 
 If `rclean` treated Ollama like a normal "cache" rule with
 `Safety::Caution`, an unguarded `clean --all --include-caution`
@@ -94,14 +99,16 @@ weaken the user-data guard (by training users that
 
 ## Out of scope (Tier 3 / single-source)
 
-- `whisper.cpp` model cache (`~/.cache/whisper.cpp`) — path is
-  convention, not officially documented
+- TGI custom model/cache overrides — they are arbitrary user paths.
+  Default TGI/HuggingFace downloads remain covered by
+  `ai.huggingface_hub`.
 - `sentence-transformers` (uses HuggingFace under the hood, already
   covered)
-- vLLM / TGI inference cache
 - `/usr/share/ollama/.ollama/models` (system-wide Ollama install
   path) — out of `--home` scope; users can `scan` the explicit path
   if needed, but `rclean` will still classify it ReportOnly
+- Arbitrary `models`, `downloads`, or `llama.cpp` directories outside
+  the exact anchors and markers listed above.
 
 ## Anti-patterns this design prevents
 

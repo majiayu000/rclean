@@ -43,8 +43,8 @@ This is a from-scratch Rust CLI. It already supports:
   pip cache, uv cache, Poetry cache, pipx cache, Bun install cache,
   Deno cache, Bundler compact index, Kubernetes/gcloud caches, Gradle
   caches, Maven local repo, Puppeteer Chrome, HuggingFace Hub,
-  PyTorch Hub, Ollama models (report-only), VS Code/Cursor caches,
-  obsolete editor extensions, Claude Code old versions, Xcode
+  PyTorch Hub, llama.cpp and Ollama models (report-only),
+  VS Code/Cursor caches, obsolete editor extensions, Claude Code old versions, Xcode
   `DerivedData`, iOS Simulators (via `scan --home`)
 - conservative safety classification: `safe`, `caution`, `blocked`, `report-only`
 - root-project scanning
@@ -294,6 +294,7 @@ let rclean find every applicable cache automatically:
 | `ai.torch_hub` | `~/.cache/torch/hub` | safe | next `torch.hub.load()` |
 | `ai.vllm_compile_cache` | `~/.cache/vllm/torch_compile_cache` | caution | next vLLM model/server start |
 | `ai.whisper_models` | `~/.cache/whisper` | caution | next Whisper run redownloads the selected model |
+| `ai.llama_cpp_cache` | `~/.cache/llama.cpp` / `~/Library/Caches/llama.cpp` / `%LOCALAPPDATA%/llama.cpp` | **report-only** (model store, never selected) | restore or re-download model files manually |
 | `ai.ollama_models` | `~/.ollama/models` | **report-only** (user data, never selected) | `ollama pull <model>` |
 | `python.uv_cache` | `~/Library/Caches/uv` or `~/.cache/uv` (XDG override active on macOS too) | caution | `uv cache clean` |
 | `python.poetry_cache` | `~/Library/Caches/pypoetry` (macOS) / `~/.cache/pypoetry` (Linux) | safe | next `poetry install` |
@@ -316,6 +317,16 @@ let rclean find every applicable cache automatically:
 | `editor.cursor_obsolete_extension` | `~/.cursor/extensions/<publisher>.<name>-<old-version>` | caution | Marketplace reinstall if needed |
 | `claude.old_version` | `~/.local/share/claude/versions/<old-version>` | caution | Claude Code reinstalls if needed |
 | `app.electron_cache` | known macOS app support `Cache`, `Code Cache`, `GPUCache`, `Dawn*Cache` dirs | caution | close app; it recreates caches |
+
+### AI/ML model stores
+
+These rules can fire in explicit project scans. They are report-only because
+they may contain user-curated model weights:
+
+| Rule id | Path | Safety | Restore |
+| --- | --- | --- | --- |
+| `ai.whisper_cpp_models` | `<whisper.cpp>/models` with `download-ggml-model.sh` | **report-only** | rerun the model download script |
+| `ai.comfyui_models` | `<ComfyUI>/models` with ComfyUI project markers | **report-only** | restore or download models from your sources |
 
 Run `rclean doctor` to see which of these apply on your machine
 right now:
@@ -342,7 +353,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 58 rules applicable on this machine.
+10 of 59 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are

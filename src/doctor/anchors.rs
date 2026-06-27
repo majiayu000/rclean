@@ -87,6 +87,27 @@ pub(super) fn deno_cache_anchors(home: &Path) -> Vec<PathBuf> {
     }
 }
 
+/// Canonical anchors for simple user cache roots. macOS native is
+/// `~/Library/Caches/<tool>` with XDG fallback, Linux uses
+/// `~/.cache/<tool>`, and Windows uses `%LOCALAPPDATA%\<tool>`.
+pub(super) fn simple_cache_anchors(home: &Path, tool: &str) -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            home.join("Library").join("Caches").join(tool),
+            home.join(".cache").join(tool),
+        ]
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        vec![home.join(".cache").join(tool)]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        vec![home.join("AppData").join("Local").join(tool)]
+    }
+}
+
 /// Canonical anchors for exact IDE system cache roots.
 pub(super) fn ide_system_anchors(home: &Path, vendor: &str) -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
