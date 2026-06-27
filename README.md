@@ -172,7 +172,8 @@ anchor `/Library/Application Support/com.apple.idleassetsd`. It is
 `--home` expands to `~/.cargo`, `~/go`, `~/.gradle`, `~/.m2`,
 `~/.npm`, `~/.pnpm-store`, `~/.bundle`, `~/.kube`,
 `~/.config/gcloud`, editor extension/version roots, plus
-`~/Library/Caches`, `~/Library/pnpm`, `~/Library/Developer`, and
+IDE cache/log roots, `~/Library/Caches`, `~/Library/pnpm`,
+`~/Library/Developer`, and
 selected `~/Library/Application Support/<app>` anchors on macOS or
 `~/.cache` and `~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
@@ -271,6 +272,12 @@ let rclean find every applicable cache automatically:
 | `cargo.registry_cache` | `~/.cargo/registry/cache` | safe | next `cargo build` |
 | `cargo.git_db` | `~/.cargo/git/db` | safe | next `cargo build` |
 | `homebrew.downloads` | `~/Library/Caches/Homebrew/downloads` (macOS) / `~/.cache/Homebrew/downloads` (Linux/XDG) | safe | next `brew install` / `brew upgrade` |
+| `android_sdk.download_intermediates` | `~/Library/Android/sdk/.downloadIntermediates` (macOS) / `~/Android/Sdk/.downloadIntermediates` (Linux) / `%LOCALAPPDATA%/Android/Sdk/.downloadIntermediates` (Windows) | caution | close Android Studio/sdkmanager; downloads are recreated |
+| `android_sdk.legacy_build_cache` | `~/.android/build-cache` | caution | Android Gradle Plugin rebuilds cache entries |
+| `jetbrains.system_caches` | `~/Library/Caches/JetBrains/<IDE><version>/caches` (macOS) / `~/.cache/JetBrains/<IDE><version>/caches` (Linux) / `%LOCALAPPDATA%/JetBrains/<IDE><version>/caches` (Windows) | caution | close IDE; it recreates caches |
+| `jetbrains.logs` | `~/Library/Logs/JetBrains/<IDE><version>` (macOS) / `~/.cache/JetBrains/<IDE><version>/log` (Linux) / `%LOCALAPPDATA%/JetBrains/<IDE><version>/log` (Windows) | caution | close IDE; it recreates logs |
+| `android_studio.system_caches` | `~/Library/Caches/Google/AndroidStudio*/caches` (macOS) / `~/.cache/Google/AndroidStudio*/caches` (Linux) / `%LOCALAPPDATA%/Google/AndroidStudio*/caches` (Windows) | caution | close Android Studio; it recreates caches |
+| `android_studio.logs` | `~/Library/Logs/Google/AndroidStudio*` (macOS) / `~/.cache/Google/AndroidStudio*/log` (Linux) / `%LOCALAPPDATA%/Google/AndroidStudio*/log` (Windows) | caution | close Android Studio; it recreates logs |
 | `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
 | `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
 | `dart.pub_hosted_cache` | `~/.pub-cache/hosted` | caution | next `dart pub get` / `flutter pub get` |
@@ -346,7 +353,7 @@ xcode.simulators           applicable ~/Library/Developer
 gradle.caches              skipped    no Gradle install detected
 maven.local_repo           skipped    no Maven install detected
 
-10 of 53 rules applicable on this machine.
+10 of 59 rules applicable on this machine.
 ```
 
 User records are not cleanup candidates. The following paths are
