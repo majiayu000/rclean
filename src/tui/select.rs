@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::clean::SelectedCandidate;
 use crate::error::CleanError;
-use crate::model::{Candidate, Category, Safety, ScanReport, format_bytes};
+use crate::model::{Candidate, Category, ProjectReport, Safety, ScanReport, format_bytes};
 
 use super::{search, theme};
 
@@ -40,6 +40,13 @@ struct CandidateRow {
     risk_score: f32,
     reason: String,
     rule_id: String,
+    reasons: Vec<String>,
+    warnings: Vec<String>,
+    restore_hint: String,
+    project_kind: String,
+    project_markers: Vec<String>,
+    git_dirty: Option<bool>,
+    last_modified: String,
 }
 
 pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
@@ -78,6 +85,7 @@ struct SelectorApp {
     cursor: usize,
     query: String,
     search_mode: bool,
+    explain_open: bool,
     done: bool,
     cancelled: bool,
 }
@@ -94,6 +102,7 @@ impl SelectorApp {
             cursor: 0,
             query: String::new(),
             search_mode: false,
+            explain_open: false,
             done: false,
             cancelled: false,
         }
@@ -118,6 +127,20 @@ impl SelectorApp {
             Paragraph::new(self.controls()).block(block("controls")),
             chunks[1],
         );
+
+        if self.explain_open {
+            frame.render_widget(
+                Paragraph::new(self.explain_detail())
+                    .block(block("explain (esc or ? to close)"))
+                    .wrap(ratatui::widgets::Wrap { trim: false }),
+                chunks[2],
+            );
+            frame.render_widget(
+                Paragraph::new(self.explain()).block(block("explain")),
+                chunks[3],
+            );
+            return;
+        }
 
         let items = self
             .filtered
@@ -154,7 +177,7 @@ impl SelectorApp {
         if self.search_mode {
             format!("/{}  enter/esc to leave search", self.query)
         } else {
-            "[/]search  [space]toggle  [a]all-safe  [enter]plan  [q]quit".to_string()
+            "[/]search  [space]toggle  [a]all-safe  [?]explain  [enter]plan  [q]quit".to_string()
         }
     }
 
@@ -184,6 +207,67 @@ impl SelectorApp {
         format!("{} - {}", row.rule_id, row.reason)
     }
 
+    /// Full-pane rendering of the same content `rclean explain <path>`
+    /// prints: rule, safety reasoning, project markers, size, activity.
+    fn explain_detail(&self) -> String {
+        let Some(index) = self.filtered.get(self.cursor) else {
+            return "no candidates match the current filter".to_string();
+        };
+        let row = &self.rows[*index];
+        let mut lines = vec![
+            format!("path:      {}", row.path),
+            format!("rule:      {}", row.rule_id),
+            format!(
+                "safety:    {:?}{}",
+                row.safety,
+                if row.requires_sudo {
+                    " (requires sudo; rclean will not delete this)"
+                } else {
+                    ""
+                }
+            ),
+            format!("size:      {}", format_bytes(row.bytes)),
+            format!("risk:      {:.2}", row.risk_score),
+            format!("project:   {}", row.project_kind),
+            format!(
+                "markers:   {}",
+                if row.project_markers.is_empty() {
+                    "-".to_string()
+                } else {
+                    row.project_markers.join(", ")
+                }
+            ),
+            format!(
+                "git:       {}",
+                match row.git_dirty {
+                    Some(true) => "dirty worktree",
+                    Some(false) => "clean worktree",
+                    None => "not a git repository",
+                }
+            ),
+            format!("activity:  last modified {}", row.last_modified),
+        ];
+        if !row.reasons.is_empty() {
+            lines.push(String::new());
+            lines.push("why this is a candidate:".to_string());
+            for reason in &row.reasons {
+                lines.push(format!("  - {reason}"));
+            }
+        }
+        if !row.warnings.is_empty() {
+            lines.push(String::new());
+            lines.push("warnings:".to_string());
+            for warning in &row.warnings {
+                lines.push(format!("  - {warning}"));
+            }
+        }
+        if !row.restore_hint.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("restore:   {}", row.restore_hint));
+        }
+        lines.join("\n")
+    }
+
     fn handle_key(&mut self, key: KeyEvent) {
         if self.search_mode {
             self.handle_search_key(key);
@@ -194,6 +278,8 @@ impl SelectorApp {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.cancelled = true;
             }
+            KeyCode::Char('?') => self.explain_open = !self.explain_open,
+            KeyCode::Esc if self.explain_open => self.explain_open = false,
             KeyCode::Char('q') | KeyCode::Esc => self.cancelled = true,
             KeyCode::Char('/') => self.search_mode = true,
             KeyCode::Down | KeyCode::Char('j') => self.move_cursor(1),
@@ -314,11 +400,16 @@ fn rows_from_report(report: &ScanReport) -> Vec<CandidateRow> {
     report
         .projects
         .iter()
-        .flat_map(|project| project.candidates.iter().map(row_from_candidate))
+        .flat_map(|project| {
+            project
+                .candidates
+                .iter()
+                .map(|candidate| row_from_candidate(project, candidate))
+        })
         .collect()
 }
 
-fn row_from_candidate(candidate: &Candidate) -> CandidateRow {
+fn row_from_candidate(project: &ProjectReport, candidate: &Candidate) -> CandidateRow {
     CandidateRow {
         path: candidate.path.clone(),
         label: candidate.name.clone(),
@@ -334,6 +425,13 @@ fn row_from_candidate(candidate: &Candidate) -> CandidateRow {
             .cloned()
             .unwrap_or_else(|| "-".to_string()),
         rule_id: candidate.rule_id.clone(),
+        reasons: candidate.reasons.clone(),
+        warnings: candidate.warnings.clone(),
+        restore_hint: candidate.restore_hint.clone(),
+        project_kind: project.kind.clone(),
+        project_markers: project.markers.clone(),
+        git_dirty: project.git.as_ref().map(|git| git.dirty),
+        last_modified: project.activity.last_modified.clone(),
     }
 }
 
@@ -369,4 +467,108 @@ fn truncate(value: &str, width: usize) -> String {
 
 fn clean_error(error: impl std::fmt::Display) -> CleanError {
     CleanError::Generic(format!("tui error: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ActivityInfo, GitInfo, ProjectReport, Summary};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn fixture_report() -> ScanReport {
+        ScanReport {
+            schema_version: 1,
+            tool_version: "test".to_string(),
+            scanned_at: "2026-07-03T00:00:00Z".to_string(),
+            roots: vec!["/tmp/root".to_string()],
+            disk_attribution: None,
+            warnings: Vec::new(),
+            summary: Summary {
+                projects_scanned: 1,
+                projects_with_candidates: 1,
+                candidates: 1,
+                safe_candidates: 1,
+                caution_candidates: 0,
+                blocked_candidates: 0,
+                report_only_candidates: 0,
+                total_bytes: 42,
+            },
+            projects: vec![ProjectReport {
+                path: "/tmp/root/app".to_string(),
+                kind: "Node.js".to_string(),
+                markers: vec!["package.json".to_string()],
+                git: Some(GitInfo {
+                    repo_root: "/tmp/root/app".to_string(),
+                    dirty: true,
+                }),
+                activity: ActivityInfo {
+                    last_modified: "2026-07-01T00:00:00Z".to_string(),
+                    source: "test".to_string(),
+                },
+                candidates: vec![Candidate {
+                    path: "/tmp/root/app/node_modules".to_string(),
+                    name: "node_modules".to_string(),
+                    rule_id: "node.node_modules".to_string(),
+                    category: Category::Deps,
+                    bytes: 42,
+                    safety: Safety::Safe,
+                    requires_sudo: false,
+                    reasons: vec!["package.json present".to_string()],
+                    warnings: Vec::new(),
+                    restore_hint: "npm install".to_string(),
+                    risk_score: 0.2,
+                }],
+                total_bytes: 42,
+                project_bytes: 100,
+                artifact_percent: 42.0,
+            }],
+        }
+    }
+
+    #[test]
+    fn question_mark_toggles_explain_pane() {
+        let report = fixture_report();
+        let mut app = SelectorApp::new(&report);
+        assert!(!app.explain_open);
+
+        app.handle_key(key(KeyCode::Char('?')));
+        assert!(app.explain_open);
+        assert!(!app.cancelled);
+
+        app.handle_key(key(KeyCode::Char('?')));
+        assert!(!app.explain_open);
+        assert!(!app.cancelled);
+    }
+
+    #[test]
+    fn esc_closes_explain_pane_before_cancelling() {
+        let report = fixture_report();
+        let mut app = SelectorApp::new(&report);
+
+        app.handle_key(key(KeyCode::Char('?')));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.explain_open);
+        assert!(!app.cancelled, "first esc must only close the pane");
+
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.cancelled, "second esc cancels the selector");
+    }
+
+    #[test]
+    fn explain_detail_matches_explain_content_for_highlighted_candidate() {
+        let report = fixture_report();
+        let app = SelectorApp::new(&report);
+        let detail = app.explain_detail();
+
+        assert!(detail.contains("node.node_modules"));
+        assert!(detail.contains("Safe"));
+        assert!(detail.contains("package.json"));
+        assert!(detail.contains("dirty worktree"));
+        assert!(detail.contains("package.json present"));
+        assert!(detail.contains("npm install"));
+        assert!(detail.contains("last modified 2026-07-01T00:00:00Z"));
+    }
 }
