@@ -1529,3 +1529,21 @@ fn explain_skips_risk_score_for_unmatched_path() {
         .stdout(predicate::str::contains("Safety: unknown"))
         .stdout(predicate::str::contains("Risk:").not());
 }
+
+#[test]
+fn no_subcommand_without_tty_prints_help_and_exits_2() {
+    // The no-arg default flow is interactive-only. Without a terminal
+    // on stdin/stdout it must print help and never reach selection or
+    // deletion, even inside a directory full of candidates.
+    let temp = TempDir::new().unwrap();
+    std::fs::create_dir_all(temp.path().join("app/node_modules/dep")).unwrap();
+    std::fs::write(temp.path().join("app/package.json"), "{}").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.current_dir(temp.path())
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("Usage:"));
+
+    assert!(temp.path().join("app/node_modules/dep").exists());
+}

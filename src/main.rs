@@ -60,7 +60,11 @@ fn init_tracing(verbose: bool) {
 fn run() -> Result<ExitCode, RcleanError> {
     let cli = Cli::parse();
 
-    match cli.command {
+    let Some(command) = cli.command else {
+        return run_default_interactive();
+    };
+
+    match command {
         Commands::Agent(args) => match args.command {
             cli::AgentCommands::Doctor(doctor_args) => {
                 let report = agent::diagnose_agent(doctor_args.tool);
@@ -133,100 +137,7 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::SUCCESS)
             }
         }
-        Commands::Clean(mut args) => {
-            let action_plan = args
-                .plan
-                .as_deref()
-                .map(plan::read_action_plan)
-                .transpose()?;
-            let delete_mode = if let Some(action_plan) = &action_plan {
-                enforce_action_plan_delete_mode(&mut args, &action_plan.delete_mode)?;
-                action_plan.delete_mode.clone()
-            } else {
-                requested_delete_mode(&args).to_string()
-            };
-            if !args.allow_broad_root {
-                if let Some(action_plan) = &action_plan {
-                    let plan_roots: Vec<std::path::PathBuf> = action_plan
-                        .roots
-                        .iter()
-                        .map(std::path::PathBuf::from)
-                        .collect();
-                    clean::check_broad_roots(&plan_roots)?;
-                } else {
-                    clean::check_broad_roots(&clean_roots_for_broad_check(&args)?)?;
-                }
-            }
-            let (selected, report) = if let Some(action_plan) = &action_plan {
-                let selected = plan::selected_from_action_plan(action_plan)?;
-                plan::revalidate_selected(action_plan, &selected)?;
-                (selected, None)
-            } else {
-                let options = args.common.to_scan_options()?;
-                let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
-                if let Some(plan_path) = &args.common.write_plan {
-                    plan::write_action_plan(
-                        &report,
-                        plan_path,
-                        args.common.include_caution,
-                        args.permanent,
-                        &delete_mode,
-                    )?;
-                    // User-facing success confirmation. Bypass the tracing
-                    // filter (default `warn` would hide info!) so the message
-                    // stays visible without --verbose, matching v0.1.0.
-                    write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
-                }
-                let selected = clean::select_candidates(&report, &args)?;
-                (selected, Some(report))
-            };
-
-            if let Some(report) = &report {
-                if args.common.json {
-                    output::print_json(report)?;
-                } else {
-                    output::print_table(report);
-                }
-            }
-            if !args.common.json {
-                clean::print_plan(&selected, &delete_mode, args.dry_run);
-            }
-
-            if selected.is_empty() {
-                return Ok(ExitCode::from(3));
-            }
-
-            if args.dry_run {
-                return Ok(ExitCode::SUCCESS);
-            }
-
-            if let Some(audit_log) = args.audit_log.as_deref() {
-                clean::validate_audit_log_path(audit_log, &selected)?;
-            }
-            clean::confirm_if_needed(&selected, &args)?;
-            let mut audit_logger = args
-                .audit_log
-                .as_deref()
-                .map(clean::DeleteAuditLogger::new)
-                .transpose()?;
-            #[cfg(feature = "graveyard")]
-            let result = if args.graveyard {
-                // SPEC §4.7.1: lazy create on first bury.
-                let yard = graveyard::Graveyard::open(graveyard::default_root());
-                clean::delete_selected_into_graveyard(&selected, &yard, audit_logger.as_mut())?
-            } else {
-                clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?
-            };
-            #[cfg(not(feature = "graveyard"))]
-            let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
-            clean::print_clean_result(&result);
-
-            if result.failed.is_empty() {
-                Ok(ExitCode::SUCCESS)
-            } else {
-                Ok(ExitCode::from(1))
-            }
-        }
+        Commands::Clean(args) => run_clean(args),
         Commands::Tui(args) => {
             #[cfg(feature = "tui")]
             {
@@ -315,6 +226,139 @@ fn run() -> Result<ExitCode, RcleanError> {
                 Ok(ExitCode::SUCCESS)
             }
         },
+    }
+}
+
+/// The no-subcommand entry point (spec: docs/specs/v0.2-best-ux.md §3.2 B2):
+/// scan the current directory, select interactively, and delete
+/// recoverably. Without a human at a terminal this must never reach a
+/// destructive path — agents and scripts use explicit subcommands.
+fn run_default_interactive() -> Result<ExitCode, RcleanError> {
+    use std::io::IsTerminal;
+
+    if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
+        use clap::CommandFactory;
+        Cli::command().print_help().map_err(|err| {
+            RcleanError::Clean(crate::error::CleanError::Generic(format!(
+                "failed to print help: {err}"
+            )))
+        })?;
+        return Ok(ExitCode::from(2));
+    }
+
+    let cli = Cli::parse_from(DEFAULT_INTERACTIVE_ARGV);
+    match cli.command {
+        Some(Commands::Clean(args)) => run_clean(args),
+        _ => Err(RcleanError::from(
+            "internal error: default interactive argv did not parse as a clean command".to_string(),
+        )),
+    }
+}
+
+/// Argv equivalent of the default interactive flow. Built from the
+/// stable CLI surface instead of hand-constructing `CleanArgs` so every
+/// clap default (depth, min-size, ...) stays in one place.
+#[cfg(all(feature = "tui", feature = "graveyard"))]
+const DEFAULT_INTERACTIVE_ARGV: [&str; 4] = ["rclean", "clean", "--tui", "--graveyard"];
+#[cfg(all(feature = "tui", not(feature = "graveyard")))]
+const DEFAULT_INTERACTIVE_ARGV: [&str; 3] = ["rclean", "clean", "--tui"];
+#[cfg(all(not(feature = "tui"), feature = "graveyard"))]
+const DEFAULT_INTERACTIVE_ARGV: [&str; 3] = ["rclean", "clean", "--graveyard"];
+#[cfg(all(not(feature = "tui"), not(feature = "graveyard")))]
+const DEFAULT_INTERACTIVE_ARGV: [&str; 2] = ["rclean", "clean"];
+
+fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
+    let action_plan = args
+        .plan
+        .as_deref()
+        .map(plan::read_action_plan)
+        .transpose()?;
+    let delete_mode = if let Some(action_plan) = &action_plan {
+        enforce_action_plan_delete_mode(&mut args, &action_plan.delete_mode)?;
+        action_plan.delete_mode.clone()
+    } else {
+        requested_delete_mode(&args).to_string()
+    };
+    if !args.allow_broad_root {
+        if let Some(action_plan) = &action_plan {
+            let plan_roots: Vec<std::path::PathBuf> = action_plan
+                .roots
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect();
+            clean::check_broad_roots(&plan_roots)?;
+        } else {
+            clean::check_broad_roots(&clean_roots_for_broad_check(&args)?)?;
+        }
+    }
+    let (selected, report) = if let Some(action_plan) = &action_plan {
+        let selected = plan::selected_from_action_plan(action_plan)?;
+        plan::revalidate_selected(action_plan, &selected)?;
+        (selected, None)
+    } else {
+        let options = args.common.to_scan_options()?;
+        let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
+        if let Some(plan_path) = &args.common.write_plan {
+            plan::write_action_plan(
+                &report,
+                plan_path,
+                args.common.include_caution,
+                args.permanent,
+                &delete_mode,
+            )?;
+            // User-facing success confirmation. Bypass the tracing
+            // filter (default `warn` would hide info!) so the message
+            // stays visible without --verbose, matching v0.1.0.
+            write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
+        }
+        let selected = clean::select_candidates(&report, &args)?;
+        (selected, Some(report))
+    };
+
+    if let Some(report) = &report {
+        if args.common.json {
+            output::print_json(report)?;
+        } else {
+            output::print_table(report);
+        }
+    }
+    if !args.common.json {
+        clean::print_plan(&selected, &delete_mode, args.dry_run);
+    }
+
+    if selected.is_empty() {
+        return Ok(ExitCode::from(3));
+    }
+
+    if args.dry_run {
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if let Some(audit_log) = args.audit_log.as_deref() {
+        clean::validate_audit_log_path(audit_log, &selected)?;
+    }
+    clean::confirm_if_needed(&selected, &args)?;
+    let mut audit_logger = args
+        .audit_log
+        .as_deref()
+        .map(clean::DeleteAuditLogger::new)
+        .transpose()?;
+    #[cfg(feature = "graveyard")]
+    let result = if args.graveyard {
+        // SPEC §4.7.1: lazy create on first bury.
+        let yard = graveyard::Graveyard::open(graveyard::default_root());
+        clean::delete_selected_into_graveyard(&selected, &yard, audit_logger.as_mut())?
+    } else {
+        clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?
+    };
+    #[cfg(not(feature = "graveyard"))]
+    let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
+    clean::print_clean_result(&result);
+
+    if result.failed.is_empty() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(1))
     }
 }
 
@@ -442,4 +486,25 @@ fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {
     stderr.write_fmt(args)?;
     stderr.write_all(b"\n")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod default_flow_tests {
+    use super::*;
+
+    #[test]
+    fn default_interactive_argv_parses_as_interactive_recoverable_clean() {
+        let cli = Cli::parse_from(DEFAULT_INTERACTIVE_ARGV);
+        let Some(Commands::Clean(args)) = cli.command else {
+            panic!("default interactive argv must parse as a clean command");
+        };
+        assert!(!args.all);
+        assert!(!args.dry_run);
+        assert!(!args.permanent);
+        assert!(args.plan.is_none());
+        assert!(args.common.paths.is_empty());
+        assert_eq!(args.tui, cfg!(feature = "tui"));
+        #[cfg(feature = "graveyard")]
+        assert!(args.graveyard);
+    }
 }

@@ -13,8 +13,10 @@ use crate::scan::{DEFAULT_ACTIVITY_DEPTH, DEFAULT_GIT_TIMEOUT_SECS, ScanOptions}
 #[command(about = "Find and clean rebuildable developer artifacts")]
 #[command(version)]
 pub struct Cli {
+    /// With no subcommand, an interactive terminal starts the default
+    /// scan-and-select flow; non-interactive callers get help instead.
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]
