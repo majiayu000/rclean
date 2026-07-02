@@ -13,6 +13,9 @@ use crate::model::{CandidateDraft, Category, Safety};
 struct UserRuleFile {
     #[serde(default)]
     rule: Vec<UserRuleRaw>,
+    /// Days after which a candidate counts as stale for ranking.
+    #[serde(default)]
+    stale_after_days: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +51,7 @@ pub struct UserRule {
 #[derive(Debug, Default, Clone)]
 pub struct UserRuleSet {
     rules: Vec<UserRule>,
+    stale_after_days: Option<u64>,
 }
 
 impl UserRuleSet {
@@ -92,7 +96,15 @@ impl UserRuleSet {
                 Err(err) => warn!("warning: .rclean.toml rule rejected: {err}"),
             }
         }
-        Self { rules }
+        Self {
+            rules,
+            stale_after_days: parsed.stale_after_days,
+        }
+    }
+
+    /// `stale_after_days` from `.rclean.toml`, if the file set one.
+    pub fn stale_after_days(&self) -> Option<u64> {
+        self.stale_after_days
     }
 
     pub fn is_empty(&self) -> bool {

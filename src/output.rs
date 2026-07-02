@@ -171,25 +171,32 @@ pub fn print_table(report: &ScanReport) {
         println!("Biggest wins:");
         for (index, (project, candidate)) in wins.into_iter().enumerate() {
             let project_name = short_path(&project.path);
+            let staleness = match candidate.staleness_days {
+                Some(days) if days >= report.stale_after_days => {
+                    format!(", untouched {days}d")
+                }
+                _ => String::new(),
+            };
             println!(
-                "  {}. {}/{} - {} reclaimable ({}, {}, {})",
+                "  {}. {}/{} - {} reclaimable ({}, {}, {}{})",
                 index + 1,
                 truncate(&project_name, 44),
                 candidate.name,
                 format_bytes(candidate.bytes),
                 format_percent(project.artifact_percent),
                 candidate.safety,
-                candidate.category
+                candidate.category,
+                staleness
             );
         }
     }
 
     println!();
     println!(
-        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} Reason",
-        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety", "Risk"
+        "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} Reason",
+        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety", "Risk", "Stale"
     );
-    println!("{}", "-".repeat(124));
+    println!("{}", "-".repeat(131));
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
@@ -201,7 +208,7 @@ pub fn print_table(report: &ScanReport) {
                 .cloned()
                 .unwrap_or_default();
             println!(
-                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {}",
+                "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} {}",
                 truncate(&project_name, 30),
                 truncate(&project.kind, 13),
                 truncate(&candidate.name, 18),
@@ -210,6 +217,7 @@ pub fn print_table(report: &ScanReport) {
                 format_percent(project.artifact_percent),
                 candidate.safety,
                 format_risk(candidate.risk_score),
+                format_staleness(candidate.staleness_days),
                 reason
             );
         }
@@ -398,6 +406,13 @@ fn push_unique(values: &mut Vec<String>, value: String) {
     }
 }
 
+pub(crate) fn format_staleness(days: Option<u64>) -> String {
+    match days {
+        Some(days) => format!("{days}d"),
+        None => "-".to_string(),
+    }
+}
+
 fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
     let mut wins = report
         .projects
@@ -415,7 +430,16 @@ fn biggest_wins(report: &ScanReport) -> Vec<(&ProjectReport, &Candidate)> {
         })
         .collect::<Vec<_>>();
 
-    wins.sort_by_key(|(_, candidate)| std::cmp::Reverse(candidate.bytes));
+    // Stale candidates first (nothing touched the project for at least
+    // `stale_after_days`), then by size within each group: an old 2 GB
+    // target is a better win than a 3 GB one rebuilt this morning.
+    let threshold = report.stale_after_days;
+    wins.sort_by_key(|(_, candidate)| {
+        let stale = candidate
+            .staleness_days
+            .is_some_and(|days| days >= threshold);
+        (std::cmp::Reverse(stale), std::cmp::Reverse(candidate.bytes))
+    });
     wins.truncate(5);
     wins
 }
@@ -459,4 +483,90 @@ fn truncate(value: &str, width: usize) -> String {
         .take(width.saturating_sub(1))
         .chain(std::iter::once('~'))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{ActivityInfo, Category, ProjectReport, Summary};
+
+    fn candidate(name: &str, bytes: u64, staleness_days: Option<u64>) -> Candidate {
+        Candidate {
+            path: format!("/tmp/proj/{name}"),
+            name: name.to_string(),
+            rule_id: "rust.target".to_string(),
+            category: Category::Build,
+            bytes,
+            safety: Safety::Safe,
+            requires_sudo: false,
+            reasons: vec!["test".to_string()],
+            warnings: Vec::new(),
+            restore_hint: "cargo build".to_string(),
+            risk_score: 0.1,
+            staleness_days,
+        }
+    }
+
+    fn report_with(candidates: Vec<Candidate>) -> ScanReport {
+        ScanReport {
+            schema_version: 1,
+            tool_version: "test".to_string(),
+            scanned_at: "2026-07-03T00:00:00Z".to_string(),
+            roots: vec!["/tmp".to_string()],
+            disk_attribution: None,
+            warnings: Vec::new(),
+            stale_after_days: 30,
+            summary: Summary {
+                projects_scanned: 1,
+                projects_with_candidates: 1,
+                candidates: candidates.len(),
+                safe_candidates: candidates.len(),
+                caution_candidates: 0,
+                blocked_candidates: 0,
+                report_only_candidates: 0,
+                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
+            },
+            projects: vec![ProjectReport {
+                path: "/tmp/proj".to_string(),
+                kind: "Rust".to_string(),
+                markers: vec!["Cargo.toml".to_string()],
+                git: None,
+                activity: ActivityInfo {
+                    last_modified: "2026-05-01T00:00:00Z".to_string(),
+                    source: "test".to_string(),
+                },
+                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
+                project_bytes: 100,
+                artifact_percent: 50.0,
+                candidates,
+            }],
+        }
+    }
+
+    #[test]
+    fn biggest_wins_ranks_stale_candidates_before_larger_fresh_ones() {
+        let report = report_with(vec![
+            candidate("fresh-large", 3_000_000_000, Some(0)),
+            candidate("stale-small", 2_000_000_000, Some(94)),
+        ]);
+        let wins = biggest_wins(&report);
+        assert_eq!(wins[0].1.name, "stale-small");
+        assert_eq!(wins[1].1.name, "fresh-large");
+    }
+
+    #[test]
+    fn biggest_wins_falls_back_to_size_within_the_same_staleness_group() {
+        let report = report_with(vec![
+            candidate("stale-small", 1_000, Some(40)),
+            candidate("stale-large", 2_000, Some(35)),
+        ]);
+        let wins = biggest_wins(&report);
+        assert_eq!(wins[0].1.name, "stale-large");
+    }
+
+    #[test]
+    fn format_staleness_renders_days_or_dash() {
+        assert_eq!(format_staleness(Some(94)), "94d");
+        assert_eq!(format_staleness(None), "-");
+    }
 }

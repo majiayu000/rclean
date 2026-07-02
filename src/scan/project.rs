@@ -83,6 +83,10 @@ pub(crate) fn build_project_report(
 
         let risk_score = compute_risk_score(git.as_ref(), activity_time, dir);
         let requires_sudo = rules::requires_sudo(&draft.rule_id);
+        let staleness_days = SystemTime::now()
+            .duration_since(activity_time)
+            .ok()
+            .map(|age| age.as_secs() / 86_400);
 
         candidates.push(Candidate {
             path: draft.path.display().to_string(),
@@ -96,6 +100,7 @@ pub(crate) fn build_project_report(
             warnings: draft.warnings,
             restore_hint: draft.restore_hint,
             risk_score,
+            staleness_days,
         });
     }
 

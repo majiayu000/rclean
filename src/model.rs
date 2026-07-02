@@ -124,6 +124,11 @@ pub struct ScanReport {
     pub disk_attribution: Option<DiskAttribution>,
     #[serde(default)]
     pub warnings: Vec<ScanWarning>,
+    /// Threshold (days) above which a candidate counts as stale in
+    /// ranking and output. From `.rclean.toml` `stale_after_days`,
+    /// default 30.
+    #[serde(default = "default_stale_after_days")]
+    pub stale_after_days: u64,
     pub summary: Summary,
     pub projects: Vec<ProjectReport>,
 }
@@ -236,6 +241,11 @@ pub struct Candidate {
     /// plan, etc).
     #[serde(default)]
     pub risk_score: f32,
+    /// Whole days since the owning project's last meaningful activity
+    /// (source files, not artifacts). Serialized as `stalenessDays`.
+    /// `None` when the age could not be determined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staleness_days: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -284,4 +294,8 @@ pub fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+pub(crate) fn default_stale_after_days() -> u64 {
+    30
 }

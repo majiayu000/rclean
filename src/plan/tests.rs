@@ -15,6 +15,7 @@ fn report(root: &Path, candidate_path: &Path) -> ScanReport {
         roots: vec![root.display().to_string()],
         disk_attribution: None,
         warnings: Vec::new(),
+        stale_after_days: 30,
         summary: Summary {
             projects_scanned: 1,
             projects_with_candidates: 1,
@@ -46,6 +47,7 @@ fn report(root: &Path, candidate_path: &Path) -> ScanReport {
                 warnings: Vec::new(),
                 restore_hint: "install".to_string(),
                 risk_score: 0.42,
+                staleness_days: Some(12),
             }],
             total_bytes: 3,
             project_bytes: 5,
