@@ -6,6 +6,7 @@ rust-version = "1.95"
 description = "Find and safely clean rebuildable developer artifacts across local workspaces"
 readme = "README.md"
 license = "MIT"
+repository = "https://github.com/majiayu000/rclean"
 documentation = "https://docs.rs/rclean-cli"
 keywords = ["cleanup", "disk", "cli", "developer-tools", "rust"]
 categories = ["command-line-utilities", "development-tools"]
@@ -13,6 +14,16 @@ categories = ["command-line-utilities", "development-tools"]
 [[bin]]
 name = "rclean"
 path = "src/main.rs"
+
+# cargo-binstall resolves prebuilt binaries from GitHub Releases using
+# the archive layout produced by .github/workflows/release.yml.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "{ name }-v{ version }-{ target }/{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [features]
 default = ["graveyard"]

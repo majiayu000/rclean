@@ -1,0 +1,117 @@
+name: Release
+
+# Tag-triggered release with prebuilt binaries (spec:
+# docs/specs/v0.2-best-ux.md §3.1 A1). Pushing a v* tag builds all five
+# target triples, packages them with checksums, and attaches everything
+# to a draft GitHub Release. Pull requests that touch this workflow run
+# the build matrix as a dry run without creating a release.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+
+permissions:
+  contents: write
+
+env:
+  BIN_NAME: rclean
+  PKG_NAME: rclean-cli
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            version="0.0.0-dryrun"
+          fi
+          staging="${PKG_NAME}-v${version}-${{ matrix.target }}"
+          mkdir "$staging"
+          cp "target/${{ matrix.target }}/release/${BIN_NAME}" "$staging/"
+          cp README.md LICENSE CHANGELOG.md "$staging/"
+          tar czf "$staging.tar.gz" "$staging"
+          shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME" -replace '^v', ''
+          if ("$env:GITHUB_EVENT_NAME" -eq "pull_request") {
+            $version = "0.0.0-dryrun"
+          }
+          $staging = "$env:PKG_NAME-v$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/$env:BIN_NAME.exe" "$staging/"
+          Copy-Item README.md, LICENSE, CHANGELOG.md "$staging/"
+          Compress-Archive -Path $staging -DestinationPath "$staging.zip"
+          $hash = (Get-FileHash "$staging.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $staging.zip" | Out-File -Encoding ascii "$staging.zip.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            rclean-cli-*.tar.gz
+            rclean-cli-*.tar.gz.sha256
+            rclean-cli-*.zip
+            rclean-cli-*.zip.sha256
+          if-no-files-found: error
+
+  release:
+    name: draft release
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Combined checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum rclean-cli-*.tar.gz rclean-cli-*.zip > SHA256SUMS
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: dist/*
+          fail_on_unmatched_files: true
