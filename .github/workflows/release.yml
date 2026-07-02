@@ -49,6 +49,27 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      # Shell completions + man page are target-independent, so one
+      # native build job generates them; the release job attaches the
+      # archive alongside the binaries.
+      - name: Generate completions and man page
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            version="0.0.0-dryrun"
+          fi
+          bin="target/${{ matrix.target }}/release/${BIN_NAME}"
+          docs="${PKG_NAME}-v${version}-completions-and-man"
+          mkdir "$docs"
+          for shell in bash zsh fish powershell; do
+            "$bin" completions "$shell" > "$docs/rclean.$shell"
+          done
+          "$bin" man > "$docs/rclean.1"
+          tar czf "$docs.tar.gz" "$docs"
+          shasum -a 256 "$docs.tar.gz" > "$docs.tar.gz.sha256"
+
       - name: Package (unix)
         if: runner.os != 'Windows'
         shell: bash

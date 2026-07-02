@@ -173,6 +173,33 @@ fn run() -> Result<ExitCode, RcleanError> {
             output::print_rules();
             Ok(ExitCode::SUCCESS)
         }
+        Commands::Completions(args) => {
+            use clap::CommandFactory;
+            clap_complete::generate(
+                args.shell,
+                &mut Cli::command(),
+                "rclean",
+                &mut std::io::stdout(),
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Man => {
+            use clap::CommandFactory;
+            let man = clap_mangen::Man::new(Cli::command());
+            let mut buffer = Vec::new();
+            man.render(&mut buffer).map_err(|err| {
+                RcleanError::Clean(crate::error::CleanError::Generic(format!(
+                    "failed to render man page: {err}"
+                )))
+            })?;
+            use std::io::Write;
+            std::io::stdout().write_all(&buffer).map_err(|err| {
+                RcleanError::Clean(crate::error::CleanError::Generic(format!(
+                    "failed to write man page: {err}"
+                )))
+            })?;
+            Ok(ExitCode::SUCCESS)
+        }
         Commands::Doctor(args) => {
             let report = if args.docker {
                 doctor::diagnose_with_options(doctor::DoctorOptions {

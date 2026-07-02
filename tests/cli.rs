@@ -1706,3 +1706,24 @@ fn scan_json_stdout_stays_pure_with_progress_forced_on() {
         "progress must never reach stdout"
     );
 }
+
+fn completions_generate_for_all_four_shells() {
+    for shell in ["bash", "zsh", "fish", "powershell"] {
+        let mut cmd = Command::cargo_bin("rclean").unwrap();
+        let assert = cmd.args(["completions", shell]).assert().success();
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        assert!(
+            stdout.contains("rclean"),
+            "{shell} completions must mention the binary"
+        );
+    }
+}
+
+#[test]
+fn man_page_renders_roff() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["man"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(".TH rclean"));
+}

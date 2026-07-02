@@ -42,6 +42,10 @@ pub enum Commands {
     Explain(ExplainArgs),
     /// Print the built-in cleanup rule catalog.
     Rules,
+    /// Generate shell completions (bash, zsh, fish, powershell) on stdout.
+    Completions(CompletionsArgs),
+    /// Print the rclean man page (roff) on stdout.
+    Man,
     /// Diagnostic: list which global-cache rules are applicable on
     /// this machine right now. Tells you which toolchain caches
     /// exist under $HOME without running a full scan.
@@ -309,6 +313,12 @@ pub struct CleanArgs {
     /// (for example /, $HOME, /etc, /usr). Off by default.
     #[arg(long)]
     pub allow_broad_root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// Target shell.
+    pub shell: clap_complete::Shell,
 }
 
 #[derive(Debug, Args)]
