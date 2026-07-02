@@ -354,6 +354,9 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
     #[cfg(not(feature = "graveyard"))]
     let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
     clean::print_clean_result(&result);
+    if !args.common.json {
+        clean::print_recovery_summary(&result, &delete_mode);
+    }
 
     if result.failed.is_empty() {
         Ok(ExitCode::SUCCESS)

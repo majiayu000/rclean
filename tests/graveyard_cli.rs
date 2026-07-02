@@ -206,3 +206,26 @@ fn clean_plan_rejects_conflicting_cli_delete_mode() {
         "conflicting mode must fail before deleting the candidate"
     );
 }
+
+#[test]
+fn clean_graveyard_prints_recovery_summary() {
+    let workspace = TempDir::new().unwrap();
+    let graveyard_root = TempDir::new().unwrap();
+    build_node_project(&workspace);
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.env("XDG_DATA_HOME", graveyard_root.path())
+        .args([
+            "clean",
+            workspace.path().to_str().unwrap(),
+            "--all",
+            "--graveyard",
+            "--yes",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("recoverable for 7 days"))
+        .stdout(predicate::str::contains("rclean restore"));
+}
