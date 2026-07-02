@@ -114,6 +114,17 @@ cargo install rclean-cli
 
 The Cargo package is `rclean-cli`; the installed command is `rclean`.
 
+Default cargo features are `graveyard` (recoverable deletes) and `tui`
+(the interactive selector). The TUI adds crossterm/ratatui to the
+dependency tree; for a minimal build without it:
+
+```bash
+cargo install rclean-cli --no-default-features --features graveyard
+```
+
+Builds without `tui` fall back to the numbered text selector everywhere
+the interactive selector would be used.
+
 If installation or first-run behavior is confusing, use the
 [feature request intake](https://github.com/majiayu000/rclean/issues/new?template=feature-request.yml)
 for packaging or documentation gaps. If scan or cleanup output looks

@@ -15,7 +15,7 @@ name = "rclean"
 path = "src/main.rs"
 
 [features]
-default = ["graveyard"]
+default = ["graveyard", "tui"]
 graveyard = []
 tui = ["dep:crossterm", "dep:ratatui"]
 
