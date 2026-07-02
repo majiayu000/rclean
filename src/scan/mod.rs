@@ -20,6 +20,7 @@
 
 mod disk;
 mod git_cache;
+mod progress;
 mod project;
 mod safety;
 mod sizer;
@@ -44,6 +45,7 @@ pub const DEFAULT_GIT_TIMEOUT_SECS: u64 = 5;
 pub const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(DEFAULT_GIT_TIMEOUT_SECS);
 
 pub(crate) use git_cache::GitCache;
+pub(crate) use progress::progress_enabled;
 pub(crate) use project::{
     build_project_report, build_summary, compute_risk_score, project_activity,
 };
@@ -75,6 +77,9 @@ pub struct ScanOptions {
     pub ignore_globs: Vec<String>,
     /// Timeout for each git metadata subprocess. `None` disables git checks.
     pub git_timeout: Option<Duration>,
+    /// Stream a single-line progress indicator to stderr for scans
+    /// longer than ~1s. Decided by the CLI layer; never touches stdout.
+    pub progress: bool,
 }
 
 impl Default for ScanOptions {
@@ -92,6 +97,7 @@ impl Default for ScanOptions {
             system_roots: false,
             ignore_globs: Vec::new(),
             git_timeout: Some(DEFAULT_GIT_TIMEOUT),
+            progress: false,
         }
     }
 }
@@ -145,6 +151,8 @@ impl IgnoreMatcher {
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
     let mut stale_after_days: Option<u64> = None;
+    let reporter = options.progress.then(progress::ProgressReporter::start);
+    let progress_counters = reporter.as_ref().map(progress::ProgressReporter::counters);
     let mut projects = Vec::new();
     let mut warnings = Vec::new();
     let git_cache = GitCache::with_timeout(options.git_timeout);
@@ -171,7 +179,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         } else {
             // Phase 1: parallel walk collects (project_dir, drafts) and
             // per-dir file_bytes into thread-safe accumulators.
-            let walk = WalkScratch::new();
+            let walk = WalkScratch::new_with_progress(progress_counters.clone());
             walk_parallel(&root, options, &matcher, &user_rules, &walk);
 
             let (mut drafts_by_project, walk_sizes, walk_warnings) = walk.into_inner()?;
@@ -209,6 +217,9 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 &git_cache,
                 &source_sizes,
             )?;
+            if let Some(counters) = &progress_counters {
+                counters.add_project();
+            }
             if !project.candidates.is_empty() {
                 projects.push(project);
             }
@@ -217,6 +228,10 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
 
     projects.sort_by_key(|p| std::cmp::Reverse(p.total_bytes));
     let summary = build_summary(&projects);
+
+    if let Some(reporter) = reporter {
+        reporter.finish();
+    }
 
     Ok(ScanReport {
         schema_version: 1,

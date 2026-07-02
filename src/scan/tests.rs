@@ -23,6 +23,7 @@ fn options() -> ScanOptions {
         system_roots: false,
         ignore_globs: Vec::new(),
         git_timeout: Some(DEFAULT_GIT_TIMEOUT),
+        progress: false,
     }
 }
 

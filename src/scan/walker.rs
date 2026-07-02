@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Mutex,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -39,6 +39,7 @@ use crate::path_util::{path_file_name, path_file_name_string};
 use crate::rules;
 use crate::user_rules::UserRuleSet;
 
+use super::progress::ProgressCounters;
 use super::safety::{apply_path_safety, is_skip_dir, is_skip_name};
 use super::sizer::DirSizes;
 use super::{IgnoreMatcher, ScanOptions, should_include};
@@ -55,15 +56,22 @@ pub(crate) struct WalkScratch {
     sizes: Mutex<DirSizes>,
     warnings: Mutex<Vec<ScanWarning>>,
     poisoned: AtomicBool,
+    progress: Option<Arc<ProgressCounters>>,
 }
 
 impl WalkScratch {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
+        Self::new_with_progress(None)
+    }
+
+    pub(crate) fn new_with_progress(progress: Option<Arc<ProgressCounters>>) -> Self {
         Self {
             drafts_by_project: Mutex::new(HashMap::new()),
             sizes: Mutex::new(HashMap::new()),
             warnings: Mutex::new(Vec::new()),
             poisoned: AtomicBool::new(false),
+            progress,
         }
     }
 
@@ -73,6 +81,7 @@ impl WalkScratch {
             sizes,
             warnings,
             poisoned,
+            progress: _,
         } = self;
         if poisoned.load(Ordering::SeqCst) {
             return Err(poison_error("walk scratch accumulator"));
@@ -130,6 +139,9 @@ impl<'a> WalkLocal<'a> {
     }
 
     fn add_draft(&mut self, project_dir: &Path, draft: CandidateDraft) {
+        if let Some(counters) = &self.scratch.progress {
+            counters.add_candidates(1);
+        }
         self.drafts_by_project
             .entry(project_dir.to_path_buf())
             .or_default()
