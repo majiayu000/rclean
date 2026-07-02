@@ -1592,3 +1592,35 @@ fn clean_json_suppresses_recovery_summary() {
     .success()
     .stdout(predicate::str::contains("freed ").not());
 }
+
+#[test]
+fn scan_json_stdout_stays_pure_with_progress_forced_on() {
+    // RCLEAN_PROGRESS=always exercises the progress reporter even
+    // without a TTY; every progress byte must land on stderr so the
+    // JSON contract on stdout is unaffected.
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules/blob"), b"abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let assert = cmd
+        .env("RCLEAN_PROGRESS", "always")
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let parsed: Value = serde_json::from_str(&stdout).expect("stdout must be pure JSON");
+    assert!(parsed["summary"]["candidates"].as_u64().unwrap() >= 1);
+    assert!(
+        !stdout.contains("scanning:"),
+        "progress must never reach stdout"
+    );
+}

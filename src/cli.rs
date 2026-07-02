@@ -383,6 +383,7 @@ impl CommonScanArgs {
             system_roots: self.system,
             ignore_globs: self.ignore.clone(),
             git_timeout: (self.git_timeout > 0).then(|| Duration::from_secs(self.git_timeout)),
+            progress: crate::scan::progress_enabled(self.json, self.verbose),
         })
     }
 }
