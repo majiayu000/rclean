@@ -1674,3 +1674,25 @@ fn free_with_no_candidates_exits_3() -> Result<(), Box<dyn std::error::Error>> {
     .stdout(predicate::str::contains("no safe candidates"));
     Ok(())
 }
+
+#[test]
+fn completions_generate_for_all_four_shells() {
+    for shell in ["bash", "zsh", "fish", "powershell"] {
+        let mut cmd = Command::cargo_bin("rclean").unwrap();
+        let assert = cmd.args(["completions", shell]).assert().success();
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        assert!(
+            stdout.contains("rclean"),
+            "{shell} completions must mention the binary"
+        );
+    }
+}
+
+#[test]
+fn man_page_renders_roff() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["man"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(".TH rclean"));
+}
