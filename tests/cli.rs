@@ -1547,3 +1547,48 @@ fn no_subcommand_without_tty_prints_help_and_exits_2() {
 
     assert!(temp.path().join("app/node_modules/dep").exists());
 }
+
+#[test]
+fn clean_permanent_prints_not_recoverable_summary() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules/blob"), b"abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        temp.path().to_str().unwrap(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("not recoverable"));
+}
+
+#[test]
+fn clean_json_suppresses_recovery_summary() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules/blob"), b"abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "clean",
+        temp.path().to_str().unwrap(),
+        "--all",
+        "--permanent",
+        "--yes",
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("freed ").not());
+}

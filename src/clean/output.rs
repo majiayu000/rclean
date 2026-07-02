@@ -78,6 +78,30 @@ pub fn confirm_if_needed(
     }
 }
 
+/// One-line safety-net summary after a destructive run (spec:
+/// docs/specs/v0.2-best-ux.md §3.2 B4): what was freed, whether it is
+/// recoverable, and the exact command to get it back.
+pub fn print_recovery_summary(result: &CleanResult, delete_mode: &str) {
+    if result.cleaned.is_empty() {
+        return;
+    }
+    let total: u64 = result.cleaned.iter().map(|candidate| candidate.bytes).sum();
+    println!("{}", recovery_summary_line(delete_mode, total));
+}
+
+fn recovery_summary_line(delete_mode: &str, bytes: u64) -> String {
+    let freed = format_bytes(bytes);
+    match delete_mode {
+        // Retention matches the graveyard manifest (7 days, see
+        // graveyard::manifest).
+        "graveyard" => format!(
+            "freed {freed} - recoverable for 7 days via `rclean restore <id>`; list graves with `rclean graveyard list`"
+        ),
+        "trash" => format!("freed {freed} - recoverable from the OS Trash until you empty it"),
+        _ => format!("freed {freed} - permanently deleted, not recoverable"),
+    }
+}
+
 pub fn print_clean_result(result: &CleanResult) {
     let total: u64 = result.cleaned.iter().map(|candidate| candidate.bytes).sum();
     println!();
@@ -91,5 +115,23 @@ pub fn print_clean_result(result: &CleanResult) {
         for (candidate, error) in &result.failed {
             println!("  - {}: {}", candidate.path.display(), error);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_summary_names_the_restore_path_per_mode() {
+        let graveyard = recovery_summary_line("graveyard", 1024);
+        assert!(graveyard.contains("recoverable for 7 days"));
+        assert!(graveyard.contains("rclean restore"));
+
+        let trash = recovery_summary_line("trash", 1024);
+        assert!(trash.contains("OS Trash"));
+
+        let permanent = recovery_summary_line("permanent", 1024);
+        assert!(permanent.contains("not recoverable"));
     }
 }
