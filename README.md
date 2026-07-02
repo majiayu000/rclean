@@ -436,6 +436,17 @@ Fields:
 | `why` | no | One-line reason shown in the report. Defaults to `matches user rule '<id>'`. |
 | `restore_hint` | no | Short hint for `rclean explain` output. |
 
+Besides `[[rule]]` tables, the file accepts one top-level setting:
+
+```toml
+# Days without project activity before a candidate counts as stale
+# in "Biggest wins" ranking and output. Default: 30.
+stale_after_days = 60
+```
+
+Every candidate also reports its age as `stalenessDays` in
+`scan --json` output and in the `Stale` column of the table.
+
 Invalid rules emit a `warning:` line on stderr and are dropped; the
 scan continues with the remaining rules. A missing `.rclean.toml` is
 the normal case and produces no warning.

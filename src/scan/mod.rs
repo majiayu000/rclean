@@ -144,6 +144,7 @@ impl IgnoreMatcher {
 
 pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
     let mut roots = Vec::new();
+    let mut stale_after_days: Option<u64> = None;
     let mut projects = Vec::new();
     let mut warnings = Vec::new();
     let git_cache = GitCache::with_timeout(options.git_timeout);
@@ -157,6 +158,9 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             })?;
         roots.push(root.display().to_string());
         let user_rules = UserRuleSet::load_from_root(&root);
+        if stale_after_days.is_none() {
+            stale_after_days = user_rules.stale_after_days();
+        }
         let (matcher, matcher_warnings) = IgnoreMatcher::build(&root, &options.ignore_globs)?;
         warnings.extend(matcher_warnings);
 
@@ -224,6 +228,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             .then(disk::collect_disk_attribution)
             .flatten(),
         warnings,
+        stale_after_days: stale_after_days.unwrap_or_else(crate::model::default_stale_after_days),
         summary,
         projects,
     })

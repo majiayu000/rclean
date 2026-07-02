@@ -47,6 +47,7 @@ struct CandidateRow {
     project_markers: Vec<String>,
     git_dirty: Option<bool>,
     last_modified: String,
+    staleness_days: Option<u64>,
 }
 
 pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
@@ -186,10 +187,11 @@ impl SelectorApp {
         let selected = self.selected.contains(&index);
         let glyph = glyph(row.safety, selected);
         let text = format!(
-            "{} {:<8} {:>10} {:<24} {}",
+            "{} {:<8} {:>10} {:>6} {:<24} {}",
             glyph,
             row.category,
             format_bytes(row.bytes),
+            crate::output::format_staleness(row.staleness_days),
             truncate(&row.label, 24),
             row.path
         );
@@ -245,7 +247,14 @@ impl SelectorApp {
                     None => "not a git repository",
                 }
             ),
-            format!("activity:  last modified {}", row.last_modified),
+            format!(
+                "activity:  last modified {} ({})",
+                row.last_modified,
+                match row.staleness_days {
+                    Some(days) => format!("{days}d ago"),
+                    None => "age unknown".to_string(),
+                }
+            ),
         ];
         if !row.reasons.is_empty() {
             lines.push(String::new());
@@ -432,6 +441,7 @@ fn row_from_candidate(project: &ProjectReport, candidate: &Candidate) -> Candida
         project_markers: project.markers.clone(),
         git_dirty: project.git.as_ref().map(|git| git.dirty),
         last_modified: project.activity.last_modified.clone(),
+        staleness_days: candidate.staleness_days,
     }
 }
 
@@ -486,6 +496,7 @@ mod tests {
             roots: vec!["/tmp/root".to_string()],
             disk_attribution: None,
             warnings: Vec::new(),
+            stale_after_days: 30,
             summary: Summary {
                 projects_scanned: 1,
                 projects_with_candidates: 1,
@@ -520,6 +531,7 @@ mod tests {
                     warnings: Vec::new(),
                     restore_hint: "npm install".to_string(),
                     risk_score: 0.2,
+                    staleness_days: Some(94),
                 }],
                 total_bytes: 42,
                 project_bytes: 100,
