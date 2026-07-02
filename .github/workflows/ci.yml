@@ -32,6 +32,11 @@ jobs:
       - name: Cargo test
         run: cargo test
 
+      # The tui feature is on by default; keep the minimal text-selector
+      # build compiling so --no-default-features installs stay supported.
+      - name: Cargo check (no default features)
+        run: cargo check --no-default-features --features graveyard
+
       - name: Release build
         run: cargo build --release
 
