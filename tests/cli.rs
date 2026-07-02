@@ -1707,6 +1707,7 @@ fn scan_json_stdout_stays_pure_with_progress_forced_on() {
     );
 }
 
+#[test]
 fn completions_generate_for_all_four_shells() {
     for shell in ["bash", "zsh", "fish", "powershell"] {
         let mut cmd = Command::cargo_bin("rclean").unwrap();
