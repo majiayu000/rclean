@@ -32,6 +32,9 @@ class Rclean < Formula
 
   def install
     bin.install "rclean"
+    generate_completions_from_executable(bin/"rclean", "completions")
+    (buildpath/"rclean.1").write Utils.safe_popen_read(bin/"rclean", "man")
+    man1.install "rclean.1"
   end
 
   test do
