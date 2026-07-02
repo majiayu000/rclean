@@ -100,16 +100,25 @@ for the detailed scope rules.
 
 ## Install
 
-From this checkout during development:
-
-```bash
-cargo install --path .
-```
-
-After public release, the intended install path is:
+From crates.io (primary path once `rclean-cli` is published there):
 
 ```bash
 cargo install rclean-cli
+```
+
+Prebuilt binaries attach to every tagged GitHub Release
+(macOS arm64/x64, Linux x64/arm64, Windows x64), so
+[`cargo binstall`](https://github.com/cargo-bins/cargo-binstall)
+skips the compile entirely:
+
+```bash
+cargo binstall rclean-cli
+```
+
+From a checkout during development:
+
+```bash
+cargo install --path .
 ```
 
 The Cargo package is `rclean-cli`; the installed command is `rclean`.

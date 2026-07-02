@@ -29,6 +29,9 @@ pub enum Commands {
     Scan(CommonScanArgs),
     /// Clean selected artifacts after scanning.
     Clean(CleanArgs),
+    /// Propose the smallest safe set that frees a target amount of
+    /// space, written as a reviewable action plan. Never deletes.
+    Free(FreeArgs),
     /// Select cleanable artifacts in an interactive terminal UI.
     Tui(CommonScanArgs),
     /// Watch lockfiles and refresh cleanable artifact candidates.
@@ -306,6 +309,15 @@ pub struct CleanArgs {
     /// (for example /, $HOME, /etc, /usr). Off by default.
     #[arg(long)]
     pub allow_broad_root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct FreeArgs {
+    /// Target amount to reclaim. Examples: 500mb, 20gb.
+    pub target: String,
+
+    #[command(flatten)]
+    pub common: CommonScanArgs,
 }
 
 #[derive(Debug, Args)]

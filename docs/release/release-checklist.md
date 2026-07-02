@@ -21,20 +21,31 @@ Binary name: `rclean`
 - [ ] Verify binary installs as `rclean`.
 - [ ] Run `cargo package --list`.
 - [ ] Run `cargo publish --dry-run`.
-- [ ] Tag release: `vX.Y.Z`.
 
-## GitHub Release
+## Release ordering (tag -> workflow -> crates.io)
 
-- [ ] Build macOS arm64 binary.
-- [ ] Build Linux x86_64 binary in CI.
-- [ ] Upload compressed binaries.
-- [ ] Include SHA256 checksums.
-- [ ] Include safety model in release notes.
-- [ ] Include install commands.
-- [ ] If no latest release exists, create it in the GitHub UI:
-      repository page -> **Releases** -> **Draft a new release** ->
-      choose or create tag `vX.Y.Z` -> use the changelog as release
-      notes -> attach archives and `checksums.txt` -> **Publish release**.
+Version bumps happen only at release time (see the repo semver
+policy); feature and fix PRs never touch the version.
+
+1. Bump `Cargo.toml` version in a release PR, merge it.
+2. Tag the merge commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. The tag triggers `.github/workflows/release.yml`, which builds all
+   five target triples (macOS arm64/x64, Linux x64/arm64, Windows x64),
+   packages archives with per-artifact `.sha256` files and a combined
+   `SHA256SUMS`, and creates a **draft** GitHub Release.
+4. Review the draft: artifact count (5 archives + checksums), spot-check
+   one checksum, paste the changelog section as release notes, publish.
+5. Only after the GitHub Release is published, run `cargo publish`.
+   This ordering keeps `cargo binstall rclean-cli` working the moment
+   the crates.io version appears, because binstall resolves the
+   archives from the already-published GitHub Release.
+6. Verify from a clean environment:
+   - `cargo install rclean-cli` (builds from crates.io)
+   - `cargo binstall rclean-cli` (downloads the release artifacts)
+   - `rclean --version` matches the tag.
+
+`cargo publish` is irreversible (a version can be yanked but never
+replaced) — it stays a human-run step.
 
 ## GitHub Repository Metadata
 

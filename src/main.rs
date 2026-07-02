@@ -4,6 +4,7 @@ mod cli;
 mod docker;
 mod doctor;
 mod error;
+mod free;
 #[cfg(feature = "graveyard")]
 mod graveyard;
 mod model;
@@ -138,6 +139,7 @@ fn run() -> Result<ExitCode, RcleanError> {
             }
         }
         Commands::Clean(args) => run_clean(args),
+        Commands::Free(args) => free::run(args),
         Commands::Tui(args) => {
             #[cfg(feature = "tui")]
             {
