@@ -1,6 +1,6 @@
 [package]
 name = "rclean-cli"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
 description = "Find and safely clean rebuildable developer artifacts across local workspaces"

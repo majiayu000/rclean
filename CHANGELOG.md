@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to semantic versioning. Pre-1.0, patch versions may
 include breaking changes per semver 0.x; each break is noted explicitly.
 
-## Unreleased — v0.3 Phase 1+2 (toolchain extras + scoped GUI cache rules)
+## 0.2.0 - 2026-07-03
 
 ### Added
 
