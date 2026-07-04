@@ -79,6 +79,35 @@ fn tmp_flag_runs_without_panicking_on_empty_tmp_root() {
 }
 
 #[test]
+fn empty_scan_human_output_suggests_home_or_tmp() {
+    let temp = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.arg("scan")
+        .arg(temp.path())
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains(
+            "Hint: try `rclean scan --home` for toolchain caches or `rclean scan --tmp` for temp worktrees.",
+        ));
+}
+
+#[test]
+fn empty_scan_json_omits_home_tmp_hint() {
+    let temp = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.arg("scan")
+        .arg(temp.path())
+        .arg("--json")
+        .assert()
+        .code(3)
+        .stdout(predicate::str::contains("\"candidates\": 0"))
+        .stdout(predicate::str::contains("rclean scan --home").not())
+        .stdout(predicate::str::contains("rclean scan --tmp").not());
+}
+
+#[test]
 fn tmp_flag_scans_rust_targets_under_temp_worktree() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let worktree = temp.path().join("remem-review");
