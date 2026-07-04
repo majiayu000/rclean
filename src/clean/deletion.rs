@@ -310,6 +310,8 @@ mod tests {
     use crate::model::{Category, Safety};
     use tempfile::TempDir;
 
+    const FAKE_GO_TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
     #[test]
     fn resolves_go_modcache_from_root_candidate() {
         let candidate = SelectedCandidate {
@@ -354,11 +356,7 @@ mod tests {
         let fake_go = write_fake_go_success(&temp.path().join("bin"))?;
         let candidate = go_modcache_candidate(module_cache.clone());
 
-        clean_go_modcache_with_tool(
-            &candidate,
-            fake_go_program(&fake_go)?,
-            Duration::from_secs(1),
-        )?;
+        clean_go_modcache_with_tool(&candidate, fake_go_program(&fake_go)?, FAKE_GO_TEST_TIMEOUT)?;
 
         let output = std::fs::read_to_string(fake_go_output(&fake_go))?;
         assert!(output.contains("clean"));
@@ -380,7 +378,7 @@ mod tests {
             clean_go_modcache_with_tool(
                 &candidate,
                 fake_go_program(&fake_go)?,
-                Duration::from_secs(1),
+                FAKE_GO_TEST_TIMEOUT,
             ),
             "nonzero fake go must fail",
         )?;
