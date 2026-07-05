@@ -28,13 +28,20 @@ largest candidate: harness-workflow-runtime-phase2/target at 101 GB
 
 This is a from-scratch Rust CLI. It already supports:
 
+- no-arg interactive cleanup flow in a TTY
 - `scan` with human table output
 - "Biggest wins" scan summary with project artifact percentage
+- staleness reporting with the `Stale` column and `stale_after_days` JSON field
 - `scan --json`
 - `clean --dry-run`
 - `clean --all --permanent --yes`
+- recoverable cleanup through the rclean graveyard, with restore guidance in
+  cleanup summaries
+- goal-oriented `free <size>` proposals written as reviewable ActionPlans
+- TUI selector with inline `?` explain for the highlighted candidate
 - `explain <path>`
 - built-in rule listing (`rules`)
+- shell completions (`completions`) and roff man page output (`man`)
 - per-machine diagnostic (`doctor`)
 - Node, Python, Rust, Go, CocoaPods, and generic coverage rules
 - Java/Gradle, Flutter/Dart, .NET, Ruby, and iOS rules
@@ -115,6 +122,12 @@ skips the compile entirely:
 cargo binstall rclean-cli
 ```
 
+On macOS with Homebrew:
+
+```bash
+brew install majiayu000/rclean/rclean
+```
+
 From a checkout during development:
 
 ```bash
@@ -142,10 +155,13 @@ unsafe, use the safety intake linked in [Support and Intake](#support-and-intake
 ## Usage
 
 ```bash
+cargo run --bin rclean
 cargo run --bin rclean -- scan ~/code
 cargo run --bin rclean -- scan ~/code --json
 cargo run --bin rclean -- clean ~/code --all --dry-run
 cargo run --bin rclean -- clean ~/code --all --permanent --yes
+cargo run --bin rclean -- tui ~/code
+cargo run --bin rclean -- free 20gb ~/code --write-plan free-plan.json
 cargo run --bin rclean -- explain ~/code/app/target
 cargo run --bin rclean -- rules
 cargo run --bin rclean -- doctor
@@ -154,7 +170,25 @@ cargo run --bin rclean -- scan --tmp --min-size 100mb
 cargo run --bin rclean -- agent doctor codex
 cargo run --bin rclean -- agent optimize codex --disable-auto-update
 cargo run --bin rclean -- docker report
+cargo run --bin rclean -- completions zsh > _rclean
+cargo run --bin rclean -- man > rclean.1
 ```
+
+Running `rclean` with no subcommand in an interactive terminal starts the
+default recoverable cleanup flow: scan the current directory, open the selector,
+confirm the chosen candidates, and move them to the rclean graveyard so they can
+be restored. The TUI selector is used by default when the build includes the
+`tui` feature; press `?` to inspect why the highlighted candidate is or is not
+cleanable. Builds without `tui` use the numbered text selector.
+
+`rclean free <size>` computes the smallest safe set that can meet a target
+reclaim amount and writes it as an ActionPlan for review. It never deletes by
+itself; replay the plan with `rclean clean --plan ... --dry-run` first.
+
+Human scan output includes a `Stale` column. JSON output includes
+`stale_after_days` and each candidate's `staleness_days` when available.
+Recoverable cleanup summaries print the graveyard retention window and restore
+command so accidental deletions have an explicit path back.
 
 ### Whole-machine cleanup
 
@@ -206,8 +240,13 @@ for the full rule list.
 After installation:
 
 ```bash
+rclean
 rclean scan ~/code
+rclean tui ~/code
+rclean free 20gb ~/code --write-plan free-plan.json
 rclean clean ~/code --all --dry-run
+rclean completions zsh > _rclean
+rclean man > rclean.1
 ```
 
 If this quickstart flags a path that should not be cleanup, open a
