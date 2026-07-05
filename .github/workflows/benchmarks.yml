@@ -1,0 +1,27 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  scan-throughput:
+    name: scan_throughput trend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run scan_throughput bench
+        run: cargo bench --bench scan_throughput
+
+      - name: Upload Criterion report
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-throughput-criterion
+          path: target/criterion
+          if-no-files-found: error
