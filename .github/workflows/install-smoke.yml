@@ -1,0 +1,50 @@
+name: Install Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"
+
+jobs:
+  binstall:
+    name: cargo-binstall (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install rclean with cargo-binstall
+        run: cargo binstall rclean-cli --no-confirm
+
+      - name: Verify rclean
+        run: rclean --version
+
+  homebrew:
+    name: homebrew (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - name: Install rclean with Homebrew
+        run: brew install majiayu000/rclean/rclean
+
+      - name: Verify rclean
+        run: rclean --version
+
+  cargo-install:
+    name: cargo install (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install rclean with cargo
+        run: cargo install rclean-cli --locked
+
+      - name: Verify rclean
+        run: rclean --version
