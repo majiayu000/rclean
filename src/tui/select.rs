@@ -50,6 +50,72 @@ struct CandidateRow {
     staleness_days: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SortMode {
+    SizeDesc,
+    StalenessDesc,
+    RiskAsc,
+}
+
+impl SortMode {
+    fn next(self) -> Self {
+        match self {
+            Self::SizeDesc => Self::StalenessDesc,
+            Self::StalenessDesc => Self::RiskAsc,
+            Self::RiskAsc => Self::SizeDesc,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::SizeDesc => "size desc",
+            Self::StalenessDesc => "stale desc",
+            Self::RiskAsc => "risk asc",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CategoryFilter {
+    All,
+    Deps,
+    Build,
+    Cache,
+    Test,
+}
+
+impl CategoryFilter {
+    fn next(self) -> Self {
+        match self {
+            Self::All => Self::Deps,
+            Self::Deps => Self::Build,
+            Self::Build => Self::Cache,
+            Self::Cache => Self::Test,
+            Self::Test => Self::All,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Deps => "deps",
+            Self::Build => "build",
+            Self::Cache => "cache",
+            Self::Test => "test",
+        }
+    }
+
+    fn matches(self, category: Category) -> bool {
+        match self {
+            Self::All => true,
+            Self::Deps => category == Category::Deps,
+            Self::Build => category == Category::Build,
+            Self::Cache => category == Category::Cache,
+            Self::Test => category == Category::Test,
+        }
+    }
+}
+
 pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
     run_with_preselected(report, &BTreeSet::new())
 }
@@ -89,9 +155,11 @@ struct SelectorApp {
     roots: String,
     rows: Vec<CandidateRow>,
     filtered: Vec<usize>,
-    selected: BTreeSet<usize>,
+    selected: BTreeSet<PathBuf>,
     cursor: usize,
     query: String,
+    sort_mode: SortMode,
+    category_filter: CategoryFilter,
     search_mode: bool,
     explain_open: bool,
     done: bool,
@@ -106,26 +174,28 @@ impl SelectorApp {
 
     fn new_with_preselected(report: &ScanReport, preselected_paths: &BTreeSet<PathBuf>) -> Self {
         let rows = rows_from_report(report);
-        let filtered = (0..rows.len()).collect();
         let selected = rows
             .iter()
-            .enumerate()
-            .filter(|(_, row)| row.safety == Safety::Safe && !row.requires_sudo)
-            .filter(|(_, row)| preselected_paths.contains(&PathBuf::from(&row.path)))
-            .map(|(index, _)| index)
+            .filter(|row| row.safety == Safety::Safe && !row.requires_sudo)
+            .map(CandidateRow::identity)
+            .filter(|path| preselected_paths.contains(path))
             .collect();
-        Self {
+        let mut app = Self {
             roots: report.roots.join(", "),
             rows,
-            filtered,
+            filtered: Vec::new(),
             selected,
             cursor: 0,
             query: String::new(),
+            sort_mode: SortMode::SizeDesc,
+            category_filter: CategoryFilter::All,
             search_mode: false,
             explain_open: false,
             done: false,
             cancelled: false,
-        }
+        };
+        app.apply_filter();
+        app
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame<'_>) {
@@ -185,8 +255,10 @@ impl SelectorApp {
 
     fn header(&self) -> String {
         format!(
-            "Roots: {}  Reclaimable: {}  Selected: {} ({})",
+            "Roots: {}  Sort: {}  Filter: {}  Reclaimable: {}  Selected: {} ({})",
             self.roots,
+            self.sort_mode.label(),
+            self.category_filter.label(),
             format_bytes(self.reclaimable_bytes()),
             self.selected.len(),
             format_bytes(self.selected_bytes())
@@ -197,13 +269,13 @@ impl SelectorApp {
         if self.search_mode {
             format!("/{}  enter/esc to leave search", self.query)
         } else {
-            "[/]search  [space]toggle  [a]all-safe  [?]explain  [enter]plan  [q]quit".to_string()
+            "[/]search  [s]sort  [c]category  [space]toggle  [a]all-safe  [?]explain  [enter]plan  [q]quit".to_string()
         }
     }
 
     fn list_item(&self, index: usize) -> ListItem<'_> {
         let row = &self.rows[index];
-        let selected = self.selected.contains(&index);
+        let selected = self.selected.contains(&row.identity());
         let glyph = glyph(row.safety, selected);
         let text = format!(
             "{} {:<8} {:>10} {:>6} {:<24} {}",
@@ -310,6 +382,8 @@ impl SelectorApp {
             KeyCode::Esc if self.explain_open => self.explain_open = false,
             KeyCode::Char('q') | KeyCode::Esc => self.cancelled = true,
             KeyCode::Char('/') => self.search_mode = true,
+            KeyCode::Char('s') => self.cycle_sort(),
+            KeyCode::Char('c') => self.cycle_category_filter(),
             KeyCode::Down | KeyCode::Char('j') => self.move_cursor(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_cursor(-1),
             KeyCode::Char(' ') => self.toggle_current(),
@@ -339,10 +413,25 @@ impl SelectorApp {
             .rows
             .iter()
             .enumerate()
+            .filter(|(_, row)| self.category_filter.matches(row.category))
             .filter(|(_, row)| search::matches_query(&row.search_text(), &self.query))
             .map(|(index, _)| index)
             .collect();
+        let rows = &self.rows;
+        let sort_mode = self.sort_mode;
+        self.filtered
+            .sort_by(|left, right| compare_rows(&rows[*left], &rows[*right], sort_mode));
         self.cursor = self.cursor.min(self.filtered.len().saturating_sub(1));
+    }
+
+    fn cycle_sort(&mut self) {
+        self.sort_mode = self.sort_mode.next();
+        self.apply_filter();
+    }
+
+    fn cycle_category_filter(&mut self) {
+        self.category_filter = self.category_filter.next();
+        self.apply_filter();
     }
 
     fn move_cursor(&mut self, delta: isize) {
@@ -363,42 +452,42 @@ impl SelectorApp {
         {
             return;
         }
-        if !self.selected.insert(index) {
-            self.selected.remove(&index);
+        let identity = self.rows[index].identity();
+        if !self.selected.insert(identity.clone()) {
+            self.selected.remove(&identity);
         }
     }
 
     fn select_all_safe(&mut self) {
-        for (index, row) in self.rows.iter().enumerate() {
+        for row in &self.rows {
             if row.safety == Safety::Safe && !row.requires_sudo {
-                self.selected.insert(index);
+                self.selected.insert(row.identity());
             }
         }
     }
 
     fn selected_candidates(&self) -> Vec<SelectedCandidate> {
-        self.selected
+        self.rows
             .iter()
-            .map(|index| {
-                let row = &self.rows[*index];
-                SelectedCandidate {
-                    id: None,
-                    path: PathBuf::from(&row.path),
-                    bytes: row.bytes,
-                    rule_id: row.rule_id.clone(),
-                    category: row.category,
-                    safety: row.safety,
-                    requires_sudo: row.requires_sudo,
-                    risk_score: row.risk_score,
-                }
+            .filter(|row| self.selected.contains(&row.identity()))
+            .map(|row| SelectedCandidate {
+                id: None,
+                path: PathBuf::from(&row.path),
+                bytes: row.bytes,
+                rule_id: row.rule_id.clone(),
+                category: row.category,
+                safety: row.safety,
+                requires_sudo: row.requires_sudo,
+                risk_score: row.risk_score,
             })
             .collect()
     }
 
     fn selected_bytes(&self) -> u64 {
-        self.selected
+        self.rows
             .iter()
-            .map(|index| self.rows[*index].bytes)
+            .filter(|row| self.selected.contains(&row.identity()))
+            .map(|row| row.bytes)
             .sum()
     }
 
@@ -416,12 +505,32 @@ impl SelectorApp {
 }
 
 impl CandidateRow {
+    fn identity(&self) -> PathBuf {
+        PathBuf::from(&self.path)
+    }
+
     fn search_text(&self) -> String {
         format!(
             "{} {} {} {}",
             self.path, self.label, self.rule_id, self.category
         )
     }
+}
+
+fn compare_rows(
+    left: &CandidateRow,
+    right: &CandidateRow,
+    sort_mode: SortMode,
+) -> std::cmp::Ordering {
+    match sort_mode {
+        SortMode::SizeDesc => right.bytes.cmp(&left.bytes),
+        SortMode::StalenessDesc => right
+            .staleness_days
+            .unwrap_or(0)
+            .cmp(&left.staleness_days.unwrap_or(0)),
+        SortMode::RiskAsc => left.risk_score.total_cmp(&right.risk_score),
+    }
+    .then(left.path.cmp(&right.path))
 }
 
 fn rows_from_report(report: &ScanReport) -> Vec<CandidateRow> {
@@ -499,123 +608,4 @@ fn clean_error(error: impl std::fmt::Display) -> CleanError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::{ActivityInfo, GitInfo, ProjectReport, Summary};
-
-    fn key(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::NONE)
-    }
-
-    fn fixture_report() -> ScanReport {
-        ScanReport {
-            schema_version: 1,
-            tool_version: "test".to_string(),
-            scanned_at: "2026-07-03T00:00:00Z".to_string(),
-            roots: vec!["/tmp/root".to_string()],
-            disk_attribution: None,
-            warnings: Vec::new(),
-            stale_after_days: 30,
-            summary: Summary {
-                projects_scanned: 1,
-                projects_with_candidates: 1,
-                candidates: 1,
-                safe_candidates: 1,
-                caution_candidates: 0,
-                blocked_candidates: 0,
-                report_only_candidates: 0,
-                total_bytes: 42,
-            },
-            projects: vec![ProjectReport {
-                path: "/tmp/root/app".to_string(),
-                kind: "Node.js".to_string(),
-                markers: vec!["package.json".to_string()],
-                git: Some(GitInfo {
-                    repo_root: "/tmp/root/app".to_string(),
-                    dirty: true,
-                }),
-                activity: ActivityInfo {
-                    last_modified: "2026-07-01T00:00:00Z".to_string(),
-                    source: "test".to_string(),
-                },
-                candidates: vec![Candidate {
-                    path: "/tmp/root/app/node_modules".to_string(),
-                    name: "node_modules".to_string(),
-                    rule_id: "node.node_modules".to_string(),
-                    category: Category::Deps,
-                    bytes: 42,
-                    safety: Safety::Safe,
-                    requires_sudo: false,
-                    reasons: vec!["package.json present".to_string()],
-                    warnings: Vec::new(),
-                    restore_hint: "npm install".to_string(),
-                    risk_score: 0.2,
-                    staleness_days: Some(94),
-                }],
-                total_bytes: 42,
-                project_bytes: 100,
-                artifact_percent: 42.0,
-            }],
-        }
-    }
-
-    #[test]
-    fn question_mark_toggles_explain_pane() {
-        let report = fixture_report();
-        let mut app = SelectorApp::new(&report);
-        assert!(!app.explain_open);
-
-        app.handle_key(key(KeyCode::Char('?')));
-        assert!(app.explain_open);
-        assert!(!app.cancelled);
-
-        app.handle_key(key(KeyCode::Char('?')));
-        assert!(!app.explain_open);
-        assert!(!app.cancelled);
-    }
-
-    #[test]
-    fn esc_closes_explain_pane_before_cancelling() {
-        let report = fixture_report();
-        let mut app = SelectorApp::new(&report);
-
-        app.handle_key(key(KeyCode::Char('?')));
-        app.handle_key(key(KeyCode::Esc));
-        assert!(!app.explain_open);
-        assert!(!app.cancelled, "first esc must only close the pane");
-
-        app.handle_key(key(KeyCode::Esc));
-        assert!(app.cancelled, "second esc cancels the selector");
-    }
-
-    #[test]
-    fn explain_detail_matches_explain_content_for_highlighted_candidate() {
-        let report = fixture_report();
-        let app = SelectorApp::new(&report);
-        let detail = app.explain_detail();
-
-        assert!(detail.contains("node.node_modules"));
-        assert!(detail.contains("Safe"));
-        assert!(detail.contains("package.json"));
-        assert!(detail.contains("dirty worktree"));
-        assert!(detail.contains("package.json present"));
-        assert!(detail.contains("npm install"));
-        assert!(detail.contains("last modified 2026-07-01T00:00:00Z"));
-    }
-
-    #[test]
-    fn preselects_matching_safe_candidate_by_path() {
-        let report = fixture_report();
-        let mut preselected = BTreeSet::new();
-        preselected.insert(PathBuf::from("/tmp/root/app/node_modules"));
-
-        let app = SelectorApp::new_with_preselected(&report, &preselected);
-
-        assert_eq!(app.selected.len(), 1);
-        let selected = app.selected_candidates();
-        assert_eq!(
-            selected[0].path,
-            PathBuf::from("/tmp/root/app/node_modules")
-        );
-    }
-}
+mod tests;
