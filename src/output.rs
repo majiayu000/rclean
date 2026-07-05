@@ -162,6 +162,7 @@ pub fn print_table(report: &ScanReport) {
 
     if report.projects.is_empty() {
         println!("No cleanable developer artifacts found.");
+        print_empty_scan_hint();
         return;
     }
 
@@ -222,6 +223,12 @@ pub fn print_table(report: &ScanReport) {
             );
         }
     }
+}
+
+fn print_empty_scan_hint() {
+    println!(
+        "Hint: try `rclean scan --home` for toolchain caches or `rclean scan --tmp` for temp worktrees."
+    );
 }
 
 fn print_scan_warnings(warnings: &[crate::model::ScanWarning]) {
