@@ -24,6 +24,22 @@ pub fn select_candidates(
     select::run(report)
 }
 
+pub fn select_candidates_with_preselected(
+    report: &ScanReport,
+    include_caution: bool,
+    preselected_paths: &std::collections::BTreeSet<std::path::PathBuf>,
+) -> Result<Vec<SelectedCandidate>, crate::error::CleanError> {
+    if !theme::supports_alternate_screen() {
+        eprintln!("alternate screen unavailable; falling back to text selection");
+        return crate::clean::select_interactively_text_with_preselected(
+            report,
+            include_caution,
+            preselected_paths,
+        );
+    }
+    select::run_with_preselected(report, preselected_paths)
+}
+
 pub fn run_command(args: CommonScanArgs) -> Result<ExitCode, RcleanError> {
     let options = args.to_scan_options()?;
     let report = scan::scan(&args.paths_or_current_dir(), &options)?;
