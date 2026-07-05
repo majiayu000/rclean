@@ -1705,6 +1705,55 @@ fn free_with_no_candidates_exits_3() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn free_interactive_requires_tty_and_deletes_nothing() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.args([
+        "free",
+        "1kb",
+        temp.path().to_str().unwrap(),
+        "--interactive",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "free --interactive requires an interactive terminal",
+    ));
+
+    assert!(temp.path().join("node_modules").exists());
+    Ok(())
+}
+
+#[test]
+fn free_interactive_rejects_json() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.args([
+        "free",
+        "1kb",
+        temp.path().to_str().unwrap(),
+        "--interactive",
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "free --interactive cannot be combined with --json",
+    ));
+
+    assert!(temp.path().join("node_modules").exists());
+    Ok(())
+}
+
+#[test]
 fn scan_json_stdout_stays_pure_with_progress_forced_on() {
     // RCLEAN_PROGRESS=always exercises the progress reporter even
     // without a TTY; every progress byte must land on stderr so the

@@ -3,23 +3,40 @@
 //!
 //! Proposes the smallest set of `safe` candidates whose total meets the
 //! requested reclaim target, preferring stale projects, and writes the
-//! proposal as a reviewable ActionPlan. It never selects caution,
-//! blocked, or report-only candidates, never widens the selection when
-//! the target cannot be met, and never deletes anything itself — the
-//! plan goes through `rclean clean --plan` with full revalidation.
+//! proposal as a reviewable ActionPlan unless `--interactive` is used.
+//! It never pre-selects caution, blocked, report-only, or sudo candidates.
 
+use std::collections::BTreeSet;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chrono::Utc;
 
-use crate::clean::SelectedCandidate;
+use crate::clean::{CleanResult, SelectedCandidate};
 use crate::cli::FreeArgs;
-use crate::error::RcleanError;
+use crate::error::{CleanError, RcleanError};
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
 use crate::{parse, plan, scan};
 
 pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
+    if args.interactive {
+        if args.common.write_plan.is_some() {
+            return Err(CleanError::Generic(
+                "free --interactive cannot be combined with --write-plan; omit --interactive to write a plan"
+                    .to_string(),
+            )
+            .into());
+        }
+        if args.common.json {
+            return Err(CleanError::Generic(
+                "free --interactive cannot be combined with --json; interactive cleanup is human-readable"
+                    .to_string(),
+            )
+            .into());
+        }
+        ensure_interactive_terminal()?;
+    }
     let target = parse::parse_size(&args.target)?;
     let options = args.common.to_scan_options()?;
     let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
@@ -57,6 +74,10 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
         format_bytes(target)
     );
 
+    if args.interactive {
+        return run_interactive(args, &report, &proposal);
+    }
+
     let plan_path = args
         .common
         .write_plan
@@ -85,6 +106,117 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
             format_bytes(target - proposal.total_bytes)
         );
         Ok(ExitCode::from(3))
+    }
+}
+
+fn ensure_interactive_terminal() -> Result<(), RcleanError> {
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        return Ok(());
+    }
+    Err(CleanError::Generic(
+        "free --interactive requires an interactive terminal; no cleanup was run".to_string(),
+    )
+    .into())
+}
+
+fn run_interactive(
+    args: FreeArgs,
+    report: &ScanReport,
+    proposal: &Proposal<'_>,
+) -> Result<ExitCode, RcleanError> {
+    let preselected_paths: BTreeSet<PathBuf> = proposal
+        .candidates
+        .iter()
+        .map(|entry| PathBuf::from(&entry.candidate.path))
+        .collect();
+    let selected = select_interactively(report, args.common.include_caution, &preselected_paths)?;
+    let delete_mode = default_interactive_delete_mode();
+    let clean_args = interactive_clean_args(args);
+
+    if !clean_args.common.json {
+        crate::clean::print_plan(&selected, delete_mode, false);
+    }
+    if selected.is_empty() {
+        return Ok(ExitCode::from(3));
+    }
+
+    crate::clean::confirm_if_needed(&selected, &clean_args)?;
+    let result = delete_interactive_selected(&selected, &clean_args)?;
+    crate::clean::print_clean_result(&result);
+    if !clean_args.common.json {
+        crate::clean::print_recovery_summary(&result, delete_mode);
+    }
+    if result.failed.is_empty() {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(1))
+    }
+}
+
+fn select_interactively(
+    report: &ScanReport,
+    include_caution: bool,
+    preselected_paths: &BTreeSet<PathBuf>,
+) -> Result<Vec<SelectedCandidate>, RcleanError> {
+    #[cfg(feature = "tui")]
+    {
+        crate::tui::select_candidates_with_preselected(report, include_caution, preselected_paths)
+            .map_err(Into::into)
+    }
+    #[cfg(not(feature = "tui"))]
+    {
+        crate::clean::select_interactively_text_with_preselected(
+            report,
+            include_caution,
+            preselected_paths,
+        )
+        .map_err(Into::into)
+    }
+}
+
+fn interactive_clean_args(args: FreeArgs) -> crate::cli::CleanArgs {
+    crate::cli::CleanArgs {
+        common: args.common,
+        all: false,
+        dry_run: false,
+        permanent: false,
+        #[cfg(feature = "graveyard")]
+        graveyard: true,
+        yes: false,
+        plan: None,
+        audit_log: None,
+        tui: false,
+        allow_broad_root: false,
+    }
+}
+
+fn default_interactive_delete_mode() -> &'static str {
+    #[cfg(feature = "graveyard")]
+    {
+        "graveyard"
+    }
+    #[cfg(not(feature = "graveyard"))]
+    {
+        "trash"
+    }
+}
+
+fn delete_interactive_selected(
+    selected: &[SelectedCandidate],
+    args: &crate::cli::CleanArgs,
+) -> Result<CleanResult, RcleanError> {
+    #[cfg(feature = "graveyard")]
+    {
+        if args.graveyard {
+            let yard = crate::graveyard::Graveyard::open(crate::graveyard::default_root());
+            return crate::clean::delete_selected_into_graveyard(selected, &yard, None)
+                .map_err(Into::into);
+        }
+        crate::clean::delete_selected(selected, args.permanent, None).map_err(Into::into)
+    }
+    #[cfg(not(feature = "graveyard"))]
+    {
+        crate::clean::delete_selected(selected, args.permanent, None).map_err(Into::into)
     }
 }
 

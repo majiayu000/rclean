@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -34,7 +35,7 @@ fn select_candidates_text(
     let candidates = selectable_candidates(report);
 
     if !args.all {
-        return select_interactively(&candidates, args.common.include_caution);
+        return select_interactively(&candidates, args.common.include_caution, &BTreeSet::new());
     }
 
     let mut selected = Vec::new();
@@ -54,7 +55,16 @@ pub fn select_interactively_text(
     include_caution: bool,
 ) -> Result<Vec<SelectedCandidate>, CleanError> {
     let candidates = selectable_candidates(report);
-    select_interactively(&candidates, include_caution)
+    select_interactively(&candidates, include_caution, &BTreeSet::new())
+}
+
+pub fn select_interactively_text_with_preselected(
+    report: &ScanReport,
+    include_caution: bool,
+    preselected_paths: &BTreeSet<PathBuf>,
+) -> Result<Vec<SelectedCandidate>, CleanError> {
+    let candidates = selectable_candidates(report);
+    select_interactively(&candidates, include_caution, preselected_paths)
 }
 
 fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
@@ -81,10 +91,12 @@ fn selectable_candidates(report: &ScanReport) -> Vec<SelectableCandidate<'_>> {
 fn select_interactively(
     candidates: &[SelectableCandidate<'_>],
     include_caution: bool,
+    preselected_paths: &BTreeSet<PathBuf>,
 ) -> Result<Vec<SelectedCandidate>, CleanError> {
     if candidates.is_empty() {
         return Ok(Vec::new());
     }
+    let preselected = preselected_indices(candidates, preselected_paths);
 
     println!();
     println!("Select candidates to clean:");
@@ -103,7 +115,12 @@ fn select_interactively(
             .map(String::as_str)
             .unwrap_or("-");
         println!(
-            "  {:>2}. {:<8} {:<8} {:>10} {:<24} {}",
+            "  {}{:>2}. {:<8} {:<8} {:>10} {:<24} {}",
+            if preselected.contains(&index) {
+                "*"
+            } else {
+                " "
+            },
             index + 1,
             candidate.safety,
             candidate.category,
@@ -112,7 +129,15 @@ fn select_interactively(
             reason
         );
     }
-    println!("Enter numbers/ranges like 1,3,5 or 2-4. Use 'a' for all safe. Empty selects none.");
+    if preselected.is_empty() {
+        println!(
+            "Enter numbers/ranges like 1,3,5 or 2-4. Use 'a' for all safe. Empty selects none."
+        );
+    } else {
+        println!(
+            "Enter numbers/ranges like 1,3,5 or 2-4. Use 'a' for all safe. Empty keeps pre-selected."
+        );
+    }
     print!("Selection: ");
     io::stdout()
         .flush()
@@ -124,6 +149,12 @@ fn select_interactively(
         .map_err(|err| CleanError::Generic(format!("failed to read selection: {err}")))?;
 
     let input = input.trim();
+    if input.is_empty() && !preselected.is_empty() {
+        return Ok(preselected
+            .iter()
+            .map(|index| to_selected(candidates[*index].candidate))
+            .collect());
+    }
     if input.eq_ignore_ascii_case("a") {
         return Ok(candidates
             .iter()
@@ -143,6 +174,19 @@ fn select_interactively(
         }
     }
     Ok(selected)
+}
+
+fn preselected_indices(
+    candidates: &[SelectableCandidate<'_>],
+    preselected_paths: &BTreeSet<PathBuf>,
+) -> BTreeSet<usize> {
+    candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.candidate.safety == Safety::Safe && !item.candidate.requires_sudo)
+        .filter(|(_, item)| preselected_paths.contains(&PathBuf::from(&item.candidate.path)))
+        .map(|(index, _)| index)
+        .collect()
 }
 
 pub(super) fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, CleanError> {

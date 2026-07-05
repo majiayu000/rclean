@@ -326,6 +326,10 @@ pub struct FreeArgs {
     /// Target amount to reclaim. Examples: 500mb, 20gb.
     pub target: String,
 
+    /// Open the selector with the proposed safe set pre-selected, then clean after confirmation.
+    #[arg(long)]
+    pub interactive: bool,
+
     #[command(flatten)]
     pub common: CommonScanArgs,
 }

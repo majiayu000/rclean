@@ -51,6 +51,13 @@ struct CandidateRow {
 }
 
 pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
+    run_with_preselected(report, &BTreeSet::new())
+}
+
+pub fn run_with_preselected(
+    report: &ScanReport,
+    preselected_paths: &BTreeSet<PathBuf>,
+) -> Result<Vec<SelectedCandidate>, CleanError> {
     let mut stdout = io::stdout();
     enable_raw_mode().map_err(clean_error)?;
     execute!(stdout, EnterAlternateScreen).map_err(clean_error)?;
@@ -58,7 +65,7 @@ pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend).map_err(clean_error)?;
-    let mut app = SelectorApp::new(report);
+    let mut app = SelectorApp::new_with_preselected(report, preselected_paths);
 
     loop {
         terminal
@@ -92,14 +99,26 @@ struct SelectorApp {
 }
 
 impl SelectorApp {
+    #[cfg(test)]
     fn new(report: &ScanReport) -> Self {
+        Self::new_with_preselected(report, &BTreeSet::new())
+    }
+
+    fn new_with_preselected(report: &ScanReport, preselected_paths: &BTreeSet<PathBuf>) -> Self {
         let rows = rows_from_report(report);
         let filtered = (0..rows.len()).collect();
+        let selected = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.safety == Safety::Safe && !row.requires_sudo)
+            .filter(|(_, row)| preselected_paths.contains(&PathBuf::from(&row.path)))
+            .map(|(index, _)| index)
+            .collect();
         Self {
             roots: report.roots.join(", "),
             rows,
             filtered,
-            selected: BTreeSet::new(),
+            selected,
             cursor: 0,
             query: String::new(),
             search_mode: false,
@@ -582,5 +601,21 @@ mod tests {
         assert!(detail.contains("package.json present"));
         assert!(detail.contains("npm install"));
         assert!(detail.contains("last modified 2026-07-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn preselects_matching_safe_candidate_by_path() {
+        let report = fixture_report();
+        let mut preselected = BTreeSet::new();
+        preselected.insert(PathBuf::from("/tmp/root/app/node_modules"));
+
+        let app = SelectorApp::new_with_preselected(&report, &preselected);
+
+        assert_eq!(app.selected.len(), 1);
+        let selected = app.selected_candidates();
+        assert_eq!(
+            selected[0].path,
+            PathBuf::from("/tmp/root/app/node_modules")
+        );
     }
 }
