@@ -20,6 +20,44 @@ env:
   PKG_NAME: rclean-cli
 
 jobs:
+  release-notes-dry-run:
+    name: release notes dry run
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify changelog release-note extraction
+        shell: bash
+        run: |
+          extract_release_notes() {
+            local version="$1"
+            local output="$2"
+            awk -v version="$version" '
+              BEGIN { heading = "## " version }
+              found == 0 && index($0, heading) == 1 { found = 1; next }
+              found == 1 && /^## / { exit }
+              found == 1 { print }
+              END { if (found == 0) exit 2 }
+            ' CHANGELOG.md > "$output"
+          }
+
+          extract_release_notes "0.2.0" release-notes.md || {
+            echo "::error::missing CHANGELOG.md section for 0.2.0"
+            exit 1
+          }
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md section for 0.2.0 is empty"
+            exit 1
+          fi
+
+          if extract_release_notes "999.999.999" missing-release-notes.md; then
+            echo "::error::missing changelog section unexpectedly succeeded"
+            exit 1
+          fi
+          echo "release-note extraction dry run passed"
+
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -118,11 +156,33 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Extract release notes from changelog
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            BEGIN { heading = "## " version }
+            found == 0 && index($0, heading) == 1 { found = 1; next }
+            found == 1 && /^## / { exit }
+            found == 1 { print }
+            END { if (found == 0) exit 2 }
+          ' CHANGELOG.md > release-notes.md || {
+            echo "::error::missing CHANGELOG.md section for ${version}"
+            exit 1
+          }
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::CHANGELOG.md section for ${version} is empty"
+            exit 1
+          fi
 
       - name: Combined checksums
         shell: bash
@@ -134,6 +194,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true
 
