@@ -50,7 +50,7 @@ trash = "5.2"
 wait-timeout = "0.2"
 walkdir = "2.5"
 clap_complete = "4.5"
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2.2"
