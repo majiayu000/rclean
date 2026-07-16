@@ -35,7 +35,8 @@
   explicitly; the helper has no production or shared-fixture impact.
 - Verify:
   - `cargo test --test rules project_artifacts::node_classifier_matrix`
-  - focused source review of the JSON shape assertions and duplicate insertion assertion
+  - focused source review of the status/count consistency, JSON shape, and duplicate insertion
+    assertions
 
 ### SP301-T2 — Lock the complete Node matrix
 
