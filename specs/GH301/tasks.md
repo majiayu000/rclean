@@ -13,7 +13,7 @@
 
 ## SpecRail Checklist
 
-- [ ] `SP301-T1` | Owner: `implementation` | Done when: the local structured JSON helper returns a duplicate-safe order-independent ruleId-to-safety map | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
+- [ ] `SP301-T1` | Owner: `implementation` | Done when: the local `--include-blocked` JSON helper returns a duplicate-safe order-independent ruleId-to-safety map and source review confirms explicit shape failures | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
 - [ ] `SP301-T2` | Owner: `implementation` | Done when: Node positive and marker-missing fixtures prove B-001 and B-002 exactly | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
 - [ ] `SP301-T3` | Owner: `implementation` | Done when: Python valid/cache, invalid-venv, and marker-missing fixtures prove B-003 through B-006 exactly | Verify: `cargo test --test rules project_artifacts::python_classifier_matrix`
 - [ ] `SP301-T4` | Owner: `verification` | Done when: coverage evidence executes reachable classifier arms and the focused/full scope gates pass | Verify: `cargo test --test rules`
@@ -26,11 +26,14 @@
 - Owner: `implementation`
 - Dependencies: merged GH301 Spec PR; latest `origin/main`
 - Covers: B-007, B-008
-- Change: add the minimal module-local helper that runs `rclean scan --json --min-size 0`, parses
-  projects/candidates, and collects duplicate-safe ruleId-to-safety values without order dependence.
-- Done when: malformed output or duplicate rule ids fail explicitly and the helper has no
-  production or shared-fixture impact.
-- Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
+- Change: add the minimal module-local helper that runs
+  `rclean scan --json --min-size 0 --include-blocked`, parses projects/candidates, and collects
+  duplicate-safe ruleId-to-safety values without order dependence.
+- Done when: normal matrix execution passes; source review confirms malformed shape/missing fields
+  and duplicate rule ids fail explicitly; the helper has no production or shared-fixture impact.
+- Verify:
+  - `cargo test --test rules project_artifacts::node_classifier_matrix`
+  - focused source review of the JSON shape assertions and duplicate insertion assertion
 
 ### SP301-T2 — Lock the complete Node matrix
 
@@ -67,7 +70,7 @@
   - `CARGO_TARGET_DIR=/tmp/rclean-cov-301 cargo llvm-cov --all-features --summary-only`
   - `git diff --check`
   - `git diff --name-only origin/main...HEAD`
-  - `rg -n '#\[ignore|sleep\(|Duration::' tests/rules/project_artifacts.rs`
+  - `! rg -n '#\[ignore|sleep\(|Duration::' tests/rules/project_artifacts.rs`
 
 ### SP301-T5 — Full stable/MSRV/VibeGuard/SpecRail gate
 

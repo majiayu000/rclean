@@ -24,13 +24,15 @@ Add a private test helper in `tests/rules/project_artifacts.rs`:
 ```rust
 fn scan_rule_safety(root: &Path) -> BTreeMap<String, String> {
     let output = Command::cargo_bin("rclean")
-        // scan root as JSON with min-size zero
+        // scan root as JSON with min-size zero and --include-blocked
         // assert process success and parse stdout
     // flatten projects[].candidates[] and collect ruleId -> safety
 }
 ```
 
-The helper must fail clearly if stdout is invalid JSON, `projects`/`candidates` has the wrong
+Every matrix scan passes `--include-blocked`; this is required to observe B-005 without changing
+the production default that filters blocked candidates. The helper must fail clearly if stdout is
+invalid JSON, `projects`/`candidates` has the wrong
 shape, or a candidate lacks `ruleId`/`safety`. Inserting an already-seen rule id must assert the
 safety is identical and the rule is not duplicated; no candidate order is assumed.
 
@@ -76,7 +78,7 @@ does not introduce shell scripts, environment mutation, clocks, sleeps, or platf
 | B-004 Python cache/tox safety | valid/cache fixture | exact map equality |
 | B-005 invalid virtualenv split | invalid Python fixture | exact singleton blocked map |
 | B-006 Python marker rejection | no-marker fixture | empty filtered `python.*` map |
-| B-007 structured order-independent assertions | local JSON helper | focused test review + deterministic maps |
+| B-007 structured order-independent assertions | local JSON helper with `--include-blocked` | focused test review + deterministic maps |
 | B-008 scope/full gate | one-file manifest | diff scope, stable/MSRV/VibeGuard/CI/PR gate |
 
 ## Planned Change Manifest

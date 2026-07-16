@@ -11,7 +11,8 @@
 ## Summary
 
 在现有 `tests/rules/project_artifacts.rs` 中补齐 Node 与 Python 项目 artifact classifier
-的端到端契约矩阵。测试通过真实 `rclean scan --json --min-size 0` 解析候选，精确断言
+的端到端契约矩阵。测试通过真实
+`rclean scan --json --min-size 0 --include-blocked` 解析候选，精确断言
 `ruleId` 与 `safety`，覆盖所有正向分支、marker 缺失拒绝路径，以及 Python plain
 `venv` 的 blocked 分支；生产规则与安全行为保持不变。
 
@@ -61,8 +62,9 @@
 5. **B-005** Python project 中无 virtualenv marker 的 `.venv` 不产生候选；同条件下
    plain `venv` 产生 `python.venv_plain` 且为 `blocked`。
 6. **B-006** 无 Python project marker fixture 不得产生任何 `python.*` rule。
-7. **B-007** 新测试必须从结构化 JSON 构建 ruleId-to-safety 集合并精确比较，不能用
-   只证明某个 substring 出现的断言，也不能依赖 candidates 输出顺序。
+7. **B-007** 新测试必须使用 `--include-blocked` 从结构化 JSON 构建
+   ruleId-to-safety 集合并精确比较，不能用只证明某个 substring 出现的断言，也不能
+   依赖 candidates 输出顺序。
 8. **B-008** implementation 只修改 `tests/rules/project_artifacts.rs`，不使用 ignore、
    sleep、wall-clock assertion 或测试弱化，并通过 focused/full stable、MSRV、VibeGuard、
    SpecRail 与三平台 CI 门禁。
@@ -73,7 +75,8 @@
 - `.venv` 和 plain `venv` 的缺 marker 行为故意不同，测试不能把二者合并成一个预期。
 - Python marker 可以使用现有 `pyproject.toml`；本问题不枚举四种等价 project marker。
 - 扫描顶层可能包含多个 fixture project；断言按 rule id 集合比较而不是依赖 project 顺序。
-- blocked candidate 即使 size 很小仍应按现有例外进入报告；测试不得改变 min-size 语义。
+- blocked candidate 只有显式 `--include-blocked` 才进入报告；测试必须传入该 flag，且不得
+  改变默认过滤或 min-size 语义。
 
 ## Boundary Checklist
 
