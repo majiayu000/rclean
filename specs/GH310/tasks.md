@@ -23,10 +23,11 @@
 - Owner: `refactor`
 - Dependencies: merged GH310 Spec PR; unchanged `origin/main` deletion baseline
 - Covers: B-001, B-002, B-003, B-004, B-005
-- Change: preserve parent lines 1–307, replace the inline wrapper with `mod tests;`, and create
-  `src/clean/deletion/tests.rs` from baseline lines 309–545 with exactly one four-space dedent.
-- Done when: parent is 308 lines, child is 237 lines, both exact diff proofs are empty, and only the two planned
-  paths appear in the diff.
+- Change: preserve parent lines 1–307, replace the inline wrapper with `mod tests;`, create
+  `src/clean/deletion/tests.rs` from baseline lines 309–545 with exactly one four-space dedent, then apply the
+  repository rustfmt normalization.
+- Done when: parent is 308 lines, rustfmt-normalized child is 229 lines, both exact diff proofs are empty, and
+  only the two planned paths appear in the diff.
 - Verify:
   - exact relocation proof from `specs/GH310/tech.md`
   - `git diff --check`
@@ -41,8 +42,9 @@
 - Owner: `verification`
 - Dependencies: SP310-T1
 - Covers: B-001, B-002, B-003, B-004, B-005, B-006
-- Done when: all moved content is textually identical after dedent, focused/full stable/MSRV tests pass, no
-  production/dependency/workflow drift exists, and final-head review/CI/SpecRail gates are green.
+- Done when: all moved content is textually identical after one-level dedent and the same rustfmt normalization,
+  focused/full stable/MSRV tests pass, no production/dependency/workflow drift exists, and final-head
+  review/CI/SpecRail gates are green.
 - Verify:
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test`
