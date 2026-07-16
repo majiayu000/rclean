@@ -191,6 +191,13 @@ Exit code `0` means the target was met; exit code `3` means the safe set was
 short or empty. A short proposal still writes a reviewable plan, while an empty
 proposal reports `planPath: null` and writes none.
 
+Non-interactive stdout is pipe-aware. If a downstream reader closes early
+(for example, `rclean rules | head -n 1`), rclean stops writing without a panic
+or backtrace and retains any command exit status already determined. Other
+stdout I/O errors still fail explicitly. For `clean`, a closed pipe before the
+delete phase stops the command before any artifact is removed; if cleanup has
+already completed, its computed success or failure status is preserved.
+
 Human scan output includes a `Stale` column. JSON output includes
 `stale_after_days` and each candidate's `staleness_days` when available.
 Recoverable cleanup summaries print the graveyard retention window and restore

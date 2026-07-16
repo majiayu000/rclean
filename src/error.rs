@@ -95,6 +95,15 @@ pub enum RcleanError {
     Graveyard(#[from] crate::graveyard::GraveyardError),
 }
 
+impl RcleanError {
+    pub(crate) fn output_io_kind(&self) -> Option<std::io::ErrorKind> {
+        match self {
+            Self::OutputIo(error) => Some(error.kind()),
+            _ => None,
+        }
+    }
+}
+
 impl From<String> for RcleanError {
     fn from(s: String) -> Self {
         Self::Scan(ScanError::Generic(s))

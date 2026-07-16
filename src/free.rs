@@ -18,6 +18,7 @@ use crate::clean::{CleanResult, SelectedCandidate};
 use crate::cli::FreeArgs;
 use crate::error::{CleanError, RcleanError};
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
+use crate::stdio::{self, outln};
 use crate::{parse, plan, scan};
 
 pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
@@ -43,21 +44,24 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
     let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
 
     let proposal = select_for_target(&report, target);
+    let status = if !proposal.candidates.is_empty() && proposal.total_bytes >= target {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(3)
+    };
 
     if proposal.candidates.is_empty() {
-        if args.common.json {
-            print_json_proposal(target, &proposal, None)?;
+        let output_result = if args.common.json {
+            print_json_proposal(target, &proposal, None)
         } else {
-            println!(
-                "no safe candidates available; cannot free {}",
-                format_bytes(target)
-            );
-        }
-        return Ok(ExitCode::from(3));
+            print_no_candidates(target)
+        };
+        return stdio::finish_output(status, output_result);
     }
 
-    if !args.common.json {
-        print_human_proposal(target, &proposal);
+    if !args.common.json && !stdio::continue_after_output(print_human_proposal(target, &proposal))?
+    {
+        return Ok(status);
     }
 
     if args.interactive {
@@ -76,40 +80,34 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
         .collect();
     plan::write_selected_action_plan(&report, &plan_path, &selected, "trash")?;
 
-    let target_met = proposal.total_bytes >= target;
     if args.common.json {
-        print_json_proposal(target, &proposal, Some(&plan_path))?;
+        stdio::finish_output(
+            status,
+            print_json_proposal(target, &proposal, Some(&plan_path)),
+        )
     } else {
-        println!("wrote action plan: {}", plan_path.display());
-        println!(
-            "review it, then run: rclean clean --plan {}",
-            plan_path.display()
-        );
-        if !target_met {
-            // Never widen the selection silently (U-29): the gap is stated
-            // explicitly and the exit code says the target was not met.
-            println!(
-                "target not met: safe candidates cover {}, short by {}",
-                format_bytes(proposal.total_bytes),
-                format_bytes(target - proposal.total_bytes)
-            );
-        }
-    }
-
-    if target_met {
-        Ok(ExitCode::SUCCESS)
-    } else {
-        Ok(ExitCode::from(3))
+        stdio::finish_output(
+            status,
+            print_human_plan_result(target, &proposal, &plan_path),
+        )
     }
 }
 
-fn print_human_proposal(target: u64, proposal: &Proposal<'_>) {
-    println!(
+fn print_no_candidates(target: u64) -> Result<(), RcleanError> {
+    outln!(
+        "no safe candidates available; cannot free {}",
+        format_bytes(target)
+    );
+    Ok(())
+}
+
+fn print_human_proposal(target: u64, proposal: &Proposal<'_>) -> Result<(), RcleanError> {
+    outln!(
         "Proposed set to free {} (smallest safe set, stale projects first):",
         format_bytes(target)
     );
     for entry in &proposal.candidates {
-        println!(
+        outln!(
             "  - {} ({}, {}, risk {:.2}{})",
             entry.candidate.path,
             entry.candidate.rule_id,
@@ -121,11 +119,34 @@ fn print_human_proposal(target: u64, proposal: &Proposal<'_>) {
             }
         );
     }
-    println!(
+    outln!(
         "Total: {} of {} requested",
         format_bytes(proposal.total_bytes),
         format_bytes(target)
     );
+    Ok(())
+}
+
+fn print_human_plan_result(
+    target: u64,
+    proposal: &Proposal<'_>,
+    plan_path: &Path,
+) -> Result<(), RcleanError> {
+    outln!("wrote action plan: {}", plan_path.display());
+    outln!(
+        "review it, then run: rclean clean --plan {}",
+        plan_path.display()
+    );
+    if proposal.total_bytes < target {
+        // Never widen the selection silently (U-29): the gap is stated
+        // explicitly and the exit code says the target was not met.
+        outln!(
+            "target not met: safe candidates cover {}, short by {}",
+            format_bytes(proposal.total_bytes),
+            format_bytes(target - proposal.total_bytes)
+        );
+    }
+    Ok(())
 }
 
 fn print_json_proposal(
@@ -145,7 +166,8 @@ fn print_json_proposal(
             .map(|entry| entry.candidate)
             .collect(),
     };
-    println!("{}", serde_json::to_string_pretty(&output)?);
+    let json = serde_json::to_string_pretty(&output)?;
+    outln!("{json}");
     Ok(())
 }
 
@@ -174,7 +196,7 @@ fn run_interactive(
     let clean_args = interactive_clean_args(args);
 
     if !clean_args.common.json {
-        crate::clean::print_plan(&selected, delete_mode, false);
+        crate::clean::print_plan(&selected, delete_mode, false)?;
     }
     if selected.is_empty() {
         return Ok(ExitCode::from(3));
@@ -182,15 +204,19 @@ fn run_interactive(
 
     crate::clean::confirm_if_needed(&selected, &clean_args)?;
     let result = delete_interactive_selected(&selected, &clean_args)?;
-    crate::clean::print_clean_result(&result);
-    if !clean_args.common.json {
-        crate::clean::print_recovery_summary(&result, delete_mode);
-    }
-    if result.failed.is_empty() {
-        Ok(ExitCode::SUCCESS)
+    let status = if result.failed.is_empty() {
+        ExitCode::SUCCESS
     } else {
-        Ok(ExitCode::from(1))
-    }
+        ExitCode::from(1)
+    };
+    let output_result = crate::clean::print_clean_result(&result).and_then(|()| {
+        if clean_args.common.json {
+            Ok(())
+        } else {
+            crate::clean::print_recovery_summary(&result, delete_mode)
+        }
+    });
+    stdio::finish_output(status, output_result)
 }
 
 fn select_interactively(

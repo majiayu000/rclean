@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::RcleanError;
 use crate::model::Safety;
+use crate::stdio::outln;
 
 use command::{run_docker_command, status_from_command_error};
 
@@ -226,33 +228,36 @@ pub fn report(options: DockerReportOptions) -> DockerReport {
     }
 }
 
-pub fn print_report(report: &DockerReport) {
-    println!("Docker: {}", report.status.human_label());
+pub fn print_report(report: &DockerReport) -> Result<(), RcleanError> {
+    outln!("Docker: {}", report.status.human_label());
     match &report.status {
         DockerStatus::Available { server_version } => {
             if let Some(version) = server_version {
-                println!("Server: {version}");
+                outln!("Server: {version}");
             }
         }
         status => {
-            println!("Reason: {}", status_reason(status));
-            println!("No Docker cleanup resources reported.");
-            return;
+            outln!("Reason: {}", status_reason(status));
+            outln!("No Docker cleanup resources reported.");
+            return Ok(());
         }
     }
 
     if report.resources.is_empty() {
-        println!("No Docker cleanup resources reported.");
-        return;
+        outln!("No Docker cleanup resources reported.");
+        return Ok(());
     }
 
-    println!(
+    outln!(
         "{:<28} {:<12} {:>8} {:>14} Reclaimable",
-        "Resource", "Safety", "Count", "Size"
+        "Resource",
+        "Safety",
+        "Count",
+        "Size"
     );
-    println!("{}", "-".repeat(84));
+    outln!("{}", "-".repeat(84));
     for resource in &report.resources {
-        println!(
+        outln!(
             "{:<28} {:<12} {:>8} {:>14} {}",
             resource.resource_id,
             resource.safety,
@@ -264,8 +269,9 @@ pub fn print_report(report: &DockerReport) {
             resource.reclaimable.as_deref().unwrap_or("-"),
         );
     }
-    println!();
-    println!("Docker report is inspect-only. rclean does not delete Docker resources.");
+    outln!();
+    outln!("Docker report is inspect-only. rclean does not delete Docker resources.");
+    Ok(())
 }
 
 fn docker_program(override_path: Option<&Path>) -> PathBuf {

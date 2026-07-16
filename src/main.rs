@@ -15,6 +15,7 @@ mod plan;
 mod rules;
 mod scan;
 mod stamp;
+mod stdio;
 #[cfg(feature = "tui")]
 mod tui;
 mod user_rules;
@@ -69,14 +70,14 @@ fn run() -> Result<ExitCode, RcleanError> {
         Commands::Agent(args) => match args.command {
             cli::AgentCommands::Doctor(doctor_args) => {
                 let report = agent::diagnose_agent(doctor_args.tool);
-                if doctor_args.json {
+                let output_result = if doctor_args.json {
                     let json = serde_json::to_string_pretty(&report)
                         .map_err(error::RcleanError::Output)?;
-                    println!("{json}");
+                    stdio::write_line(format_args!("{json}")).map_err(Into::into)
                 } else {
-                    output::print_agent_report(&report);
-                }
-                Ok(ExitCode::SUCCESS)
+                    output::print_agent_report(&report)
+                };
+                stdio::finish_output(ExitCode::SUCCESS, output_result)
             }
             cli::AgentCommands::Optimize(optimize_args) => {
                 let result = agent::optimize(agent::OptimizeOptions {
@@ -85,14 +86,14 @@ fn run() -> Result<ExitCode, RcleanError> {
                     apply: optimize_args.yes,
                     codex_defaults_domain: optimize_args.defaults_domain,
                 })?;
-                if optimize_args.json {
+                let output_result = if optimize_args.json {
                     let json = serde_json::to_string_pretty(&result)
                         .map_err(error::RcleanError::Output)?;
-                    println!("{json}");
+                    stdio::write_line(format_args!("{json}")).map_err(Into::into)
                 } else {
-                    output::print_agent_optimize_result(&result);
-                }
-                Ok(ExitCode::SUCCESS)
+                    output::print_agent_optimize_result(&result)
+                };
+                stdio::finish_output(ExitCode::SUCCESS, output_result)
             }
         },
         Commands::Docker(args) => match args.command {
@@ -103,18 +104,19 @@ fn run() -> Result<ExitCode, RcleanError> {
                     ..docker::DockerReportOptions::default()
                 });
                 let available = report.status.is_available();
-                if report_args.json {
+                let output_result = if report_args.json {
                     let json = serde_json::to_string_pretty(&report)
                         .map_err(error::RcleanError::Output)?;
-                    println!("{json}");
+                    stdio::write_line(format_args!("{json}")).map_err(Into::into)
                 } else {
-                    docker::print_report(&report);
-                }
-                if available {
-                    Ok(ExitCode::SUCCESS)
+                    docker::print_report(&report)
+                };
+                let status = if available {
+                    ExitCode::SUCCESS
                 } else {
-                    Ok(ExitCode::from(3))
-                }
+                    ExitCode::from(3)
+                };
+                stdio::finish_output(status, output_result)
             }
         },
         Commands::Scan(args) => {
@@ -127,16 +129,17 @@ fn run() -> Result<ExitCode, RcleanError> {
                 // stays visible without --verbose, matching v0.1.0.
                 write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
             }
-            if args.json {
-                output::print_json(&report)?;
+            let output_result = if args.json {
+                output::print_json(&report)
             } else {
-                output::print_table(&report);
-            }
-            if report.summary.candidates == 0 {
-                Ok(ExitCode::from(3))
+                output::print_table(&report)
+            };
+            let status = if report.summary.candidates == 0 {
+                ExitCode::from(3)
             } else {
-                Ok(ExitCode::SUCCESS)
-            }
+                ExitCode::SUCCESS
+            };
+            stdio::finish_output(status, output_result)
         }
         Commands::Clean(args) => run_clean(args),
         Commands::Free(args) => free::run(args),
@@ -159,29 +162,25 @@ fn run() -> Result<ExitCode, RcleanError> {
         Commands::Explain(args) => {
             let explanation =
                 scan::explain_path_with_activity_depth(&args.path, args.activity_depth)?;
-            output::print_explanation(&explanation);
-            match explanation.safety {
+            let status = match explanation.safety {
                 // ReportOnly shares the "refuse to clean" semantic with
                 // Blocked; surface the same exit code so callers don't
                 // have to distinguish unless they want to.
-                Safety::Blocked | Safety::ReportOnly => Ok(ExitCode::from(4)),
-                Safety::Unknown => Ok(ExitCode::from(3)),
-                Safety::Safe | Safety::Caution => Ok(ExitCode::SUCCESS),
-            }
+                Safety::Blocked | Safety::ReportOnly => ExitCode::from(4),
+                Safety::Unknown => ExitCode::from(3),
+                Safety::Safe | Safety::Caution => ExitCode::SUCCESS,
+            };
+            stdio::finish_output(status, output::print_explanation(&explanation))
         }
-        Commands::Rules => {
-            output::print_rules();
-            Ok(ExitCode::SUCCESS)
-        }
+        Commands::Rules => stdio::finish_output(ExitCode::SUCCESS, output::print_rules()),
         Commands::Completions(args) => {
             use clap::CommandFactory;
-            clap_complete::generate(
-                args.shell,
-                &mut Cli::command(),
-                "rclean",
-                &mut std::io::stdout(),
-            );
-            Ok(ExitCode::SUCCESS)
+            let mut buffer = Vec::new();
+            clap_complete::generate(args.shell, &mut Cli::command(), "rclean", &mut buffer);
+            stdio::finish_output(
+                ExitCode::SUCCESS,
+                stdio::write_bytes(&buffer).map_err(Into::into),
+            )
         }
         Commands::Man => {
             use clap::CommandFactory;
@@ -192,13 +191,10 @@ fn run() -> Result<ExitCode, RcleanError> {
                     "failed to render man page: {err}"
                 )))
             })?;
-            use std::io::Write;
-            std::io::stdout().write_all(&buffer).map_err(|err| {
-                RcleanError::Clean(crate::error::CleanError::Generic(format!(
-                    "failed to write man page: {err}"
-                )))
-            })?;
-            Ok(ExitCode::SUCCESS)
+            stdio::finish_output(
+                ExitCode::SUCCESS,
+                stdio::write_bytes(&buffer).map_err(Into::into),
+            )
         }
         Commands::Doctor(args) => {
             let report = if args.docker {
@@ -208,12 +204,12 @@ fn run() -> Result<ExitCode, RcleanError> {
             } else {
                 doctor::diagnose()
             };
-            output::print_doctor(&report);
-            if report.applicable_count() == 0 {
-                Ok(ExitCode::from(3))
+            let status = if report.applicable_count() == 0 {
+                ExitCode::from(3)
             } else {
-                Ok(ExitCode::SUCCESS)
-            }
+                ExitCode::SUCCESS
+            };
+            stdio::finish_output(status, output::print_doctor(&report))
         }
         #[cfg(feature = "graveyard")]
         Commands::Restore(args) => {
@@ -231,18 +227,19 @@ fn run() -> Result<ExitCode, RcleanError> {
             cli::GraveyardCommands::List(list_args) => {
                 let yard = graveyard::Graveyard::open(graveyard::default_root());
                 let records = yard.list()?;
-                if list_args.json {
+                let output_result = if list_args.json {
                     let json = serde_json::to_string_pretty(&records)
                         .map_err(error::RcleanError::Output)?;
-                    println!("{json}");
+                    stdio::write_line(format_args!("{json}")).map_err(Into::into)
                 } else {
-                    output::print_graveyard_list(&records);
-                }
-                if records.is_empty() {
-                    Ok(ExitCode::from(3))
+                    output::print_graveyard_list(&records)
+                };
+                let status = if records.is_empty() {
+                    ExitCode::from(3)
                 } else {
-                    Ok(ExitCode::SUCCESS)
-                }
+                    ExitCode::SUCCESS
+                };
+                stdio::finish_output(status, output_result)
             }
             cli::GraveyardCommands::Gc(gc_args) => {
                 let yard = graveyard::Graveyard::open(graveyard::default_root());
@@ -267,12 +264,12 @@ fn run_default_interactive() -> Result<ExitCode, RcleanError> {
 
     if !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
         use clap::CommandFactory;
-        Cli::command().print_help().map_err(|err| {
-            RcleanError::Clean(crate::error::CleanError::Generic(format!(
-                "failed to print help: {err}"
-            )))
-        })?;
-        return Ok(ExitCode::from(2));
+        let mut buffer = Vec::new();
+        Cli::command().write_help(&mut buffer)?;
+        return stdio::finish_output(
+            ExitCode::from(2),
+            stdio::write_bytes(&buffer).map_err(Into::into),
+        );
     }
 
     let cli = Cli::parse_from(DEFAULT_INTERACTIVE_ARGV);
@@ -343,16 +340,26 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
         let selected = clean::select_candidates(&report, &args)?;
         (selected, Some(report))
     };
+    let pre_delete_status = if selected.is_empty() {
+        ExitCode::from(3)
+    } else {
+        ExitCode::SUCCESS
+    };
 
     if let Some(report) = &report {
-        if args.common.json {
-            output::print_json(report)?;
+        let output_result = if args.common.json {
+            output::print_json(report)
         } else {
-            output::print_table(report);
+            output::print_table(report)
+        };
+        if !stdio::continue_after_output(output_result)? {
+            return Ok(pre_delete_status);
         }
     }
-    if !args.common.json {
-        clean::print_plan(&selected, &delete_mode, args.dry_run);
+    if !args.common.json
+        && !stdio::continue_after_output(clean::print_plan(&selected, &delete_mode, args.dry_run))?
+    {
+        return Ok(pre_delete_status);
     }
 
     if selected.is_empty() {
@@ -382,16 +389,19 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
     };
     #[cfg(not(feature = "graveyard"))]
     let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
-    clean::print_clean_result(&result);
-    if !args.common.json {
-        clean::print_recovery_summary(&result, &delete_mode);
-    }
-
-    if result.failed.is_empty() {
-        Ok(ExitCode::SUCCESS)
+    let status = if result.failed.is_empty() {
+        ExitCode::SUCCESS
     } else {
-        Ok(ExitCode::from(1))
-    }
+        ExitCode::from(1)
+    };
+    let output_result = clean::print_clean_result(&result).and_then(|()| {
+        if args.common.json {
+            Ok(())
+        } else {
+            clean::print_recovery_summary(&result, &delete_mode)
+        }
+    });
+    stdio::finish_output(status, output_result)
 }
 
 fn clean_roots_for_broad_check(args: &cli::CleanArgs) -> Result<Vec<PathBuf>, RcleanError> {

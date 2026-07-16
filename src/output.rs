@@ -1,30 +1,32 @@
 use crate::agent::{AgentReport, OptimizeResult};
 use crate::doctor::{DoctorReport, Status};
+use crate::error::RcleanError;
 use crate::model::{Candidate, Explanation, ProjectReport, Safety, ScanReport, format_bytes};
 use crate::rules;
+use crate::stdio::outln;
 
-pub fn print_json(report: &ScanReport) -> Result<(), serde_json::Error> {
+pub fn print_json(report: &ScanReport) -> Result<(), RcleanError> {
     let json = serde_json::to_string_pretty(report)?;
-    println!("{json}");
+    outln!("{json}");
     Ok(())
 }
 
-pub fn print_agent_report(report: &AgentReport) {
-    println!("Agent: {}", report.tool);
-    println!("Generated: {}", report.generated_at);
+pub fn print_agent_report(report: &AgentReport) -> Result<(), RcleanError> {
+    outln!("Agent: {}", report.tool);
+    outln!("Generated: {}", report.generated_at);
 
-    println!();
-    println!("Power:");
+    outln!();
+    outln!("Power:");
     if report.power.supported {
-        println!(
+        outln!(
             "  display sleep assertion: {}",
             format_bool(report.power.prevent_user_idle_display_sleep)
         );
-        println!(
+        outln!(
             "  idle system sleep assertion: {}",
             format_bool(report.power.prevent_user_idle_system_sleep)
         );
-        println!(
+        outln!(
             "  agent blocks display sleep: {}",
             if report.power.agent_blocks_display_sleep {
                 "yes"
@@ -33,7 +35,7 @@ pub fn print_agent_report(report: &AgentReport) {
             }
         );
         for assertion in &report.power.assertions {
-            println!(
+            outln!(
                 "  - pid {} {} {}{}",
                 assertion.pid,
                 assertion.process,
@@ -46,90 +48,92 @@ pub fn print_agent_report(report: &AgentReport) {
             );
         }
     } else {
-        println!("  unsupported on this platform");
+        outln!("  unsupported on this platform");
     }
 
-    println!();
-    println!("Disk:");
+    outln!();
+    outln!("Disk:");
     for entry in &report.disk {
         let size = if entry.exists {
             format_bytes(entry.bytes)
         } else {
             "missing".to_string()
         };
-        println!("  {:<28} {:>8}  {}", entry.label, size, entry.path);
+        outln!("  {:<28} {:>8}  {}", entry.label, size, entry.path);
     }
 
-    println!();
-    println!("Processes:");
+    outln!();
+    outln!("Processes:");
     if report.processes.is_empty() {
-        println!("  none detected");
+        outln!("  none detected");
     } else {
         let visible_processes = 20;
         for process in report.processes.iter().take(visible_processes) {
-            println!("  - pid {} {}", process.pid, process.command);
+            outln!("  - pid {} {}", process.pid, process.command);
         }
         if report.processes.len() > visible_processes {
-            println!(
+            outln!(
                 "  ... and {} more process(es)",
                 report.processes.len() - visible_processes
             );
         }
     }
 
-    println!();
-    println!("Auto update:");
+    outln!();
+    outln!("Auto update:");
     if report.auto_update.supported {
-        println!(
+        outln!(
             "  automatically update: {}",
             format_bool(report.auto_update.automatically_update)
         );
-        println!(
+        outln!(
             "  automatic checks: {}",
             format_bool(report.auto_update.automatic_checks)
         );
         if let Some(last_check) = &report.auto_update.last_check_time {
-            println!("  last check: {last_check}");
+            outln!("  last check: {last_check}");
         }
     } else {
-        println!("  unsupported on this platform");
+        outln!("  unsupported on this platform");
     }
 
     if !report.warnings.is_empty() {
-        println!();
-        println!("Warnings:");
+        outln!();
+        outln!("Warnings:");
         for warning in &report.warnings {
-            println!("  - {warning}");
+            outln!("  - {warning}");
         }
     }
 
     if !report.recommendations.is_empty() {
-        println!();
-        println!("Recommendations:");
+        outln!();
+        outln!("Recommendations:");
         for recommendation in &report.recommendations {
-            println!("  - {recommendation}");
+            outln!("  - {recommendation}");
         }
     }
+    Ok(())
 }
 
-pub fn print_agent_optimize_result(result: &OptimizeResult) {
-    println!("Agent: {}", result.tool);
-    println!(
+pub fn print_agent_optimize_result(result: &OptimizeResult) -> Result<(), RcleanError> {
+    outln!("Agent: {}", result.tool);
+    outln!(
         "Mode: {}",
         if result.applied { "applied" } else { "dry-run" }
     );
     for action in &result.actions {
-        println!();
-        println!("{}: {}", action.id, action.status);
-        println!("  {}", action.description);
+        outln!();
+        outln!("{}: {}", action.id, action.status);
+        outln!("  {}", action.description);
         for command in &action.commands {
-            println!("  $ {command}");
+            outln!("  $ {command}");
         }
     }
     if !result.applied {
-        println!();
-        println!("Re-run with --yes to apply the selected changes.");
+        outln!();
+        outln!("Re-run with --yes to apply the selected changes.");
     }
+    Ok(())
 }
 
 fn format_bool(value: Option<bool>) -> &'static str {
@@ -140,15 +144,15 @@ fn format_bool(value: Option<bool>) -> &'static str {
     }
 }
 
-pub fn print_table(report: &ScanReport) {
-    println!();
-    println!(
+pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
+    outln!();
+    outln!(
         "Summary: {} projects scanned, {} candidates, {} reclaimable",
         report.summary.projects_scanned,
         report.summary.candidates,
         format_bytes(report.summary.total_bytes)
     );
-    println!(
+    outln!(
         "Safety: {} safe, {} caution, {} blocked, {} report-only",
         report.summary.safe_candidates,
         report.summary.caution_candidates,
@@ -156,20 +160,20 @@ pub fn print_table(report: &ScanReport) {
         report.summary.report_only_candidates
     );
     if let Some(disk) = &report.disk_attribution {
-        print_disk_attribution(disk);
+        print_disk_attribution(disk)?;
     }
-    print_scan_warnings(&report.warnings);
+    print_scan_warnings(&report.warnings)?;
 
     if report.projects.is_empty() {
-        println!("No cleanable developer artifacts found.");
-        print_empty_scan_hint();
-        return;
+        outln!("No cleanable developer artifacts found.");
+        print_empty_scan_hint()?;
+        return Ok(());
     }
 
     let wins = biggest_wins(report);
     if !wins.is_empty() {
-        println!();
-        println!("Biggest wins:");
+        outln!();
+        outln!("Biggest wins:");
         for (index, (project, candidate)) in wins.into_iter().enumerate() {
             let project_name = short_path(&project.path);
             let staleness = match candidate.staleness_days {
@@ -178,7 +182,7 @@ pub fn print_table(report: &ScanReport) {
                 }
                 _ => String::new(),
             };
-            println!(
+            outln!(
                 "  {}. {}/{} - {} reclaimable ({}, {}, {}{})",
                 index + 1,
                 truncate(&project_name, 44),
@@ -192,12 +196,20 @@ pub fn print_table(report: &ScanReport) {
         }
     }
 
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} Reason",
-        "Project", "Kind", "Candidate", "Category", "Size", "Junk", "Safety", "Risk", "Stale"
+        "Project",
+        "Kind",
+        "Candidate",
+        "Category",
+        "Size",
+        "Junk",
+        "Safety",
+        "Risk",
+        "Stale"
     );
-    println!("{}", "-".repeat(131));
+    outln!("{}", "-".repeat(131));
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
@@ -208,7 +220,7 @@ pub fn print_table(report: &ScanReport) {
                 .or_else(|| candidate.warnings.first())
                 .cloned()
                 .unwrap_or_default();
-            println!(
+            outln!(
                 "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} {}",
                 truncate(&project_name, 30),
                 truncate(&project.kind, 13),
@@ -223,35 +235,38 @@ pub fn print_table(report: &ScanReport) {
             );
         }
     }
+    Ok(())
 }
 
-fn print_empty_scan_hint() {
-    println!(
+fn print_empty_scan_hint() -> Result<(), RcleanError> {
+    outln!(
         "Hint: try `rclean scan --home` for toolchain caches or `rclean scan --tmp` for temp worktrees."
     );
+    Ok(())
 }
 
-fn print_scan_warnings(warnings: &[crate::model::ScanWarning]) {
+fn print_scan_warnings(warnings: &[crate::model::ScanWarning]) -> Result<(), RcleanError> {
     if warnings.is_empty() {
-        return;
+        return Ok(());
     }
 
-    println!();
-    println!("Warnings during scan:");
+    outln!();
+    outln!("Warnings during scan:");
     for warning in warnings {
-        println!("  - {warning}");
+        outln!("  - {warning}");
     }
-    println!(
+    outln!(
         "{} warning(s) during scan. Results may be incomplete.",
         warnings.len()
     );
+    Ok(())
 }
 
-fn print_disk_attribution(disk: &crate::model::DiskAttribution) {
-    println!();
-    println!("Disk attribution:");
+fn print_disk_attribution(disk: &crate::model::DiskAttribution) -> Result<(), RcleanError> {
+    outln!();
+    outln!("Disk attribution:");
     if let Some(container) = &disk.apfs_container {
-        println!(
+        outln!(
             "  APFS container: {} used / {} total ({} free)",
             format_optional_bytes(container.used_bytes),
             format_optional_bytes(container.capacity_bytes),
@@ -259,15 +274,15 @@ fn print_disk_attribution(disk: &crate::model::DiskAttribution) {
         );
     }
     if let Some(system) = &disk.system_volume {
-        println!("  System volume: {} used", format_bytes(system.used_bytes));
+        outln!("  System volume: {} used", format_bytes(system.used_bytes));
     }
     if let Some(data) = &disk.data_volume {
-        println!("  Data volume: {} used", format_bytes(data.used_bytes));
+        outln!("  Data volume: {} used", format_bytes(data.used_bytes));
     }
     if !disk.data_contributors.is_empty() {
-        println!("  Top Data contributors:");
+        outln!("  Top Data contributors:");
         for contributor in &disk.data_contributors {
-            println!(
+            outln!(
                 "    {:<14} {:>8}  {}",
                 contributor.label,
                 contributor
@@ -279,8 +294,9 @@ fn print_disk_attribution(disk: &crate::model::DiskAttribution) {
         }
     }
     for warning in &disk.warnings {
-        println!("  warning: {warning}");
+        outln!("  warning: {warning}");
     }
+    Ok(())
 }
 
 fn format_optional_bytes(bytes: Option<u64>) -> String {
@@ -293,41 +309,42 @@ fn format_risk(score: f32) -> String {
     format!("{score:.2}")
 }
 
-pub fn print_explanation(explanation: &Explanation) {
-    println!("Path: {}", explanation.path.display());
-    println!("Safety: {}", explanation.safety);
+pub fn print_explanation(explanation: &Explanation) -> Result<(), RcleanError> {
+    outln!("Path: {}", explanation.path.display());
+    outln!("Safety: {}", explanation.safety);
     if let Some(rule_id) = &explanation.rule_id {
-        println!("Rule: {rule_id}");
+        outln!("Rule: {rule_id}");
     }
     if let Some(category) = explanation.category {
-        println!("Category: {category}");
+        outln!("Category: {category}");
     }
     if !explanation.reasons.is_empty() {
-        println!("Reasons:");
+        outln!("Reasons:");
         for reason in &explanation.reasons {
-            println!("  - {reason}");
+            outln!("  - {reason}");
         }
     }
     if !explanation.warnings.is_empty() {
-        println!("Warnings:");
+        outln!("Warnings:");
         for warning in &explanation.warnings {
-            println!("  - {warning}");
+            outln!("  - {warning}");
         }
     }
     if let Some(hint) = &explanation.restore_hint {
-        println!("Restore: {hint}");
+        outln!("Restore: {hint}");
     }
     if let Some(score) = explanation.risk_score {
-        println!("Risk: {}", format_risk(score));
+        outln!("Risk: {}", format_risk(score));
     }
     if explanation.safety == Safety::Unknown {
-        println!("No built-in cleanup rule matched this path.");
+        outln!("No built-in cleanup rule matched this path.");
     }
+    Ok(())
 }
 
-pub fn print_doctor(report: &DoctorReport) {
-    println!("{:<26} {:<10} Anchor / Reason", "Rule", "Status");
-    println!("{}", "-".repeat(76));
+pub fn print_doctor(report: &DoctorReport) -> Result<(), RcleanError> {
+    outln!("{:<26} {:<10} Anchor / Reason", "Rule", "Status");
+    outln!("{}", "-".repeat(76));
     for entry in &report.entries {
         let (status_label, detail) = match &entry.status {
             Status::Applicable => (
@@ -336,28 +353,35 @@ pub fn print_doctor(report: &DoctorReport) {
             ),
             Status::Skipped { reason } => ("skipped", reason.clone()),
         };
-        println!("{:<26} {:<10} {}", entry.rule_id, status_label, detail);
+        outln!("{:<26} {:<10} {}", entry.rule_id, status_label, detail);
     }
-    println!();
-    println!(
+    outln!();
+    outln!(
         "{} of {} rules applicable on this machine.",
         report.applicable_count(),
         report.total_count()
     );
+    Ok(())
 }
 
-pub fn print_rules() {
-    println!(
+pub fn print_rules() -> Result<(), RcleanError> {
+    outln!(
         "{:<24} {:<8} {:<18} Restore hint",
-        "Rule", "Category", "Candidate"
+        "Rule",
+        "Category",
+        "Candidate"
     );
-    println!("{}", "-".repeat(88));
+    outln!("{}", "-".repeat(88));
     for rule in rules::rule_catalog() {
-        println!(
+        outln!(
             "{:<24} {:<8} {:<18} {}",
-            rule.rule_id, rule.category, rule.candidate, rule.restore_hint
+            rule.rule_id,
+            rule.category,
+            rule.candidate,
+            rule.restore_hint
         );
     }
+    Ok(())
 }
 
 fn short_path(path: &str) -> String {
@@ -456,20 +480,25 @@ fn format_percent(value: f64) -> String {
 }
 
 #[cfg(feature = "graveyard")]
-pub fn print_graveyard_list(records: &[crate::graveyard::ManifestRecord]) {
+pub fn print_graveyard_list(
+    records: &[crate::graveyard::ManifestRecord],
+) -> Result<(), RcleanError> {
     if records.is_empty() {
-        println!("No active graves.");
-        return;
+        outln!("No active graves.");
+        return Ok(());
     }
 
-    println!(
+    outln!(
         "{:<22} {:<20} {:>10} {:<20} Original",
-        "Id", "Deleted (UTC)", "Size", "Rule"
+        "Id",
+        "Deleted (UTC)",
+        "Size",
+        "Rule"
     );
-    println!("{}", "-".repeat(110));
+    outln!("{}", "-".repeat(110));
     for r in records {
         let deleted = r.deleted_at.format("%Y-%m-%d %H:%M:%S").to_string();
-        println!(
+        outln!(
             "{:<22} {:<20} {:>10} {:<20} {}",
             truncate(&r.id, 22),
             deleted,
@@ -478,6 +507,7 @@ pub fn print_graveyard_list(records: &[crate::graveyard::ManifestRecord]) {
             r.original_path.display(),
         );
     }
+    Ok(())
 }
 
 fn truncate(value: &str, width: usize) -> String {
