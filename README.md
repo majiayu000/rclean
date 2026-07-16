@@ -162,6 +162,7 @@ cargo run --bin rclean -- clean ~/code --all --dry-run
 cargo run --bin rclean -- clean ~/code --all --permanent --yes
 cargo run --bin rclean -- tui ~/code
 cargo run --bin rclean -- free 20gb ~/code --write-plan free-plan.json
+cargo run --bin rclean -- free 20gb ~/code --json --write-plan free-plan.json
 cargo run --bin rclean -- explain ~/code/app/target
 cargo run --bin rclean -- rules
 cargo run --bin rclean -- doctor
@@ -184,6 +185,11 @@ cleanable. Builds without `tui` use the numbered text selector.
 `rclean free <size>` computes the smallest safe set that can meet a target
 reclaim amount and writes it as an ActionPlan for review. It never deletes by
 itself; replay the plan with `rclean clean --plan ... --dry-run` first.
+`free --json` emits a versioned proposal containing `targetBytes`,
+`selectedBytes`, `targetMet`, `planPath`, and the selected scan candidates.
+Exit code `0` means the target was met; exit code `3` means the safe set was
+short or empty. A short proposal still writes a reviewable plan, while an empty
+proposal reports `planPath: null` and writes none.
 
 Human scan output includes a `Stale` column. JSON output includes
 `stale_after_days` and each candidate's `staleness_days` when available.
