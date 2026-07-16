@@ -12,10 +12,11 @@
 //! project report.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Utc};
+use rayon::prelude::*;
 
 use crate::error::ScanError;
 use crate::model::{
@@ -36,10 +37,10 @@ pub(crate) fn build_project_report(
     options: &ScanOptions,
     git_cache: &GitCache,
     source_sizes: &SourceSizeIndex,
+    activity_time: SystemTime,
 ) -> Result<(ProjectReport, Vec<ScanWarning>), ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_cache.info_for(dir);
-    let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
 
     if let Some(age) = options.older_than
         && SystemTime::now()
@@ -210,6 +211,21 @@ pub(crate) fn project_activity(project_dir: &Path, max_depth: usize) -> Option<S
     newest
 }
 
+pub(crate) fn project_activities(project_dirs: &[PathBuf], max_depth: usize) -> Vec<SystemTime> {
+    match project_dirs {
+        [] => Vec::new(),
+        [only] => vec![resolved_project_activity(only, max_depth)],
+        many => many
+            .par_iter()
+            .map(|dir| resolved_project_activity(dir, max_depth))
+            .collect(),
+    }
+}
+
+fn resolved_project_activity(project_dir: &Path, max_depth: usize) -> SystemTime {
+    project_activity(project_dir, max_depth).unwrap_or_else(SystemTime::now)
+}
+
 /// Composite risk-score signal for a candidate inside `project_dir`.
 ///
 /// Range in the **final** formula is `[0.0, 1.0]`. The current
@@ -273,4 +289,111 @@ fn has_lockfile(project_dir: &Path) -> bool {
     LOCKFILES
         .iter()
         .any(|name| project_dir.join(name).is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{self, FileTimes, OpenOptions};
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn write_with_modified(path: &Path, modified: SystemTime) {
+        fs::write(path, b"source").unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(modified))
+            .unwrap();
+    }
+
+    #[test]
+    fn project_activities_handles_empty_and_single_inputs() {
+        assert!(project_activities(&[], 6).is_empty());
+
+        let temp = TempDir::new().unwrap();
+        let project = temp.path().join("single");
+        fs::create_dir(&project).unwrap();
+        let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(4_000_000_000);
+        write_with_modified(&project.join("source.rs"), expected);
+
+        assert_eq!(project_activities(&[project], 6), vec![expected]);
+    }
+
+    #[test]
+    fn project_activities_preserves_input_order() {
+        let temp = TempDir::new().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+
+        let first_time = SystemTime::UNIX_EPOCH + Duration::from_secs(4_000_000_000);
+        let second_time = first_time + Duration::from_secs(60);
+        write_with_modified(&first.join("source.rs"), first_time);
+        write_with_modified(&second.join("source.rs"), second_time);
+
+        assert_eq!(
+            project_activities(&[second, first], 6),
+            vec![second_time, first_time]
+        );
+    }
+
+    #[test]
+    fn project_activities_match_serial_traversal_boundaries() {
+        let temp = TempDir::new().unwrap();
+        let mut projects = Vec::new();
+
+        for name in ["alpha", "beta"] {
+            let project = temp.path().join(name);
+            fs::create_dir_all(project.join("src").join("deep")).unwrap();
+            fs::create_dir(project.join("node_modules")).unwrap();
+            fs::create_dir(project.join(".git")).unwrap();
+            fs::write(project.join("src").join("visible.rs"), b"visible").unwrap();
+            fs::write(
+                project.join("src").join("deep").join("too_deep.rs"),
+                b"deep",
+            )
+            .unwrap();
+            fs::write(project.join("node_modules").join("artifact"), b"artifact").unwrap();
+            fs::write(project.join(".git").join("index"), b"git").unwrap();
+            let external = temp.path().join(format!("{name}-external.rs"));
+            fs::write(&external, b"external").unwrap();
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&external, project.join("linked-source.rs")).unwrap();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_file(&external, project.join("linked-source.rs"))
+                .unwrap();
+            projects.push(project);
+        }
+
+        let serial = projects
+            .iter()
+            .map(|project| project_activity(project, 2).unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(project_activities(&projects, 2), serial);
+    }
+
+    #[test]
+    fn project_activities_preserves_missing_project_slots() {
+        let temp = TempDir::new().unwrap();
+        let before = SystemTime::now();
+        let missing = vec![
+            temp.path().join("missing-project-a"),
+            temp.path().join("missing-project-b"),
+        ];
+
+        let activities = project_activities(&missing, 6);
+        let after = SystemTime::now();
+
+        assert_eq!(activities.len(), missing.len());
+        assert!(
+            activities
+                .iter()
+                .all(|activity| *activity >= before && *activity <= after)
+        );
+    }
 }

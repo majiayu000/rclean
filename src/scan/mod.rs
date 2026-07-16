@@ -47,7 +47,7 @@ pub const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(DEFAULT_GIT_TIMEOU
 pub(crate) use git_cache::GitCache;
 pub(crate) use progress::progress_enabled;
 pub(crate) use project::{
-    build_project_report, build_summary, compute_risk_score, project_activity,
+    build_project_report, build_summary, compute_risk_score, project_activities, project_activity,
 };
 pub(crate) use safety::{
     apply_path_safety, dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
@@ -213,7 +213,8 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
         // stable across runs.
         let mut project_dirs: Vec<PathBuf> = drafts_by_project.keys().cloned().collect();
         project_dirs.sort();
-        for project_dir in project_dirs {
+        let activity_times = project_activities(&project_dirs, options.max_depth);
+        for (project_dir, activity_time) in project_dirs.into_iter().zip(activity_times) {
             let drafts = drafts_by_project
                 .get(&project_dir)
                 .cloned()
@@ -228,6 +229,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 options,
                 &git_cache,
                 &source_sizes,
+                activity_time,
             )?;
             warnings.extend(sizing_warnings);
             if let Some(counters) = &progress_counters {
