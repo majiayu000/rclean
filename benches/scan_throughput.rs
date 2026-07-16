@@ -16,6 +16,7 @@
 //! - one Rust project with a wider `target` tree
 //! - many projects with wide source trees
 //! - 1,000 marker-heavy Node projects from issue #287
+//! - many Node projects with eight candidates each from issue #296
 //!
 //! Candidate count + total reclaimable bytes are deterministic; the
 //! only varying inputs are filesystem cache state and clock jitter,
@@ -32,6 +33,7 @@ use tempfile::TempDir;
 /// clears Criterion's noise floor while keeping the bench cheap.
 const SMALL_PROJECT_COUNT: usize = 100;
 const MARKER_HEAVY_PROJECT_COUNT: usize = 1_000;
+const MULTI_CANDIDATE_PROJECT_COUNT: usize = 250;
 /// File size per dummy artifact blob. 4 KiB stays under macOS's 16 KiB
 /// block boundary so allocated_size doesn't dominate.
 const BLOB_SIZE: u64 = 4 * 1024;
@@ -70,6 +72,32 @@ fn build_marker_heavy_fixture(root: &Path) {
         let node_modules = project.join("node_modules");
         fs::create_dir(&node_modules).unwrap();
         write_sized_file(&node_modules.join("blob"), BLOB_SIZE);
+    }
+}
+
+fn build_multi_candidate_fixture(root: &Path) {
+    const CANDIDATE_NAMES: [&str; 8] = [
+        "node_modules",
+        ".next",
+        ".turbo",
+        ".vite",
+        ".parcel-cache",
+        "dist",
+        "build",
+        "out",
+    ];
+
+    for i in 0..MULTI_CANDIDATE_PROJECT_COUNT {
+        let project = root.join(format!("multi_candidate_{i:03}"));
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join("package.json"), b"{}").unwrap();
+        fs::write(project.join("index.js"), vec![b'a'; 128]).unwrap();
+
+        for candidate_name in CANDIDATE_NAMES {
+            let candidate = project.join(candidate_name);
+            fs::create_dir(&candidate).unwrap();
+            write_sized_file(&candidate.join("blob"), BLOB_SIZE);
+        }
     }
 }
 
@@ -134,6 +162,8 @@ fn bench_scan_throughput(c: &mut Criterion) {
     build_many_wide_source_fixture(many_wide.path());
     let marker_heavy = TempDir::new().unwrap();
     build_marker_heavy_fixture(marker_heavy.path());
+    let multi_candidate = TempDir::new().unwrap();
+    build_multi_candidate_fixture(multi_candidate.path());
 
     // Compiled by Cargo when `cargo bench` runs; points at the
     // release-mode rclean binary for this workspace.
@@ -161,6 +191,11 @@ fn bench_scan_throughput(c: &mut Criterion) {
     group.bench_function("marker_heavy_small_projects_json", |b| {
         b.iter(|| {
             run_scan(rclean, marker_heavy.path());
+        });
+    });
+    group.bench_function("multi_candidate_projects_json", |b| {
+        b.iter(|| {
+            run_scan(rclean, multi_candidate.path());
         });
     });
     group.finish();
