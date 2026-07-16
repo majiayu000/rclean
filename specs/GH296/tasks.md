@@ -11,6 +11,14 @@
 
 `planned` — implementation waits for the GH296 Spec PR to merge.
 
+## SpecRail Checklist
+
+- [ ] `SP296-T1` | Owner: `implementation` | Done when: lazy score evaluation is proven to be zero/once/reused without changing the standalone formula | Verify: `cargo test scan::project::tests`
+- [ ] `SP296-T2` | Owner: `implementation` | Done when: one report-local risk value is reused after existing filters and scan output remains equivalent | Verify: `cargo test scan::tests`
+- [ ] `SP296-T3` | Owner: `implementation` | Done when: the durable multi-candidate benchmark runs with fixture setup outside the timed closure | Verify: `cargo bench --bench scan_throughput -- --noplot`
+- [ ] `SP296-T4` | Owner: `verification` | Done when: normalized output, static probes, paired timing, win count, and existing benchmark non-regression satisfy B-003 through B-008 | Verify: `git diff --no-index /tmp/rclean-gh296-base-final.normalized.json /tmp/rclean-gh296-after-final.normalized.json`
+- [ ] `SP296-T5` | Owner: `verification` | Done when: the two-file scope and stable, release, MSRV, VibeGuard, SpecRail, CI, review-thread, signature, and merge-state gates pass | Verify: `cargo test`
+
 ## Implementation Tasks
 
 ### SP296-T1 — Lock the lazy zero/once/reuse contract
