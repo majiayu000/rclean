@@ -42,8 +42,9 @@
 - Owner: `verification`
 - Dependencies: SP310-T1
 - Covers: B-001, B-002, B-003, B-004, B-005, B-006
-- Done when: all moved content is textually identical after dedent, focused/full stable/MSRV tests pass, no
-  production/dependency/workflow drift exists, and final-head review/CI/SpecRail gates are green.
+- Done when: all moved content is textually identical after one-level dedent and the same rustfmt normalization,
+  focused/full stable/MSRV tests pass, no production/dependency/workflow drift exists, and final-head
+  review/CI/SpecRail gates are green.
 - Verify:
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test`
