@@ -68,7 +68,7 @@ pub(crate) fn build_project_report(
     let size_summary = sizer::summarize(dir, &drafts, source_sizes, options.verbose);
 
     let mut candidates = Vec::new();
-    let project_risk_score = OnceCell::new();
+    let project_risk_score = (drafts.len() > 1).then(OnceCell::new);
     for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
         if let Some(git) = &git
             && git.dirty
@@ -87,9 +87,12 @@ pub(crate) fn build_project_report(
             continue;
         }
 
-        let risk_score = cached_project_risk_score(&project_risk_score, || {
-            compute_risk_score(git.as_ref(), activity_time, dir)
-        });
+        let risk_score = match &project_risk_score {
+            Some(cache) => cached_project_risk_score(cache, || {
+                compute_risk_score(git.as_ref(), activity_time, dir)
+            }),
+            None => compute_risk_score(git.as_ref(), activity_time, dir),
+        };
         let requires_sudo = rules::requires_sudo(&draft.rule_id);
         let staleness_days = SystemTime::now()
             .duration_since(activity_time)
