@@ -32,10 +32,19 @@ jobs:
       - name: Cargo test
         run: cargo test
 
-      # The tui feature is on by default; keep the minimal text-selector
-      # build compiling so --no-default-features installs stay supported.
-      - name: Cargo check (no default features)
-        run: cargo check --no-default-features --features graveyard
+      # Exercise every supported non-default feature combination once. Default
+      # behavior remains cross-platform through the Cargo test step above.
+      - name: Cargo test (no default features)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --no-default-features
+
+      - name: Cargo test (tui only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --no-default-features --features tui
+
+      - name: Cargo test (graveyard only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --no-default-features --features graveyard
 
       - name: Release build
         run: cargo build --release
