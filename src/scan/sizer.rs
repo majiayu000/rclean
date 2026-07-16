@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -20,7 +20,7 @@ use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
 use tracing::debug;
 
-use crate::model::{CandidateDraft, Safety};
+use crate::model::{CandidateDraft, Safety, ScanWarning};
 
 pub(crate) type DirSizes = HashMap<PathBuf, u64>;
 const PARALLEL_DIRECT_ENTRY_THRESHOLD: usize = 1_000;
@@ -83,6 +83,32 @@ fn indexed_parent(path: &Path) -> Option<&Path> {
 pub(crate) struct SizeSummary {
     pub candidate_bytes: Vec<u64>,
     pub source_bytes: u64,
+    pub warnings: Vec<ScanWarning>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SizeOutcome {
+    bytes: u64,
+    warnings: Vec<ScanWarning>,
+}
+
+impl SizeOutcome {
+    fn with_bytes(bytes: u64) -> Self {
+        Self {
+            bytes,
+            warnings: Vec::new(),
+        }
+    }
+
+    fn merge(&mut self, mut other: Self) {
+        self.bytes = self.bytes.saturating_add(other.bytes);
+        self.warnings.append(&mut other.warnings);
+    }
+
+    fn sort_warnings(&mut self) {
+        self.warnings
+            .sort_by(|left, right| warning_parts(left).cmp(&warning_parts(right)));
+    }
 }
 
 pub(crate) fn summarize(
@@ -91,15 +117,20 @@ pub(crate) fn summarize(
     source_sizes: &SourceSizeIndex,
     verbose: bool,
 ) -> SizeSummary {
-    let candidate_bytes = drafts
+    let outcomes: Vec<SizeOutcome> = drafts
         .par_iter()
         .map(|draft| {
             if draft.safety == Safety::Blocked {
-                0
+                SizeOutcome::default()
             } else {
                 dir_size(&draft.path, verbose)
             }
         })
+        .collect();
+    let candidate_bytes = outcomes.iter().map(|outcome| outcome.bytes).collect();
+    let warnings = outcomes
+        .into_iter()
+        .flat_map(|outcome| outcome.warnings)
         .collect();
 
     let source_bytes = if drafts.iter().any(|draft| draft.path == project_dir) {
@@ -111,28 +142,36 @@ pub(crate) fn summarize(
     SizeSummary {
         candidate_bytes,
         source_bytes,
+        warnings,
     }
 }
 
-fn dir_size(path: &Path, _verbose: bool) -> u64 {
+fn dir_size(path: &Path, _verbose: bool) -> SizeOutcome {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => metadata.len(),
+        Ok(metadata) if metadata.is_file() => SizeOutcome::with_bytes(metadata.len()),
         Ok(metadata) if metadata.is_dir() => {
-            let partition = partition_parallel_roots(path);
-            partition
-                .bytes
-                .saturating_add(dir_size_roots(&partition.roots))
+            let mut partition = partition_parallel_roots(path);
+            let walked = dir_size_roots(&partition.roots);
+            partition.outcome.merge(walked);
+            partition.outcome.sort_warnings();
+            partition.outcome
         }
-        Ok(_) => 0,
+        Ok(_) => SizeOutcome::default(),
         Err(err) => {
             debug!(path = %path.display(), error = %err, "dir_size metadata error");
-            0
+            SizeOutcome {
+                bytes: 0,
+                warnings: vec![ScanWarning::MetadataError {
+                    path: path.to_path_buf(),
+                    error: err.to_string(),
+                }],
+            }
         }
     }
 }
 
 struct SizePartition {
-    bytes: u64,
+    outcome: SizeOutcome,
     roots: Vec<PathBuf>,
 }
 
@@ -143,19 +182,26 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
     loop {
         if should_walk_parallel(&current) {
             return SizePartition {
-                bytes,
+                outcome: SizeOutcome::with_bytes(bytes),
                 roots: vec![current],
             };
         }
 
         let mut subdirs = Vec::new();
+        let mut warnings = Vec::new();
 
         let entries = match fs::read_dir(&current) {
             Ok(entries) => entries,
             Err(err) => {
                 debug!(path = %current.display(), error = %err, "dir_size read_dir error");
                 return SizePartition {
-                    bytes,
+                    outcome: SizeOutcome {
+                        bytes,
+                        warnings: vec![ScanWarning::WalkError {
+                            path: Some(current),
+                            error: err.to_string(),
+                        }],
+                    },
                     roots: Vec::new(),
                 };
             }
@@ -166,6 +212,10 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
                 Ok(entry) => entry,
                 Err(err) => {
                     debug!(path = %current.display(), error = %err, "dir_size read_dir entry error");
+                    warnings.push(ScanWarning::WalkError {
+                        path: Some(current.clone()),
+                        error: err.to_string(),
+                    });
                     continue;
                 }
             };
@@ -180,25 +230,44 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
                 Ok(_) => {}
                 Err(err) => {
                     debug!(path = %entry_path.display(), error = %err, "dir_size metadata error");
+                    warnings.push(ScanWarning::MetadataError {
+                        path: entry_path,
+                        error: err.to_string(),
+                    });
                 }
             }
         }
 
+        subdirs.sort();
+
         match subdirs.len() {
             0 => {
+                sort_warnings(&mut warnings);
                 return SizePartition {
-                    bytes,
+                    outcome: SizeOutcome { bytes, warnings },
                     roots: Vec::new(),
                 };
             }
             1 => {
+                // A directory-entry or metadata error does not make the readable
+                // single-child branch disappear. Keep both its bytes and warning.
+                // The next iteration cannot carry a separate local vector, so
+                // return the child as a root when a warning has already occurred.
+                if !warnings.is_empty() {
+                    sort_warnings(&mut warnings);
+                    return SizePartition {
+                        outcome: SizeOutcome { bytes, warnings },
+                        roots: subdirs,
+                    };
+                }
                 current = subdirs
                     .pop()
                     .expect("single-subdir partition should contain one path");
             }
             _ => {
+                sort_warnings(&mut warnings);
                 return SizePartition {
-                    bytes,
+                    outcome: SizeOutcome { bytes, warnings },
                     roots: subdirs,
                 };
             }
@@ -213,19 +282,28 @@ fn should_walk_parallel(path: &Path) -> bool {
     entries.take(PARALLEL_DIRECT_ENTRY_THRESHOLD + 1).count() > PARALLEL_DIRECT_ENTRY_THRESHOLD
 }
 
-fn dir_size_roots(roots: &[PathBuf]) -> u64 {
+fn dir_size_roots(roots: &[PathBuf]) -> SizeOutcome {
     match roots {
-        [] => 0,
+        [] => SizeOutcome::default(),
         [only] => dir_size_walk_parallel(only),
-        _ => roots
-            .par_iter()
-            .map(|path| dir_size_walkdir(path))
-            .reduce(|| 0, u64::saturating_add),
+        _ => {
+            let outcomes: Vec<SizeOutcome> = roots
+                .par_iter()
+                .map(|path| dir_size_walkdir(path))
+                .collect();
+            let mut combined = SizeOutcome::default();
+            for outcome in outcomes {
+                combined.merge(outcome);
+            }
+            combined.sort_warnings();
+            combined
+        }
     }
 }
 
-fn dir_size_walk_parallel(path: &Path) -> u64 {
+fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
     let total = Arc::new(AtomicU64::new(0));
+    let warnings = Arc::new(Mutex::new(Vec::new()));
     let walk_root = path.to_path_buf();
 
     let mut builder = WalkBuilder::new(path);
@@ -237,12 +315,14 @@ fn dir_size_walk_parallel(path: &Path) -> u64 {
 
     builder.build_parallel().run(|| {
         let total = Arc::clone(&total);
+        let warnings = Arc::clone(&warnings);
         let walk_root = walk_root.clone();
         Box::new(move |result| {
             let entry = match result {
                 Ok(entry) => entry,
                 Err(err) => {
                     debug!(path = %walk_root.display(), error = %err, "dir_size walk error");
+                    push_ignore_walk_warnings(&warnings, &err, &walk_root);
                     return WalkState::Continue;
                 }
             };
@@ -260,13 +340,71 @@ fn dir_size_walk_parallel(path: &Path) -> u64 {
                 }
                 Err(err) => {
                     debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
+                    push_parallel_warning(
+                        &warnings,
+                        ScanWarning::MetadataError {
+                            path: entry.path().to_path_buf(),
+                            error: err.to_string(),
+                        },
+                    );
                 }
             }
             WalkState::Continue
         })
     });
 
-    total.load(Ordering::Relaxed)
+    let mut warnings = match warnings.lock() {
+        Ok(warnings) => warnings.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    sort_warnings(&mut warnings);
+    SizeOutcome {
+        bytes: total.load(Ordering::Relaxed),
+        warnings,
+    }
+}
+
+fn push_parallel_warning(warnings: &Mutex<Vec<ScanWarning>>, warning: ScanWarning) {
+    match warnings.lock() {
+        Ok(mut warnings) => warnings.push(warning),
+        Err(poisoned) => poisoned.into_inner().push(warning),
+    }
+}
+
+fn push_ignore_walk_warnings(
+    warnings: &Mutex<Vec<ScanWarning>>,
+    error: &ignore::Error,
+    fallback_path: &Path,
+) {
+    if let ignore::Error::Partial(errors) = error {
+        for error in errors {
+            push_ignore_walk_warnings(warnings, error, fallback_path);
+        }
+        return;
+    }
+
+    push_parallel_warning(
+        warnings,
+        ScanWarning::WalkError {
+            path: ignore_error_path(error).or_else(|| Some(fallback_path.to_path_buf())),
+            error: error.to_string(),
+        },
+    );
+}
+
+fn ignore_error_path(error: &ignore::Error) -> Option<PathBuf> {
+    match error {
+        ignore::Error::Partial(errors) => errors.iter().find_map(ignore_error_path),
+        ignore::Error::WithLineNumber { err, .. } | ignore::Error::WithDepth { err, .. } => {
+            ignore_error_path(err)
+        }
+        ignore::Error::WithPath { path, .. } => Some(path.clone()),
+        ignore::Error::Loop { child, .. } => Some(child.clone()),
+        ignore::Error::Io(_)
+        | ignore::Error::Glob { .. }
+        | ignore::Error::UnrecognizedFileType(_)
+        | ignore::Error::InvalidDefinition => None,
+    }
 }
 
 fn saturating_atomic_add(total: &AtomicU64, bytes: u64) {
@@ -287,34 +425,74 @@ fn dir_size_threads() -> usize {
         .clamp(1, MAX_DIR_SIZE_THREADS)
 }
 
-fn dir_size_walkdir(path: &Path) -> u64 {
-    let mut total: u64 = 0;
+fn dir_size_walkdir(path: &Path) -> SizeOutcome {
+    let mut outcome = SizeOutcome::default();
 
     for result in walkdir::WalkDir::new(path).follow_links(false) {
         let entry = match result {
             Ok(entry) => entry,
             Err(err) => {
                 debug!(path = %path.display(), error = %err, "dir_size walk error");
+                outcome.warnings.push(ScanWarning::WalkError {
+                    path: err
+                        .path()
+                        .map(Path::to_path_buf)
+                        .or_else(|| Some(path.to_path_buf())),
+                    error: err.to_string(),
+                });
                 continue;
             }
         };
         match entry.metadata() {
             Ok(metadata) if metadata.is_file() => {
-                total = total.saturating_add(metadata.len());
+                outcome.bytes = outcome.bytes.saturating_add(metadata.len());
             }
             Ok(_) => {}
             Err(err) => {
                 debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
+                outcome.warnings.push(ScanWarning::MetadataError {
+                    path: entry.path().to_path_buf(),
+                    error: err.to_string(),
+                });
             }
         }
     }
-    total
+    outcome.sort_warnings();
+    outcome
+}
+
+fn sort_warnings(warnings: &mut [ScanWarning]) {
+    warnings.sort_by(|left, right| warning_parts(left).cmp(&warning_parts(right)));
+}
+
+fn warning_parts(warning: &ScanWarning) -> (u8, Option<&Path>, &str) {
+    match warning {
+        ScanWarning::IgnoreFileLoad { path, error } => (0, Some(path), error),
+        ScanWarning::MetadataError { path, error } => (1, Some(path), error),
+        ScanWarning::WalkError { path, error } => (2, path.as_deref(), error),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Category;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
+
+    fn draft(path: PathBuf, safety: Safety) -> CandidateDraft {
+        CandidateDraft {
+            path,
+            name: "target".to_string(),
+            rule_id: "rust.target".to_string(),
+            category: Category::Build,
+            safety,
+            reasons: Vec::new(),
+            warnings: Vec::new(),
+            restore_hint: "cargo build".to_string(),
+        }
+    }
 
     #[test]
     fn source_size_index_rolls_up_descendants_without_sibling_contamination() {
@@ -364,10 +542,110 @@ mod tests {
         fs::create_dir(temp.path().join("c")).unwrap();
         fs::write(temp.path().join("c/leaf.bin"), [0; 7]).unwrap();
 
-        assert_eq!(
-            dir_size_walk_parallel(temp.path()),
-            dir_size_walkdir(temp.path())
-        );
+        let parallel = dir_size_walk_parallel(temp.path());
+        let serial = dir_size_walkdir(temp.path());
+
+        assert_eq!(parallel.bytes, serial.bytes);
+        assert_eq!(parallel.bytes, 15);
+        assert!(parallel.warnings.is_empty());
+        assert!(serial.warnings.is_empty());
+    }
+
+    #[test]
+    fn missing_candidate_root_returns_metadata_warning() {
+        let temp = TempDir::new().unwrap();
+        let missing = temp.path().join("missing-target");
+
+        let outcome = dir_size(&missing, false);
+
+        assert_eq!(outcome.bytes, 0);
+        assert_eq!(outcome.warnings.len(), 1);
+        assert!(matches!(
+            &outcome.warnings[0],
+            ScanWarning::MetadataError { path, .. } if path == &missing
+        ));
+    }
+
+    #[test]
+    fn blocked_candidate_is_not_sized_or_warned() {
+        let temp = TempDir::new().unwrap();
+        let missing = temp.path().join("blocked-target");
+        let drafts = vec![draft(missing, Safety::Blocked)];
+        let source_sizes = SourceSizeIndex::from_dir_sizes(&DirSizes::new());
+
+        let summary = summarize(temp.path(), &drafts, &source_sizes, false);
+
+        assert_eq!(summary.candidate_bytes, vec![0]);
+        assert!(summary.warnings.is_empty());
+    }
+
+    #[test]
+    fn multi_root_walk_preserves_readable_bytes_and_stable_warnings() {
+        let temp = TempDir::new().unwrap();
+        let readable = temp.path().join("readable");
+        let missing_a = temp.path().join("missing-a");
+        let missing_b = temp.path().join("missing-b");
+        fs::create_dir(&readable).unwrap();
+        fs::write(readable.join("kept.bin"), [0; 11]).unwrap();
+        let roots = vec![missing_b.clone(), readable, missing_a.clone()];
+
+        let expected = dir_size_roots(&roots);
+        assert_eq!(expected.bytes, 11);
+        assert_eq!(expected.warnings.len(), 2);
+        assert!(matches!(
+            &expected.warnings[0],
+            ScanWarning::WalkError { path: Some(path), .. } if path == &missing_a
+        ));
+        assert!(matches!(
+            &expected.warnings[1],
+            ScanWarning::WalkError { path: Some(path), .. } if path == &missing_b
+        ));
+
+        for _ in 0..10 {
+            assert_eq!(dir_size_roots(&roots), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parallel_walk_preserves_partial_bytes_and_sorts_permission_warnings() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("kept.bin"), [0; 7]).unwrap();
+        let denied_a = temp.path().join("denied-a");
+        let denied_b = temp.path().join("denied-b");
+        fs::create_dir(&denied_a).unwrap();
+        fs::create_dir(&denied_b).unwrap();
+
+        let original_a = fs::metadata(&denied_a).unwrap().permissions().mode();
+        let original_b = fs::metadata(&denied_b).unwrap().permissions().mode();
+        let mut denied_permissions = fs::metadata(&denied_a).unwrap().permissions();
+        denied_permissions.set_mode(0o000);
+        fs::set_permissions(&denied_a, denied_permissions.clone()).unwrap();
+        fs::set_permissions(&denied_b, denied_permissions).unwrap();
+
+        let outcomes: Vec<SizeOutcome> = (0..10)
+            .map(|_| dir_size_walk_parallel(temp.path()))
+            .collect();
+
+        let mut permissions_a = fs::metadata(&denied_a).unwrap().permissions();
+        permissions_a.set_mode(original_a);
+        fs::set_permissions(&denied_a, permissions_a).unwrap();
+        let mut permissions_b = fs::metadata(&denied_b).unwrap().permissions();
+        permissions_b.set_mode(original_b);
+        fs::set_permissions(&denied_b, permissions_b).unwrap();
+
+        let expected = &outcomes[0];
+        assert_eq!(expected.bytes, 7);
+        assert_eq!(expected.warnings.len(), 2);
+        assert!(matches!(
+            &expected.warnings[0],
+            ScanWarning::WalkError { path: Some(path), .. } if path == &denied_a
+        ));
+        assert!(matches!(
+            &expected.warnings[1],
+            ScanWarning::WalkError { path: Some(path), .. } if path == &denied_b
+        ));
+        assert!(outcomes.iter().all(|outcome| outcome == expected));
     }
 
     #[test]
@@ -390,11 +668,14 @@ mod tests {
 
         let partition = partition_parallel_roots(temp.path());
 
-        assert_eq!(partition.bytes, 0);
+        assert_eq!(partition.outcome.bytes, 0);
+        assert!(partition.outcome.warnings.is_empty());
         assert_eq!(partition.roots, vec![temp.path().to_path_buf()]);
+        let outcome = dir_size(temp.path(), false);
         assert_eq!(
-            dir_size(temp.path(), false),
+            outcome.bytes,
             ((PARALLEL_DIRECT_ENTRY_THRESHOLD + 1) * 2) as u64
         );
+        assert!(outcome.warnings.is_empty());
     }
 }
