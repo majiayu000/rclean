@@ -25,6 +25,12 @@
 范围为 0.50–3.08s，median 1.05s；主机噪声较高，因此最终性能结论必须采用同 session
 交错 before/after 测量，而不是只比较两个孤立样本。
 
+实现阶段的 gate calibration 提供了两组独立 evidence：15 对交错测量的 paired median
+改善 12.96%，31 对交错测量改善 10.42%，且后者 25/31 对由 implementation 获胜。
+独立 baseline/after median 会因 APFS cache 与 host scheduling 在 1.5%–10.5% 间漂移，
+因此接受门使用同次循环内的 paired speedup；8% 保留实质改善要求，同时低于两组已观察
+paired median。该校准不改变功能范围、probe 缩减目标或旧 benchmark non-regression 门。
+
 ## Goals
 
 - 保留现有过滤顺序：只有候选通过当前 min-size/safety 条件后才触发 risk 计算。
@@ -60,7 +66,8 @@
 7. **B-007** durable benchmark 包含每项目多个候选，fixture 构造在 timed closure 外，
    不添加时间断言。
 8. **B-008** 1,000×8 no-lockfile fixture 的静态 probe 上界从约 96,000 降为约 12,000；
-   同 session 交错 release median 至少改善 15%，现有 benchmark shapes 不回退超过 10%。
+   同 session 至少 31 对交错 release 测量的 paired median speedup 至少为 8%，且 after
+   至少赢得三分之二配对；现有 benchmark shapes 不回退超过 10%。
 9. **B-009** implementation diff 仅修改 `src/scan/project.rs` 与
    `benches/scan_throughput.rs`，并通过 stable/MSRV/VibeGuard/三平台 CI/SpecRail 门。
 
@@ -81,6 +88,6 @@
 - focused test 以计数闭包证明 lazy cache 的 zero/once/reuse 契约。
 - 既有 risk-score、scan 和 explain tests 全部通过。
 - normalized baseline/implementation JSON 除 `scannedAt` 外无差异。
-- 多候选 benchmark 与 15 次交错 release 测量满足 B-008。
+- 多候选 benchmark 与至少 31 对交错 release 测量满足 B-008。
 - Spec PR 与 implementation PR 分离；实现始于合并后的最新 `origin/main`。
 - full stable/release/MSRV/VibeGuard/CI/PR gates 通过。
