@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+#[cfg(target_os = "macos")]
 use serde_json::Value;
 #[cfg(target_os = "macos")]
 use std::path::Path;
