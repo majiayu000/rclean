@@ -8,10 +8,11 @@
 
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use chrono::Utc;
+use serde::Serialize;
 
 use crate::clean::{CleanResult, SelectedCandidate};
 use crate::cli::FreeArgs;
@@ -44,13 +45,65 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
     let proposal = select_for_target(&report, target);
 
     if proposal.candidates.is_empty() {
-        println!(
-            "no safe candidates available; cannot free {}",
-            format_bytes(target)
-        );
+        if args.common.json {
+            print_json_proposal(target, &proposal, None)?;
+        } else {
+            println!(
+                "no safe candidates available; cannot free {}",
+                format_bytes(target)
+            );
+        }
         return Ok(ExitCode::from(3));
     }
 
+    if !args.common.json {
+        print_human_proposal(target, &proposal);
+    }
+
+    if args.interactive {
+        return run_interactive(args, &report, &proposal);
+    }
+
+    let plan_path = args
+        .common
+        .write_plan
+        .clone()
+        .unwrap_or_else(default_free_plan_path);
+    let selected: Vec<SelectedCandidate> = proposal
+        .candidates
+        .iter()
+        .map(|entry| to_selected(entry.candidate))
+        .collect();
+    plan::write_selected_action_plan(&report, &plan_path, &selected, "trash")?;
+
+    let target_met = proposal.total_bytes >= target;
+    if args.common.json {
+        print_json_proposal(target, &proposal, Some(&plan_path))?;
+    } else {
+        println!("wrote action plan: {}", plan_path.display());
+        println!(
+            "review it, then run: rclean clean --plan {}",
+            plan_path.display()
+        );
+        if !target_met {
+            // Never widen the selection silently (U-29): the gap is stated
+            // explicitly and the exit code says the target was not met.
+            println!(
+                "target not met: safe candidates cover {}, short by {}",
+                format_bytes(proposal.total_bytes),
+                format_bytes(target - proposal.total_bytes)
+            );
+        }
+    }
+
+    if target_met {
+        Ok(ExitCode::SUCCESS)
+    } else {
+        Ok(ExitCode::from(3))
+    }
+}
+
+fn print_human_proposal(target: u64, proposal: &Proposal<'_>) {
     println!(
         "Proposed set to free {} (smallest safe set, stale projects first):",
         format_bytes(target)
@@ -73,40 +126,27 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
         format_bytes(proposal.total_bytes),
         format_bytes(target)
     );
+}
 
-    if args.interactive {
-        return run_interactive(args, &report, &proposal);
-    }
-
-    let plan_path = args
-        .common
-        .write_plan
-        .clone()
-        .unwrap_or_else(default_free_plan_path);
-    let selected: Vec<SelectedCandidate> = proposal
-        .candidates
-        .iter()
-        .map(|entry| to_selected(entry.candidate))
-        .collect();
-    plan::write_selected_action_plan(&report, &plan_path, &selected, "trash")?;
-    println!("wrote action plan: {}", plan_path.display());
-    println!(
-        "review it, then run: rclean clean --plan {}",
-        plan_path.display()
-    );
-
-    if proposal.total_bytes >= target {
-        Ok(ExitCode::SUCCESS)
-    } else {
-        // Never widen the selection silently (U-29): the gap is stated
-        // explicitly and the exit code says the target was not met.
-        println!(
-            "target not met: safe candidates cover {}, short by {}",
-            format_bytes(proposal.total_bytes),
-            format_bytes(target - proposal.total_bytes)
-        );
-        Ok(ExitCode::from(3))
-    }
+fn print_json_proposal(
+    target: u64,
+    proposal: &Proposal<'_>,
+    plan_path: Option<&Path>,
+) -> Result<(), RcleanError> {
+    let output = FreeProposalOutput {
+        schema_version: 1,
+        target_bytes: target,
+        selected_bytes: proposal.total_bytes,
+        target_met: !proposal.candidates.is_empty() && proposal.total_bytes >= target,
+        plan_path: plan_path.map(|path| path.display().to_string()),
+        candidates: proposal
+            .candidates
+            .iter()
+            .map(|entry| entry.candidate)
+            .collect(),
+    };
+    println!("{}", serde_json::to_string_pretty(&output)?);
+    Ok(())
 }
 
 fn ensure_interactive_terminal() -> Result<(), RcleanError> {
@@ -227,6 +267,17 @@ struct RankedCandidate<'a> {
 struct Proposal<'a> {
     candidates: Vec<RankedCandidate<'a>>,
     total_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FreeProposalOutput<'a> {
+    schema_version: u32,
+    target_bytes: u64,
+    selected_bytes: u64,
+    target_met: bool,
+    plan_path: Option<String>,
+    candidates: Vec<&'a Candidate>,
 }
 
 /// Greedy selection over the spec ranking (staleness desc, risk asc,

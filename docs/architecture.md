@@ -182,11 +182,14 @@ A change that loosens any of these requires a SPEC note before code.
 
 ## Output schema
 
-All `--json` output is versioned via `schema_version: 1` on
-`ScanReport`. New fields land additively; renames and removals bump
-the schema.
+Machine-readable command outputs carry their own camelCase `schemaVersion`.
+`scan --json` emits `ScanReport` schema `1`. `free --json` emits free proposal
+schema `1` with target/selected bytes, target status, the ActionPlan path (or
+`null` when no plan was written), and candidates serialized through the same
+`Candidate` shape as scan. New fields land additively; renames and removals
+require the affected output schema to bump.
 
-`ActionPlan` has its own `schema_version`. Current builds write and
+`ActionPlan` has its own `schemaVersion`. Current builds write and
 read schema `2`; schema `1` plans are rejected with a rescan hint.
 
 ## Performance shape
