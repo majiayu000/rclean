@@ -29,9 +29,9 @@
   unchanged, and the word diff contains only the three token replacements across two references.
 - Verify:
   - `rg -n 'staleAfterDays.*JSON field' README.md`
-  - `rg -n 'JSON output includes.*staleAfterDays.*stalenessDays' README.md`
+  - ``rg -U -n 'JSON output includes\s+`staleAfterDays` and each candidate.s `stalenessDays`' README.md``
   - `rg -n '^stale_after_days = 60$' README.md`
-  - `! rg -n 'staleness reporting.*stale_after_days.*JSON field|JSON output includes.*stale_after_days|candidate.s staleness_days' README.md`
+  - ``! rg -U -n 'staleness reporting.*`stale_after_days` JSON field|JSON output includes\s+`stale_after_days`|candidate.s `staleness_days`' README.md``
 
 ## Verification And Handoff Tasks
 

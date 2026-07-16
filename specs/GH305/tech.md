@@ -64,9 +64,9 @@ permitted in the implementation diff.
 
 ```sh
 rg -n 'staleAfterDays.*JSON field' README.md
-rg -n 'JSON output includes.*staleAfterDays.*stalenessDays' README.md
+rg -U -n 'JSON output includes\s+`staleAfterDays` and each candidate.s `stalenessDays`' README.md
 rg -n '^stale_after_days = 60$' README.md
-! rg -n 'staleness reporting.*stale_after_days.*JSON field|JSON output includes.*stale_after_days|candidate.s staleness_days' README.md
+! rg -U -n 'staleness reporting.*`stale_after_days` JSON field|JSON output includes\s+`stale_after_days`|candidate.s `staleness_days`' README.md
 git diff --check
 git diff --name-only origin/main...HEAD
 git diff --word-diff=porcelain origin/main...HEAD -- README.md
