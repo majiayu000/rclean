@@ -14,6 +14,7 @@ use super::types::SelectedCandidate;
 pub enum DeleteAuditMode {
     Trash,
     Permanent,
+    #[cfg(feature = "graveyard")]
     Graveyard,
     GoModcache,
     PipCache,
@@ -24,6 +25,7 @@ pub enum DeleteAuditMode {
 pub enum DeleteAuditStatus {
     Success,
     Failed,
+    #[cfg(feature = "graveyard")]
     Skipped,
 }
 
