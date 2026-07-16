@@ -53,12 +53,12 @@ fn scan_rule_safety(root: &Path, rule_prefix: &str) -> BTreeMap<String, String> 
             let rule_id = candidate["ruleId"]
                 .as_str()
                 .expect("candidate ruleId should be a string");
-            if !rule_id.starts_with(rule_prefix) {
-                continue;
-            }
             let safety = candidate["safety"]
                 .as_str()
                 .expect("candidate safety should be a string");
+            if !rule_id.starts_with(rule_prefix) {
+                continue;
+            }
             assert!(
                 rules
                     .insert(rule_id.to_string(), safety.to_string())
