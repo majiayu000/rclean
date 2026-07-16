@@ -10,10 +10,12 @@
 //! Run:
 //!   cargo bench --bench scan_throughput
 //!
-//! The fixtures cover the two scan shapes from issue #111:
+//! The fixtures cover four scan shapes:
 //!
 //! - many small projects, each with a tiny `node_modules`
 //! - one Rust project with a wider `target` tree
+//! - many projects with wide source trees
+//! - 1,000 marker-heavy Node projects from issue #287
 //!
 //! Candidate count + total reclaimable bytes are deterministic; the
 //! only varying inputs are filesystem cache state and clock jitter,
@@ -29,6 +31,7 @@ use tempfile::TempDir;
 /// Number of mini projects in the synthetic fixture. Chosen so a scan
 /// clears Criterion's noise floor while keeping the bench cheap.
 const SMALL_PROJECT_COUNT: usize = 100;
+const MARKER_HEAVY_PROJECT_COUNT: usize = 1_000;
 /// File size per dummy artifact blob. 4 KiB stays under macOS's 16 KiB
 /// block boundary so allocated_size doesn't dominate.
 const BLOB_SIZE: u64 = 4 * 1024;
@@ -54,6 +57,19 @@ fn build_many_small_fixture(root: &Path) {
         let nm = project.join("node_modules");
         fs::create_dir(&nm).unwrap();
         write_sized_file(&nm.join("blob"), BLOB_SIZE);
+    }
+}
+
+fn build_marker_heavy_fixture(root: &Path) {
+    for i in 0..MARKER_HEAVY_PROJECT_COUNT {
+        let project = root.join(format!("marker_heavy_{i:04}"));
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join("package.json"), b"{}").unwrap();
+        fs::write(project.join("index.js"), vec![b'a'; 128]).unwrap();
+
+        let node_modules = project.join("node_modules");
+        fs::create_dir(&node_modules).unwrap();
+        write_sized_file(&node_modules.join("blob"), BLOB_SIZE);
     }
 }
 
@@ -116,6 +132,8 @@ fn bench_scan_throughput(c: &mut Criterion) {
     build_one_huge_fixture(one_huge.path());
     let many_wide = TempDir::new().unwrap();
     build_many_wide_source_fixture(many_wide.path());
+    let marker_heavy = TempDir::new().unwrap();
+    build_marker_heavy_fixture(marker_heavy.path());
 
     // Compiled by Cargo when `cargo bench` runs; points at the
     // release-mode rclean binary for this workspace.
@@ -138,6 +156,11 @@ fn bench_scan_throughput(c: &mut Criterion) {
     group.bench_function("many_wide_source_projects_json", |b| {
         b.iter(|| {
             run_scan(rclean, many_wide.path());
+        });
+    });
+    group.bench_function("marker_heavy_small_projects_json", |b| {
+        b.iter(|| {
+            run_scan(rclean, marker_heavy.path());
         });
     });
     group.finish();
