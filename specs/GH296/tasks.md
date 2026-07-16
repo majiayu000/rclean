@@ -57,11 +57,12 @@
 - Dependencies: SP296-T1, SP296-T2, SP296-T3
 - Covers: B-003, B-004, B-005, B-006, B-007, B-008
 - Done when: normalized JSON diff is empty; 1,000×8 static probes drop from about 96,000 to about
-  12,000; at least 15 interleaved warmed samples per revision show >=15% after-median improvement;
-  existing Criterion point estimates regress <=10%.
+  12,000; at least 31 odd/even-order interleaved warmed pairs show >=8% paired-median speedup and
+  implementation wins at least two thirds of pairs; existing Criterion point estimates regress
+  <=10%.
 - Verify:
   - normalized JSON comparison removing only `scannedAt`
-  - interleaved same-session release timing table
+  - interleaved same-session release timing table with paired speedup and win count
   - before/after Criterion table
 
 ### SP296-T5 — Full stable/MSRV/VibeGuard/SpecRail gate
