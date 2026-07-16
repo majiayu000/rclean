@@ -1,12 +1,18 @@
 # Architecture
 
 This is the 30-second tour of `rclean` for new contributors. It maps
-the four CLI commands to the code that runs them, and explains the
+the CLI command surface to the code that runs it, and explains the
 trust boundaries that govern every decision in the pipeline.
 
-For the strategic direction and milestone planning, read
+For historical v0.1.x planning context, read
 [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md). This
 document is the *current* implementation snapshot.
+
+The core command surface includes scanning, cleaning, space-target
+planning, explanation, rule/doctor diagnostics, agent and Docker
+inspection, stamping/watching, and generated shell/man output. The
+`tui` command requires the `tui` feature to run. `restore` and
+`graveyard` are present only in builds with the `graveyard` feature.
 
 ## Module map
 
@@ -47,9 +53,23 @@ src/
 │   ├── cargo_global.rs, node_global.rs, pip.rs, gradle.rs, maven.rs, xcode.rs
 │   │                Global toolchain-cache rules used by scan --home.
 │   └── generic.rs   build, dist, out (need project marker; never bare-name)
-├── plan.rs          ActionPlan write/read/revalidate.
-├── clean.rs         The clean phase. select_candidates(),
-│                    delete_selected(), broad-root and symlink guards.
+├── plan.rs          ActionPlan facade; re-exports the supported plan API.
+├── plan/
+│   ├── schema.rs    ActionPlan and PlanCandidate schema definitions.
+│   ├── io.rs        Atomic plan write, read, and schema-version checks.
+│   ├── selection.rs Candidate collection and selected-plan summaries.
+│   ├── revalidate.rs Live classification, root, and link revalidation.
+│   └── id.rs        Stable candidate ID generation.
+├── clean.rs         Clean facade; re-exports the supported clean API.
+├── clean/
+│   ├── selection.rs Bulk/text/TUI selection and Blocked filtering.
+│   ├── roots.rs     Broad-root guard.
+│   ├── output.rs    Confirmation, plan, result, and recovery output.
+│   ├── deletion.rs  Trash, permanent, and optional graveyard deletion.
+│   ├── validation.rs Pre-delete filesystem and open-file validation.
+│   ├── native_tool.rs Bounded native cleanup-tool execution.
+│   ├── audit.rs     Delete audit records and audit-path validation.
+│   └── types.rs     SelectedCandidate and CleanResult types.
 ├── graveyard/       Recoverable delete store, manifest, restore/gc helpers.
 ├── tui/             Optional ratatui selector and fuzzy search.
 ├── watch/           Lockfile watcher and timestamped plan writer.
@@ -149,14 +169,14 @@ rules::rule_catalog() ──► Vec<RuleInfo>
 | Boundary | Where | What it guarantees |
 |---|---|---|
 | **`scan` is read-only** | `src/scan/` | No fs writes anywhere in the call graph. |
-| **`Blocked` is non-selectable** | `src/clean.rs::select_candidates` | `--all`, interactive, and `--plan` all skip `Safety::Blocked`. `--include-blocked` only affects *visibility* in the report. |
+| **`Blocked` is non-selectable** | `src/clean/selection.rs::selectable_candidates`, `src/plan/revalidate.rs::selected_from_action_plan` | `--all`, interactive, and `--plan` all skip `Safety::Blocked`. `--include-blocked` only affects *visibility* in the report. |
 | **Symlink → Blocked** | `src/scan/safety.rs::apply_path_safety` | Any classified candidate that is a symlink at the time of scan is marked Blocked. |
 | **Generic names need markers** | `src/rules/generic.rs`, `src/rules/markers.rs` | `build`, `dist`, `out`, `target`, `vendor` only classify when an ecosystem marker exists in the parent. |
 | **User rules can't produce Blocked** | `src/user_rules.rs::parse_safety` | `.rclean.toml` `safety = "blocked"` is rejected at load time. |
-| **Broad roots gated** | `src/clean.rs::check_broad_roots` | `clean` on `/`, `$HOME`, `/etc`, `/usr` requires `--allow-broad-root`. |
-| **Plan revalidation** | `src/plan.rs::revalidate_selected` | A stale plan cannot delete paths whose safety, root, or symlink shape has changed since `scan`. |
+| **Broad roots gated** | `src/clean/roots.rs::check_broad_roots` | `clean` on `/`, `$HOME`, `/etc`, `/usr` requires `--allow-broad-root`. |
+| **Plan revalidation** | `src/plan/revalidate.rs::selected_from_action_plan`, `src/plan/revalidate.rs::revalidate_selected` | A stale plan cannot delete paths whose safety, root, or symlink shape has changed since `scan`. |
 | **Dirty git → Caution** | `src/scan/project.rs` + `GitCache` | A candidate inside a dirty repo cannot be `Safe`. |
-| **`clean --all` excludes Caution by default** | `src/clean.rs::select_candidates` | `--include-caution` is opt-in. |
+| **`clean --all` excludes Caution by default** | `src/clean/selection.rs::select_candidates_text` | `--include-caution` is opt-in. |
 
 A change that loosens any of these requires a SPEC note before code.
 
@@ -182,18 +202,18 @@ read schema `2`; schema `1` plans are rejected with a rescan hint.
    data collected during the walk.
 
 The single-pass walk replaced an earlier source-size pass that
-traversed every project tree twice. Candidate directories are pruned
-from the walk phase and sized separately, so large artifacts such as
-`target/` and `node_modules/` remain the main sizing hotspot. The
-current source-byte fold also scans `DirSizes` per project, so broad
-workspaces can pay `project_count * dir_count` work until that lookup
-is indexed. The v0.1.5 milestone in
-[`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) targets
-3× the v0.1.0 throughput by parallelizing both phases — performance
-regressions there should be caught by the `benches/` suite that
-ships with that milestone. Until then, include a wall-clock
-before/after when a PR touches the walker, `DirSizes`
-accumulation, candidate `dir_size()`, or source-byte lookup.
+traversed every project tree twice. After the walk,
+`SourceSizeIndex::from_dir_sizes()` builds one bottom-up subtree index
+from `DirSizes`; project/source byte queries then use the indexed value
+for the project directory instead of folding the full map per project.
+
+Candidate directories are pruned from the walk phase and sized
+separately with `dir_size()`, so large artifacts such as `target/` and
+`node_modules/` remain the main sizing hotspot. The v0.1.x roadmap is
+historical planning context, not a list of work still pending in the
+current architecture. Use the `benches/` suite and include a wall-clock
+before/after when a PR touches the walker, `DirSizes` accumulation,
+`SourceSizeIndex`, or candidate `dir_size()`.
 
 ## Where to put a new feature
 
@@ -214,8 +234,8 @@ accumulation, candidate `dir_size()`, or source-byte lookup.
 
 ## Related documents
 
-- [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) — current
-  minor-series roadmap, milestones, and ship gates.
+- [`docs/specs/v0.1.x-roadmap.md`](specs/v0.1.x-roadmap.md) — historical
+  v0.1.x roadmap, milestones, and ship gates.
 - [`docs/specs/complete-spec.md`](specs/complete-spec.md) — long-form
   specification of the trust model and command semantics.
 - [`SECURITY.md`](../SECURITY.md) — threat model and private
