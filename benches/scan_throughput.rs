@@ -10,7 +10,7 @@
 //! Run:
 //!   cargo bench --bench scan_throughput
 //!
-//! The fixtures cover four scan shapes:
+//! The fixtures cover five scan shapes:
 //!
 //! - many small projects, each with a tiny `node_modules`
 //! - one Rust project with a wider `target` tree
