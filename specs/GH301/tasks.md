@@ -13,7 +13,7 @@
 
 ## SpecRail Checklist
 
-- [ ] `SP301-T1` | Owner: `implementation` | Done when: the local `--include-blocked` JSON helper returns a duplicate-safe order-independent ruleId-to-safety map and source review confirms explicit shape failures | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
+- [ ] `SP301-T1` | Owner: `implementation` | Done when: the local `--include-blocked` JSON helper preserves the exact 0/3 scan exit contract, returns a duplicate-safe order-independent ruleId-to-safety map, and source review confirms explicit status/shape failures | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
 - [ ] `SP301-T2` | Owner: `implementation` | Done when: Node positive and marker-missing fixtures prove B-001 and B-002 exactly | Verify: `cargo test --test rules project_artifacts::node_classifier_matrix`
 - [ ] `SP301-T3` | Owner: `implementation` | Done when: Python valid/cache, invalid-venv, and marker-missing fixtures prove B-003 through B-006 exactly | Verify: `cargo test --test rules project_artifacts::python_classifier_matrix`
 - [ ] `SP301-T4` | Owner: `verification` | Done when: coverage evidence executes reachable classifier arms and the focused/full scope gates pass | Verify: `cargo test --test rules`
@@ -28,9 +28,11 @@
 - Covers: B-007, B-008
 - Change: add the minimal module-local helper that runs
   `rclean scan --json --min-size 0 --include-blocked`, parses projects/candidates, and collects
-  duplicate-safe ruleId-to-safety values without order dependence.
-- Done when: normal matrix execution passes; source review confirms malformed shape/missing fields
-  and duplicate rule ids fail explicitly; the helper has no production or shared-fixture impact.
+  duplicate-safe ruleId-to-safety values without order dependence. Accept only exit 0 for non-empty
+  reports or exit 3 for empty reports, and cross-check the status against `summary.candidates`.
+- Done when: normal and marker-missing matrix execution passes; source review confirms unexpected
+  status, status/count mismatch, malformed shape/missing fields, and duplicate rule ids fail
+  explicitly; the helper has no production or shared-fixture impact.
 - Verify:
   - `cargo test --test rules project_artifacts::node_classifier_matrix`
   - focused source review of the JSON shape assertions and duplicate insertion assertion
