@@ -148,15 +148,9 @@ impl IgnoreMatcher {
     }
 }
 
-pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
+fn canonical_scan_roots(paths: &[PathBuf]) -> Result<Vec<PathBuf>, ScanError> {
+    let mut seen = HashSet::new();
     let mut roots = Vec::new();
-    let mut stale_after_days: Option<u64> = None;
-    let reporter = options.progress.then(progress::ProgressReporter::start);
-    let progress_counters = reporter.as_ref().map(progress::ProgressReporter::counters);
-    let mut projects = Vec::new();
-    let mut warnings = Vec::new();
-    let git_cache = GitCache::with_timeout(options.git_timeout);
-
     for path in paths {
         let root = path
             .canonicalize()
@@ -164,6 +158,24 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 path: path.clone(),
                 source,
             })?;
+        if seen.insert(root.clone()) {
+            roots.push(root);
+        }
+    }
+    Ok(roots)
+}
+
+pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, ScanError> {
+    let canonical_roots = canonical_scan_roots(paths)?;
+    let mut roots = Vec::with_capacity(canonical_roots.len());
+    let mut stale_after_days: Option<u64> = None;
+    let reporter = options.progress.then(progress::ProgressReporter::start);
+    let progress_counters = reporter.as_ref().map(progress::ProgressReporter::counters);
+    let mut projects = Vec::new();
+    let mut warnings = Vec::new();
+    let git_cache = GitCache::with_timeout(options.git_timeout);
+
+    for root in canonical_roots {
         roots.push(root.display().to_string());
         let user_rules = UserRuleSet::load_from_root(&root);
         if stale_after_days.is_none() {
