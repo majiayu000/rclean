@@ -10,7 +10,12 @@ on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: [".github/workflows/release.yml"]
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/scripts/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "CHANGELOG.md"
 
 permissions:
   contents: write
@@ -36,7 +41,7 @@ jobs:
       - name: Test release version contract
         if: github.event_name == 'pull_request'
         shell: bash
-        run: bash .github/scripts/test-verify-release-version.sh
+        run: bash .github/scripts/test-release-contracts.sh
 
       - name: Verify release tag matches Cargo version
         if: github.event_name == 'push'
@@ -51,34 +56,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify jq
+        run: jq --version
+
       - name: Verify changelog release-note extraction
         shell: bash
         run: |
-          extract_release_notes() {
-            local version="$1"
-            local output="$2"
-            awk -v version="$version" '
-              BEGIN { heading = "## " version }
-              found == 0 && index($0, heading) == 1 { found = 1; next }
-              found == 1 && /^## / { exit }
-              found == 1 { print }
-              END { if (found == 0) exit 2 }
-            ' CHANGELOG.md > "$output"
-          }
-
-          extract_release_notes "0.2.0" release-notes.md || {
-            echo "::error::missing CHANGELOG.md section for 0.2.0"
-            exit 1
-          }
-          if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::error::CHANGELOG.md section for 0.2.0 is empty"
-            exit 1
-          fi
-
-          if extract_release_notes "999.999.999" missing-release-notes.md; then
-            echo "::error::missing changelog section unexpectedly succeeded"
-            exit 1
-          fi
+          version=$(bash .github/scripts/package-version.sh)
+          bash .github/scripts/extract-release-notes.sh \
+            "$version" CHANGELOG.md release-notes.md
           echo "release-note extraction dry run passed"
 
   build:
@@ -193,20 +182,8 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          awk -v version="$version" '
-            BEGIN { heading = "## " version }
-            found == 0 && index($0, heading) == 1 { found = 1; next }
-            found == 1 && /^## / { exit }
-            found == 1 { print }
-            END { if (found == 0) exit 2 }
-          ' CHANGELOG.md > release-notes.md || {
-            echo "::error::missing CHANGELOG.md section for ${version}"
-            exit 1
-          }
-          if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::error::CHANGELOG.md section for ${version} is empty"
-            exit 1
-          fi
+          bash .github/scripts/extract-release-notes.sh \
+            "$version" CHANGELOG.md release-notes.md
 
       - name: Combined checksums
         shell: bash
