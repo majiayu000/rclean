@@ -308,9 +308,19 @@ fn go_modcache_from_download_path(path: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use crate::model::{Category, Safety};
+    use std::sync::{Mutex, MutexGuard};
     use tempfile::TempDir;
 
-    const FAKE_GO_TEST_TIMEOUT: Duration = Duration::from_secs(5);
+    const FAKE_GO_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+    static FAKE_GO_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn fake_go_test_guard() -> Result<MutexGuard<'static, ()>, Box<dyn std::error::Error>> {
+        FAKE_GO_TEST_LOCK.lock().map_err(|_| {
+            Box::<dyn std::error::Error>::from(std::io::Error::other(
+                "fake Go test lock is poisoned",
+            ))
+        })
+    }
 
     #[test]
     fn resolves_go_modcache_from_root_candidate() {
@@ -350,6 +360,7 @@ mod tests {
 
     #[test]
     fn fake_go_modcache_clean_success() -> Result<(), Box<dyn std::error::Error>> {
+        let _guard = fake_go_test_guard()?;
         let temp = TempDir::new()?;
         let module_cache = temp.path().join("go").join("pkg").join("mod");
         std::fs::create_dir_all(module_cache.join("cache").join("download"))?;
@@ -368,6 +379,7 @@ mod tests {
     #[test]
     fn fake_go_modcache_clean_nonzero_is_explicit_failure() -> Result<(), Box<dyn std::error::Error>>
     {
+        let _guard = fake_go_test_guard()?;
         let temp = TempDir::new()?;
         let module_cache = temp.path().join("go").join("pkg").join("mod");
         std::fs::create_dir_all(module_cache.join("cache").join("download"))?;
@@ -383,16 +395,23 @@ mod tests {
             "nonzero fake go must fail",
         )?;
 
-        assert!(err.contains("go clean -modcache failed"));
-        assert!(err.contains(&module_cache.display().to_string()));
-        assert!(err.contains("exited"));
-        assert!(err.contains("permission denied"));
+        assert!(
+            err.contains("go clean -modcache failed"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains(&module_cache.display().to_string()),
+            "unexpected error: {err}"
+        );
+        assert!(err.contains("exited"), "unexpected error: {err}");
+        assert!(err.contains("permission denied"), "unexpected error: {err}");
         Ok(())
     }
 
     #[test]
     fn fake_go_modcache_clean_timeout_is_explicit_failure() -> Result<(), Box<dyn std::error::Error>>
     {
+        let _guard = fake_go_test_guard()?;
         let temp = TempDir::new()?;
         let module_cache = temp.path().join("go").join("pkg").join("mod");
         std::fs::create_dir_all(module_cache.join("cache").join("download"))?;
@@ -408,9 +427,15 @@ mod tests {
             "timed out fake go must fail",
         )?;
 
-        assert!(err.contains("go clean -modcache failed"));
-        assert!(err.contains(&module_cache.display().to_string()));
-        assert!(err.contains("timed out"));
+        assert!(
+            err.contains("go clean -modcache failed"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains(&module_cache.display().to_string()),
+            "unexpected error: {err}"
+        );
+        assert!(err.contains("timed out"), "unexpected error: {err}");
         Ok(())
     }
 
