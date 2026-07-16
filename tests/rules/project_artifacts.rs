@@ -1,0 +1,157 @@
+use super::common::{make_dir, scan_and_expect_rule};
+use assert_cmd::Command;
+use predicates::prelude::*;
+use std::fs;
+use tempfile::TempDir;
+
+#[test]
+fn rust_target_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
+    make_dir(temp.path(), "target");
+    scan_and_expect_rule(&temp, "rust.target");
+}
+
+#[test]
+fn go_vendor_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("go.mod"), "module x\n").unwrap();
+    make_dir(temp.path(), "vendor");
+    scan_and_expect_rule(&temp, "go.vendor");
+}
+
+#[test]
+fn java_maven_target_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("pom.xml"), "<project/>").unwrap();
+    make_dir(temp.path(), "target");
+    scan_and_expect_rule(&temp, "java.maven_target");
+}
+
+#[test]
+fn ios_pods_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("Podfile"), "platform :ios").unwrap();
+    make_dir(temp.path(), "Pods");
+    scan_and_expect_rule(&temp, "ios.pods");
+}
+
+#[test]
+fn python_pycache_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(
+        temp.path().join("pyproject.toml"),
+        "[project]\nname=\"x\"\n",
+    )
+    .unwrap();
+    make_dir(temp.path(), "__pycache__");
+    scan_and_expect_rule(&temp, "python.pycache");
+}
+
+#[test]
+fn ruby_bundle_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("Gemfile"), "source 'https://rubygems.org'").unwrap();
+    make_dir(temp.path(), ".bundle");
+    scan_and_expect_rule(&temp, "ruby.bundle");
+}
+
+#[test]
+fn dotnet_bin_and_obj_are_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("App.csproj"), "<Project/>").unwrap();
+    make_dir(temp.path(), "bin");
+    make_dir(temp.path(), "obj");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"dotnet.bin\""))
+    .stdout(predicate::str::contains("\"ruleId\": \"dotnet.obj\""));
+}
+
+#[test]
+fn generic_coverage_is_classified() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    make_dir(temp.path(), "coverage");
+    scan_and_expect_rule(&temp, "generic.coverage");
+}
+
+#[test]
+fn node_build_is_classified_with_caution_warning() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    make_dir(temp.path(), "build");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"node.build\""))
+    .stdout(predicate::str::contains("\"safety\": \"caution\""));
+}
+
+#[test]
+fn gradle_build_wins_over_node_build_in_mixed_project() {
+    // Regression for the dispatch-order bug found in PR #28 review:
+    // a project that has BOTH `package.json` and `build.gradle` should
+    // classify `build/` as `java.gradle_build` (Safe), not as
+    // `node.build` (Caution). The match-arm order in v0.1.0 put Gradle
+    // first; the dispatch chain must replay that priority.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    fs::write(temp.path().join("build.gradle"), "// gradle\n").unwrap();
+    make_dir(temp.path(), "build");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains(
+        "\"ruleId\": \"java.gradle_build\"",
+    ))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
+
+#[test]
+fn flutter_build_wins_over_node_build_in_mixed_project() {
+    // Same regression in the Flutter+Node combo. v0.1.0 priority:
+    // Gradle > Flutter > Node for the ambiguous `build/` name.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.json"), "{}").unwrap();
+    fs::write(temp.path().join("pubspec.yaml"), "name: x\n").unwrap();
+    make_dir(temp.path(), "build");
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args([
+        "scan",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("\"ruleId\": \"dart.build\""))
+    .stdout(predicate::str::contains("\"safety\": \"safe\""));
+}
