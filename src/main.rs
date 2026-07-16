@@ -523,6 +523,50 @@ fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {
 #[cfg(test)]
 mod default_flow_tests {
     use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn cli_graph_is_valid_for_active_features() {
+        let command = Cli::command();
+        command.clone().debug_assert();
+
+        let clean = command
+            .find_subcommand("clean")
+            .expect("clean subcommand must exist");
+        assert!(
+            clean
+                .get_arguments()
+                .any(|argument| argument.get_id() == "permanent"),
+            "--permanent must exist in every feature combination"
+        );
+        assert_eq!(
+            clean
+                .get_arguments()
+                .any(|argument| argument.get_id() == "graveyard"),
+            cfg!(feature = "graveyard"),
+            "--graveyard presence must follow the graveyard feature"
+        );
+
+        assert!(
+            Cli::try_parse_from(["rclean", "clean", "--permanent"]).is_ok(),
+            "--permanent must parse in every feature combination"
+        );
+
+        #[cfg(feature = "graveyard")]
+        {
+            assert!(Cli::try_parse_from(["rclean", "clean", "--graveyard"]).is_ok());
+            let conflict = Cli::try_parse_from(["rclean", "clean", "--permanent", "--graveyard"])
+                .expect_err("delete-mode flags must remain mutually exclusive");
+            assert_eq!(conflict.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+
+        #[cfg(not(feature = "graveyard"))]
+        {
+            let missing = Cli::try_parse_from(["rclean", "clean", "--graveyard"])
+                .expect_err("--graveyard must not exist without its feature");
+            assert_eq!(missing.kind(), clap::error::ErrorKind::UnknownArgument);
+        }
+    }
 
     #[test]
     fn default_interactive_argv_parses_as_interactive_recoverable_clean() {

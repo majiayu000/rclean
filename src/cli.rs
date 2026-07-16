@@ -283,7 +283,8 @@ pub struct CleanArgs {
     pub dry_run: bool,
 
     /// Permanently delete selected candidates.
-    #[arg(long, conflicts_with = "graveyard")]
+    #[cfg_attr(feature = "graveyard", arg(long, conflicts_with = "graveyard"))]
+    #[cfg_attr(not(feature = "graveyard"), arg(long))]
     pub permanent: bool,
 
     /// Move selected candidates into the rclean graveyard (7-day
