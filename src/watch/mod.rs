@@ -8,7 +8,7 @@ use chrono::Utc;
 use notify::{Event, RecursiveMode, Watcher};
 
 use crate::cli::WatchArgs;
-use crate::error::{RcleanError, ScanError};
+use crate::error::{PlanError, RcleanError, ScanError};
 use crate::model::{Safety, ScanReport, format_bytes};
 use crate::path_util::path_file_name;
 use crate::stdio::outln;
@@ -174,21 +174,49 @@ fn write_timestamped_plan(args: &WatchArgs, report: &ScanReport) -> Result<(), R
     let Some(base_path) = &args.common.write_plan else {
         return Ok(());
     };
-    let path = timestamped_path(base_path);
+    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let path = next_timestamped_path(base_path, &stamp)?;
     plan::write_action_plan(report, &path, args.common.include_caution, false, "trash")?;
     eprintln!("wrote action plan: {}", path.display());
     Ok(())
 }
 
-fn timestamped_path(path: &Path) -> PathBuf {
-    let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
+fn next_timestamped_path(path: &Path, stamp: &str) -> Result<PathBuf, PlanError> {
+    next_timestamped_path_with(path, stamp, 1, Path::try_exists)
+}
+
+fn next_timestamped_path_with<F>(
+    path: &Path,
+    stamp: &str,
+    mut sequence: u64,
+    mut try_exists: F,
+) -> Result<PathBuf, PlanError>
+where
+    F: FnMut(&Path) -> std::io::Result<bool>,
+{
+    loop {
+        let candidate = timestamped_path(path, stamp, (sequence > 1).then_some(sequence));
+        if !try_exists(&candidate).map_err(|source| PlanError::Io {
+            path: candidate.clone(),
+            source,
+        })? {
+            return Ok(candidate);
+        }
+        sequence = sequence.checked_add(1).ok_or_else(|| {
+            PlanError::Generic("watch plan collision sequence exhausted".to_string())
+        })?;
+    }
+}
+
+fn timestamped_path(path: &Path, stamp: &str, sequence: Option<u64>) -> PathBuf {
     let stem = path
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("rclean-watch");
+    let suffix = sequence.map_or_else(String::new, |value| format!("-{value}"));
     let name = match path.extension().and_then(|value| value.to_str()) {
-        Some(ext) => format!("{stem}-{stamp}.{ext}"),
-        None => format!("{stem}-{stamp}"),
+        Some(ext) => format!("{stem}-{stamp}{suffix}.{ext}"),
+        None => format!("{stem}-{stamp}{suffix}"),
     };
     path.with_file_name(name)
 }
@@ -292,6 +320,7 @@ fn scan_error(message: String) -> RcleanError {
 mod tests {
     use super::*;
     use crate::model::{ActivityInfo, Candidate, Category, ProjectReport, Summary};
+    use tempfile::TempDir;
 
     fn candidate_map(project: &str, bytes: u64) -> CandidateMap {
         BTreeMap::from([(
@@ -344,6 +373,87 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn timestamped_plan_path_preserves_existing_files_and_uses_numeric_suffixes() {
+        let temp = TempDir::new().unwrap();
+        let base = temp.path().join("auto.json");
+        let stamp = "20260716T192240Z";
+        let first = temp.path().join("auto-20260716T192240Z.json");
+
+        assert_eq!(next_timestamped_path(&base, stamp).unwrap(), first);
+
+        std::fs::write(&first, b"sentinel").unwrap();
+        let second = temp.path().join("auto-20260716T192240Z-2.json");
+        assert_eq!(next_timestamped_path(&base, stamp).unwrap(), second);
+        assert_eq!(std::fs::read(&first).unwrap(), b"sentinel");
+
+        std::fs::write(&second, b"second sentinel").unwrap();
+        assert_eq!(
+            next_timestamped_path(&base, stamp).unwrap(),
+            temp.path().join("auto-20260716T192240Z-3.json")
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"sentinel");
+        assert_eq!(std::fs::read(&second).unwrap(), b"second sentinel");
+    }
+
+    #[test]
+    fn timestamped_plan_path_preserves_extensionless_names() {
+        assert_eq!(
+            timestamped_path(Path::new("auto"), "20260716T192240Z", None),
+            PathBuf::from("auto-20260716T192240Z")
+        );
+        assert_eq!(
+            timestamped_path(Path::new("auto"), "20260716T192240Z", Some(2)),
+            PathBuf::from("auto-20260716T192240Z-2")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timestamped_plan_path_preserves_non_utf8_stem_fallback() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let base = PathBuf::from(OsString::from_vec(vec![0xff, b'.', b'j', b's', b'o', b'n']));
+        assert_eq!(
+            timestamped_path(&base, "20260716T192240Z", None),
+            PathBuf::from("rclean-watch-20260716T192240Z.json")
+        );
+    }
+
+    #[test]
+    fn timestamped_plan_path_surfaces_probe_errors() {
+        let error =
+            next_timestamped_path_with(Path::new("auto.json"), "20260716T192240Z", 1, |_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "probe denied",
+                ))
+            })
+            .unwrap_err();
+
+        match error {
+            PlanError::Io { path, source } => {
+                assert_eq!(path, PathBuf::from("auto-20260716T192240Z.json"));
+                assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);
+            }
+            other => panic!("expected PlanError::Io, got {other}"),
+        }
+    }
+
+    #[test]
+    fn timestamped_plan_path_surfaces_sequence_exhaustion() {
+        let error = next_timestamped_path_with(
+            Path::new("auto.json"),
+            "20260716T192240Z",
+            u64::MAX,
+            |_| Ok(true),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, PlanError::Generic(message) if message.contains("exhausted")));
     }
 
     #[test]
