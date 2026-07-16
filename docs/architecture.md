@@ -192,6 +192,22 @@ require the affected output schema to bump.
 `ActionPlan` has its own `schemaVersion`. Current builds write and
 read schema `2`; schema `1` plans are rejected with a rescan hint.
 
+## Output I/O boundary
+
+Non-interactive human and JSON output reaches stdout through the fallible
+writers in `src/stdio.rs`. Renderers return structured I/O errors to their
+command boundary instead of using `println!`, which would panic if a pipe
+reader exited early. Only `ErrorKind::BrokenPipe` is treated as intentional
+reader termination; permission, capacity, serialization, and other output
+errors remain visible failures. Commands preserve a semantic exit status that
+was already computed rather than rewriting every closed pipe to success.
+
+This boundary is also part of cleanup ordering. Scan and plan output is emitted
+before destructive execution, so a closed pipe there returns without entering
+the delete path. Result and recovery output occurs after execution and retains
+the success/failure status derived from `CleanResult`. Terminal-only selection,
+TUI drawing, and stderr diagnostics are separate from this stdout contract.
+
 ## Performance shape
 
 `scan()` is two phases internally:

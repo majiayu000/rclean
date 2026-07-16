@@ -11,6 +11,7 @@ use crate::clean::SelectedCandidate;
 use crate::cli::StampArgs;
 use crate::error::RcleanError;
 use crate::model::{Candidate, Safety, ScanReport};
+use crate::stdio::{self, outln};
 use crate::{clean, scan};
 
 const STAMP_FILE: &str = ".rclean-stamp";
@@ -117,13 +118,20 @@ pub(super) fn stamp_path(candidate_path: &Path) -> PathBuf {
 }
 
 fn print_stamp_report(report: &StampCommandReport, json: bool) -> Result<(), RcleanError> {
+    if !stdio::continue_after_output(print_stamp_report_inner(report, json))? {
+        return Ok(());
+    }
+    Ok(())
+}
+
+fn print_stamp_report_inner(report: &StampCommandReport, json: bool) -> Result<(), RcleanError> {
     if json {
         let json = serde_json::to_string_pretty(report)?;
-        println!("{json}");
+        outln!("{json}");
     } else {
-        println!("Stamped: {}", report.stamped);
+        outln!("Stamped: {}", report.stamped);
         if report.swept > 0 {
-            println!("Sweep candidates: {}", report.swept);
+            outln!("Sweep candidates: {}", report.swept);
         }
         if let Some(plan) = &report.plan {
             eprintln!("wrote action plan: {plan}");

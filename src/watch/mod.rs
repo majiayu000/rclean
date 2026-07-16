@@ -11,6 +11,7 @@ use crate::cli::WatchArgs;
 use crate::error::{RcleanError, ScanError};
 use crate::model::{Safety, ScanReport, format_bytes};
 use crate::path_util::path_file_name;
+use crate::stdio::outln;
 use crate::{output, parse, plan, scan};
 
 const IDLE_DEGRADE_AFTER: Duration = Duration::from_secs(20 * 60);
@@ -36,7 +37,7 @@ impl WatchState {
         }
     }
 
-    fn update_project(&mut self, root: &Path, report: &ScanReport) {
+    fn update_project(&mut self, root: &Path, report: &ScanReport) -> Result<(), RcleanError> {
         let scope = canonical_key(root);
         let scope_path = Path::new(&scope);
         let current_projects: BTreeSet<&str> = report
@@ -54,25 +55,33 @@ impl WatchState {
 
         for project in stale_projects {
             if let Some(old) = self.by_project.remove(&project) {
-                print_diff(&project, &old, &CandidateMap::new());
+                print_diff(&project, &old, &CandidateMap::new())?;
             }
         }
 
         for project in &report.projects {
             let new = candidates_for(report, &project.path);
             let old = self.by_project.insert(project.path.clone(), new.clone());
-            print_diff(&project.path, &old.unwrap_or_default(), &new);
+            print_diff(&project.path, &old.unwrap_or_default(), &new)?;
         }
+        Ok(())
     }
 }
 
 pub fn run(args: WatchArgs) -> Result<ExitCode, RcleanError> {
+    match run_inner(args) {
+        Err(error) if crate::stdio::is_broken_pipe(&error) => Ok(ExitCode::SUCCESS),
+        result => result,
+    }
+}
+
+fn run_inner(args: WatchArgs) -> Result<ExitCode, RcleanError> {
     let options = args.common.to_scan_options()?;
     let roots = args.common.paths_or_current_dir();
     let every = parse::parse_duration(&args.every)?;
 
     let report = scan::scan(&roots, &options)?;
-    output::print_table(&report);
+    output::print_table(&report)?;
     write_timestamped_plan(&args, &report)?;
 
     let mut state = WatchState::default();
@@ -156,7 +165,7 @@ fn refresh_project(
     project_root: &Path,
 ) -> Result<(), RcleanError> {
     let report = scan::scan(&[project_root.to_path_buf()], options)?;
-    state.update_project(project_root, &report);
+    state.update_project(project_root, &report)?;
     write_timestamped_plan(args, &report)?;
     Ok(())
 }
@@ -203,15 +212,15 @@ fn candidates_for(report: &ScanReport, project_path: &str) -> CandidateMap {
         .collect()
 }
 
-fn print_diff(project: &str, old: &CandidateMap, new: &CandidateMap) {
+fn print_diff(project: &str, old: &CandidateMap, new: &CandidateMap) -> Result<(), RcleanError> {
     for (path, candidate) in new {
         match old.get(path) {
-            None => println!(
+            None => outln!(
                 "added: {path} ({}, {})",
                 format_bytes(candidate.bytes),
                 candidate.safety
             ),
-            Some(previous) if previous.bytes != candidate.bytes => println!(
+            Some(previous) if previous.bytes != candidate.bytes => outln!(
                 "changed: {path} ({} -> {}, {})",
                 format_bytes(previous.bytes),
                 format_bytes(candidate.bytes),
@@ -222,12 +231,13 @@ fn print_diff(project: &str, old: &CandidateMap, new: &CandidateMap) {
     }
     for path in old.keys() {
         if !new.contains_key(path) {
-            println!("removed: {path}");
+            outln!("removed: {path}");
         }
     }
     if old == new {
-        println!("refreshed: {project} (no candidate changes)");
+        outln!("refreshed: {project} (no candidate changes)");
     }
+    Ok(())
 }
 
 fn affected_project_roots(event: &Event) -> Vec<PathBuf> {
@@ -360,9 +370,13 @@ mod tests {
         };
         let outside_before = state.by_project["/other/c"].clone();
 
-        state.update_project(
-            Path::new("/workspace"),
-            &report_with_projects(&[("/workspace/a", 4)]),
+        assert!(
+            state
+                .update_project(
+                    Path::new("/workspace"),
+                    &report_with_projects(&[("/workspace/a", 4)]),
+                )
+                .is_ok()
         );
 
         assert_eq!(
@@ -387,7 +401,11 @@ mod tests {
             ]),
         };
 
-        state.update_project(Path::new("/workspace"), &report_with_projects(&[]));
+        assert!(
+            state
+                .update_project(Path::new("/workspace"), &report_with_projects(&[]))
+                .is_ok()
+        );
 
         assert!(!state.by_project.contains_key("/workspace"));
         assert!(!state.by_project.contains_key("/workspace/a"));
@@ -410,9 +428,13 @@ mod tests {
         let sibling_before = state.by_project["/workspace/b"].clone();
         let prefix_sibling_before = state.by_project["/workspace/ab"].clone();
 
-        state.update_project(
-            Path::new("/workspace/a"),
-            &report_with_projects(&[("/workspace/a", 3)]),
+        assert!(
+            state
+                .update_project(
+                    Path::new("/workspace/a"),
+                    &report_with_projects(&[("/workspace/a", 3)]),
+                )
+                .is_ok()
         );
 
         assert!(state.by_project["/workspace/b"] == sibling_before);
