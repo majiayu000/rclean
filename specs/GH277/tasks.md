@@ -18,7 +18,8 @@
 - Owner: `implementation`
 - Dependencies: merged GH277 Spec PR; latest `origin/main`
 - Covers: B-001, B-004, B-005, B-006, B-009
-- Change: add E2E cases for met, shortfall and no-candidate JSON results before production changes.
+- Change: add E2E cases for met, shortfall and positive/zero-target no-candidate JSON results before
+  production changes.
 - Done when: current main fails JSON parsing or schema assertions while unchanged human tests pass.
 - Verify: exact failing focused tests with stdout evidence.
 
@@ -30,7 +31,8 @@
 - Change: derive the private camelCase output view from target, proposal, plan path and existing
   `Candidate` references; serialize it as one document.
 - Done when: six top-level fields are exact, candidates use their existing schema, null path is
-  explicit, and serialization happens before stdout emission.
+  explicit, zero-target empty proposals remain false, and serialization happens before stdout
+  emission.
 - Verify: focused E2E key/type/value/order assertions plus source/diff review.
 
 ### SP277-T3 — Separate human and JSON control flow
