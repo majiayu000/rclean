@@ -35,9 +35,9 @@ Keep every implementation line inside `src/clean/deletion.rs` `#[cfg(test)] mod 
    launching the fixture.
 4. Change only `FAKE_GO_TEST_TIMEOUT` from 5 seconds to 30 seconds. The timeout test continues to pass
    `Duration::from_millis(50)` directly.
-5. Add the observed `err` as the message on every nonzero/timeout assertion whose predicate reads `err`:
-   wrapper context, path, `exited`, `permission denied` and `timed out`. Keep every original substring
-   predicate unchanged.
+5. Add the observed `err` as the message on all seven nonzero/timeout assertions whose predicate reads
+   `err`: both wrapper-context checks, both path checks, `exited`, `permission denied` and `timed out`.
+   Keep every original substring predicate unchanged.
 
 This is one remediation hypothesis rather than a claimed complete causal proof: the mutex removes a known
 in-process concurrency source and the 30-second bounded deadline provides shared-runner scheduling headroom.
@@ -93,6 +93,7 @@ for iteration in $(seq 1 10); do
 done
 rg -n 'FAKE_GO_TEST_LOCK|MutexGuard|Duration::from_secs\(30\)|Duration::from_millis\(50\)' src/clean/deletion.rs
 rg -n 'GO_CLEAN_MODCACHE_TIMEOUT: Duration = Duration::from_secs\(60\)' src/clean/deletion.rs
+test "$(rg -c 'unexpected error: \{err\}' src/clean/deletion.rs)" -eq 7
 git diff --check
 git diff --name-only origin/main...HEAD
 cargo fmt -- --check

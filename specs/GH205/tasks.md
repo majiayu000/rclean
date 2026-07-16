@@ -39,12 +39,13 @@
 - Owner: `tests`
 - Dependencies: SP205-T1
 - Covers: B-003, B-004, B-005, B-006
-- Change: keep every existing success/nonzero/timeout predicate and attach the full observed error to every
-  nonzero/timeout assertion whose predicate reads `err`, including wrapper context and path checks.
+- Change: keep every existing success/nonzero/timeout predicate and attach the full observed error to all
+  seven nonzero/timeout assertions whose predicate reads `err`, including wrapper context and path checks.
 - Done when: expected substrings are unchanged, no assertion is deleted or broadened, and future mismatch logs
   contain the actual wrapper/process error.
 - Verify:
   - `git diff --word-diff=porcelain origin/main...HEAD -- src/clean/deletion.rs`
+  - `test "$(rg -c 'unexpected error: \{err\}' src/clean/deletion.rs)" -eq 7`
   - `cargo test --bin rclean fake_go_modcache -- --nocapture`
   - VibeGuard test integrity/weakening checks
 
