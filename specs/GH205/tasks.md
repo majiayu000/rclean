@@ -39,8 +39,8 @@
 - Owner: `tests`
 - Dependencies: SP205-T1
 - Covers: B-003, B-004, B-005, B-006
-- Change: keep every existing success/nonzero/timeout predicate and attach the full observed error to the
-  nonzero and timeout lifecycle assertions.
+- Change: keep every existing success/nonzero/timeout predicate and attach the full observed error to every
+  nonzero/timeout assertion whose predicate reads `err`, including wrapper context and path checks.
 - Done when: expected substrings are unchanged, no assertion is deleted or broadened, and future mismatch logs
   contain the actual wrapper/process error.
 - Verify:

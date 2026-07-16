@@ -28,8 +28,11 @@ tests 仍由 Rust test harness 并发运行，其中 timeout fixture 使用 CPU-
 - 仅运行三个 focused tests 连续 200 轮通过，说明触发条件是完整 suite/host contention，
   不是确定性的 cleanup regression。
 
-旧修复只增加 deadline，没有消除三个 fixture 之间的并发干扰，也没有把实际错误写入 assertion
-failure，因此 CI 只能看到缺少 `timed out`/`exited`，无法看到真实 lifecycle error。
+旧修复只增加 deadline，没有把实际错误写入 assertion failure，因此 CI 只能看到缺少
+`timed out`/`exited`，无法看到真实 lifecycle error。现有证据支持 full-suite/host contention，
+但尚未证明三个 fixture 互相竞争就是唯一原因。本 Spec 采用一个明确的 remediation
+hypothesis：先消除 test binary 内已知的 fixture concurrency，并为 host scheduling 增加有界
+headroom；最终以重复完整 suite 验证，而不是把 focused green 当作因果证明。
 
 ## Goals
 
@@ -59,8 +62,8 @@ failure，因此 CI 只能看到缺少 `timed out`/`exited`，无法看到真实
    `timed out`；它必须持有同一 mutex。
 4. **B-004** success test 继续断言 `clean`、`-modcache`、`GOMODCACHE`；nonzero test 继续断言
    wrapper context、path、`exited` 与 `permission denied`。
-5. **B-005** nonzero/timeout string assertions 必须在失败时打印完整 observed error，不能放宽
-   expected substring。
+5. **B-005** nonzero/timeout 中所有读取 `err` 的 string assertions 必须在失败时打印完整
+   observed error，不能放宽任何 expected substring。
 6. **B-006** implementation diff 仅修改 `src/clean/deletion.rs` 的 `#[cfg(test)]` module；无生产
    code、dependency、workflow、fixture platform behavior 或 trust-model change。
 7. **B-007** focused stress、完整 stable/release、精确 Rust 1.95.0、VibeGuard、SpecRail、独立

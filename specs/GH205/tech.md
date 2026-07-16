@@ -12,10 +12,10 @@
 | Area | Evidence | Decision |
 | --- | --- | --- |
 | PR #212 / commit `727fde49` | Only raised normal fake Go timeout from 1s to 5s. | Treat as incomplete mitigation, not a new issue. |
-| `src/clean/deletion.rs` test module | Three subprocess tests are eligible to run concurrently. | Add one test-only static mutex used by all three. |
-| timeout fixture | Unix/Windows fixture spins until killed and uses 50ms. | Preserve behavior and deadline, but serialize it from normal fixtures. |
-| 2026-07-16 Ubuntu CI | Timeout assertion failed on a README-only head; rerun passed. | Classify as low-frequency test race, not product regression. |
-| local repeated full binary suite | Nonzero case failed after 5.01s; focused group passed 200 rounds. | Increase bounded normal-fixture headroom and verify under full-suite repetition. |
+| `src/clean/deletion.rs` test module | Three subprocess tests are eligible to run concurrently. | Test the remediation hypothesis by adding one test-only static mutex used by all three. |
+| timeout fixture | Unix/Windows fixture spins until killed and uses 50ms. | Preserve behavior and deadline while removing this known in-process concurrency source. |
+| 2026-07-16 Ubuntu CI | Timeout assertion failed on a README-only head; rerun passed, but the actual error was hidden. | Classify as low-frequency contention evidence, not proof of a specific lifecycle race. |
+| local repeated full binary suite | Nonzero case failed after 5.01s; focused group passed 200 rounds. | Increase bounded normal-fixture headroom and require repeated full-suite verification. |
 | assertion output | Existing `assert!(err.contains(...))` hides `err`. | Add messages without weakening predicates. |
 
 Search of all GitHub issues, PRs, local specs and history found #205/#212 as the exact prior work and no
@@ -35,12 +35,14 @@ Keep every implementation line inside `src/clean/deletion.rs` `#[cfg(test)] mod 
    launching the fixture.
 4. Change only `FAKE_GO_TEST_TIMEOUT` from 5 seconds to 30 seconds. The timeout test continues to pass
    `Duration::from_millis(50)` directly.
-5. Add the observed `err` as the message on the nonzero `exited`/`permission denied` checks and timeout
-   `timed out` check. Keep all original substring predicates.
+5. Add the observed `err` as the message on every nonzero/timeout assertion whose predicate reads `err`:
+   wrapper context, path, `exited`, `permission denied` and `timed out`. Keep every original substring
+   predicate unchanged.
 
-The mutex addresses in-process fixture contention, while the 30-second bounded deadline provides shared
-runner scheduling headroom. Neither mechanism is compiled into production because both live inside the
-existing `#[cfg(test)]` module.
+This is one remediation hypothesis rather than a claimed complete causal proof: the mutex removes a known
+in-process concurrency source and the 30-second bounded deadline provides shared-runner scheduling headroom.
+Repeated full-suite stress is the validation. Neither mechanism is compiled into production because both live
+inside the existing `#[cfg(test)]` module.
 
 ## Product-to-Change Mapping
 
@@ -50,7 +52,7 @@ existing `#[cfg(test)]` module.
 | B-002 | test constant 5s -> 30s; production constant untouched | exact `rg` checks and diff review |
 | B-003 | timeout test keeps 50ms and same fake program under guard | focused timeout test and source checks |
 | B-004 | retain every success/nonzero assertion | diff review and focused tests |
-| B-005 | add observed-error messages, same predicates | source/diff review and forced failure readability review |
+| B-005 | add observed-error messages to every `err` predicate, keeping all predicates | source/diff review and forced failure readability review |
 | B-006 | only `#[cfg(test)]` module changes | name-only diff and production-boundary inspection |
 | B-007 | stress/full/MSRV/CI/PR gates | fresh command and remote evidence |
 
@@ -74,6 +76,8 @@ is permitted in the implementation diff.
 - **Test weakening:** preserve every existing predicate and add diagnostics only; run VibeGuard test-integrity
   guards and independent review.
 - **Cross-platform drift:** do not modify Unix or Windows fixture bodies; require three-platform CI.
+- **Hypothesis is insufficient:** require repeated complete binary suites; any recurrence with the richer error
+  becomes fresh evidence for a separate diagnosis instead of weakening or repeatedly rerunning the test.
 - **Scope creep into destructive behavior:** reject any diff outside the test module and require no changes to
   production constants or `run_native_tool`.
 
