@@ -64,7 +64,9 @@
 6. **B-006** 无 Python project marker fixture 不得产生任何 `python.*` rule。
 7. **B-007** 新测试必须使用 `--include-blocked` 从结构化 JSON 构建
    ruleId-to-safety 集合并精确比较，不能用只证明某个 substring 出现的断言，也不能
-   依赖 candidates 输出顺序。
+   依赖 candidates 输出顺序。helper 必须保留现有 scan 退出契约：有候选时接受 0，
+   无候选的 marker-missing fixture 接受 3，任何其他退出码均失败；两种允许状态都必须
+   继续解析并校验 JSON。
 8. **B-008** implementation 只修改 `tests/rules/project_artifacts.rs`，不使用 ignore、
    sleep、wall-clock assertion 或测试弱化，并通过 focused/full stable、MSRV、VibeGuard、
    SpecRail 与三平台 CI 门禁。
@@ -75,6 +77,8 @@
 - `.venv` 和 plain `venv` 的缺 marker 行为故意不同，测试不能把二者合并成一个预期。
 - Python marker 可以使用现有 `pyproject.toml`；本问题不枚举四种等价 project marker。
 - 扫描顶层可能包含多个 fixture project；断言按 rule id 集合比较而不是依赖 project 顺序。
+- marker-missing fixture 的空报告是成功扫描但按 CLI 契约返回 3，不得误判为进程错误，
+  也不得把任意非零退出码宽松视为成功。
 - blocked candidate 只有显式 `--include-blocked` 才进入报告；测试必须传入该 flag，且不得
   改变默认过滤或 min-size 语义。
 

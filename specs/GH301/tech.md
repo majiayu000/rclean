@@ -25,7 +25,8 @@ Add a private test helper in `tests/rules/project_artifacts.rs`:
 fn scan_rule_safety(root: &Path) -> BTreeMap<String, String> {
     let output = Command::cargo_bin("rclean")
         // scan root as JSON with min-size zero and --include-blocked
-        // assert process success and parse stdout
+        // accept exit 0 when candidates exist or exit 3 when none exist,
+        // reject every other status, then parse stdout
     // flatten projects[].candidates[] and collect ruleId -> safety
 }
 ```
@@ -35,6 +36,12 @@ the production default that filters blocked candidates. The helper must fail cle
 invalid JSON, `projects`/`candidates` has the wrong
 shape, or a candidate lacks `ruleId`/`safety`. Inserting an already-seen rule id must assert the
 safety is identical and the rule is not duplicated; no candidate order is assumed.
+
+The CLI deliberately returns exit code 3 when a successful scan finds zero candidates (covered by
+`tests/cross_platform.rs`). The helper must therefore accept only exit 0 or 3, include status,
+stdout, and stderr in an unexpected-status failure, parse JSON for both allowed statuses, and assert
+that exit 0 has a non-zero report candidate count while exit 3 has zero report candidates. This
+keeps the negative marker fixtures faithful to the public CLI contract without masking real errors.
 
 Use existing `make_dir` for non-empty candidate directories. Where a virtualenv marker is needed,
 write `pyvenv.cfg` inside the candidate after creation. Fixture construction stays test-local and
@@ -78,7 +85,7 @@ does not introduce shell scripts, environment mutation, clocks, sleeps, or platf
 | B-004 Python cache/tox safety | valid/cache fixture | exact map equality |
 | B-005 invalid virtualenv split | invalid Python fixture | exact singleton blocked map |
 | B-006 Python marker rejection | no-marker fixture | empty filtered `python.*` map |
-| B-007 structured order-independent assertions | local JSON helper with `--include-blocked` | focused test review + deterministic maps |
+| B-007 structured order-independent assertions | local JSON helper with `--include-blocked` and exact 0/3 exit contract | focused test review + deterministic maps |
 | B-008 scope/full gate | one-file manifest | diff scope, stable/MSRV/VibeGuard/CI/PR gate |
 
 ## Planned Change Manifest
@@ -94,6 +101,8 @@ ActionPlan, clean/delete, or private-advisory file is permitted in the implement
 
 - **False precision from ordering:** compare `BTreeMap`, not array order.
 - **Duplicate rules hidden by map insertion:** reject duplicate rule ids while collecting.
+- **Empty scan misclassified as failure:** accept only the documented zero-candidate exit 3 and
+  cross-check it against `summary.candidates`; reject all other non-zero statuses.
 - **Substring false positives:** parse JSON and compare complete filtered ecosystem maps.
 - **Cross-ecosystem candidates:** filter only `node.*` or `python.*`, then compare the complete
   expected ecosystem map.
