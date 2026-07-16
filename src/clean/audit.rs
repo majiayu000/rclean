@@ -14,6 +14,7 @@ use super::types::SelectedCandidate;
 pub enum DeleteAuditMode {
     Trash,
     Permanent,
+    #[cfg(feature = "graveyard")]
     Graveyard,
     GoModcache,
     PipCache,
@@ -24,6 +25,7 @@ pub enum DeleteAuditMode {
 pub enum DeleteAuditStatus {
     Success,
     Failed,
+    #[cfg(feature = "graveyard")]
     Skipped,
 }
 
@@ -179,5 +181,42 @@ impl DeleteAuditLogger {
                 self.path.display()
             ))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DeleteAuditMode, DeleteAuditStatus};
+
+    #[test]
+    fn serializes_base_audit_variants_as_snake_case() {
+        for (mode, expected) in [
+            (DeleteAuditMode::Trash, r#""trash""#),
+            (DeleteAuditMode::Permanent, r#""permanent""#),
+            (DeleteAuditMode::GoModcache, r#""go_modcache""#),
+            (DeleteAuditMode::PipCache, r#""pip_cache""#),
+        ] {
+            assert_eq!(serde_json::to_string(&mode).unwrap(), expected);
+        }
+
+        for (status, expected) in [
+            (DeleteAuditStatus::Success, r#""success""#),
+            (DeleteAuditStatus::Failed, r#""failed""#),
+        ] {
+            assert_eq!(serde_json::to_string(&status).unwrap(), expected);
+        }
+    }
+
+    #[cfg(feature = "graveyard")]
+    #[test]
+    fn serializes_graveyard_audit_variants_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&DeleteAuditMode::Graveyard).unwrap(),
+            r#""graveyard""#
+        );
+        assert_eq!(
+            serde_json::to_string(&DeleteAuditStatus::Skipped).unwrap(),
+            r#""skipped""#
+        );
     }
 }
