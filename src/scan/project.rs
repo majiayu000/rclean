@@ -11,6 +11,7 @@
 //! `GitInfo` / activity inputs and is only emitted alongside the
 //! project report.
 
+use std::cell::OnceCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -67,6 +68,7 @@ pub(crate) fn build_project_report(
     let size_summary = sizer::summarize(dir, &drafts, source_sizes, options.verbose);
 
     let mut candidates = Vec::new();
+    let project_risk_score = (drafts.len() > 1).then(OnceCell::new);
     for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
         if let Some(git) = &git
             && git.dirty
@@ -85,7 +87,12 @@ pub(crate) fn build_project_report(
             continue;
         }
 
-        let risk_score = compute_risk_score(git.as_ref(), activity_time, dir);
+        let risk_score = match &project_risk_score {
+            Some(cache) => cached_project_risk_score(cache, || {
+                compute_risk_score(git.as_ref(), activity_time, dir)
+            }),
+            None => compute_risk_score(git.as_ref(), activity_time, dir),
+        };
         let requires_sudo = rules::requires_sudo(&draft.rule_id);
         let staleness_days = SystemTime::now()
             .duration_since(activity_time)
@@ -137,6 +144,13 @@ pub(crate) fn build_project_report(
         },
         size_summary.warnings,
     ))
+}
+
+fn cached_project_risk_score<F>(cache: &OnceCell<f32>, compute: F) -> f32
+where
+    F: FnOnce() -> f32,
+{
+    *cache.get_or_init(compute)
 }
 
 pub(crate) fn build_summary(projects: &[ProjectReport]) -> Summary {
@@ -293,11 +307,34 @@ fn has_lockfile(project_dir: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::{Cell, OnceCell};
     use std::fs::{self, FileTimes, OpenOptions};
 
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn project_risk_cache_computes_once_and_reuses_value() {
+        let cache = OnceCell::new();
+        let calls = Cell::new(0);
+
+        assert!(cache.get().is_none());
+        assert_eq!(calls.get(), 0);
+
+        let first = cached_project_risk_score(&cache, || {
+            calls.set(calls.get() + 1);
+            0.4
+        });
+        let second = cached_project_risk_score(&cache, || {
+            calls.set(calls.get() + 1);
+            panic!("cached risk score must not be recomputed");
+        });
+
+        assert_eq!(first, 0.4);
+        assert_eq!(second, first);
+        assert_eq!(calls.get(), 1);
+    }
 
     fn write_with_modified(path: &Path, modified: SystemTime) {
         fs::write(path, b"source").unwrap();
