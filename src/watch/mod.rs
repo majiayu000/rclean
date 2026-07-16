@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc;
@@ -37,11 +37,25 @@ impl WatchState {
     }
 
     fn update_project(&mut self, root: &Path, report: &ScanReport) {
-        if report.projects.is_empty() {
-            let key = canonical_key(root);
-            let old = self.by_project.remove(&key).unwrap_or_default();
-            print_diff(&key, &old, &CandidateMap::new());
-            return;
+        let scope = canonical_key(root);
+        let scope_path = Path::new(&scope);
+        let current_projects: BTreeSet<&str> = report
+            .projects
+            .iter()
+            .map(|project| project.path.as_str())
+            .collect();
+        let stale_projects: Vec<String> = self
+            .by_project
+            .keys()
+            .filter(|project| Path::new(project).starts_with(scope_path))
+            .filter(|project| !current_projects.contains(project.as_str()))
+            .cloned()
+            .collect();
+
+        for project in stale_projects {
+            if let Some(old) = self.by_project.remove(&project) {
+                print_diff(&project, &old, &CandidateMap::new());
+            }
         }
 
         for project in &report.projects {
@@ -267,6 +281,60 @@ fn scan_error(message: String) -> RcleanError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{ActivityInfo, Candidate, Category, ProjectReport, Summary};
+
+    fn candidate_map(project: &str, bytes: u64) -> CandidateMap {
+        BTreeMap::from([(
+            format!("{project}/target"),
+            CandidateSnapshot {
+                bytes,
+                safety: Safety::Safe,
+            },
+        )])
+    }
+
+    fn report_with_projects(projects: &[(&str, u64)]) -> ScanReport {
+        ScanReport {
+            schema_version: 1,
+            tool_version: "test".to_string(),
+            scanned_at: "2026-07-16T00:00:00Z".to_string(),
+            roots: vec!["/workspace".to_string()],
+            disk_attribution: None,
+            warnings: Vec::new(),
+            stale_after_days: 30,
+            summary: Summary::default(),
+            projects: projects
+                .iter()
+                .map(|(path, bytes)| ProjectReport {
+                    path: (*path).to_string(),
+                    kind: "Rust".to_string(),
+                    markers: vec!["Cargo.toml".to_string()],
+                    git: None,
+                    activity: ActivityInfo {
+                        last_modified: "2026-07-16T00:00:00Z".to_string(),
+                        source: "test".to_string(),
+                    },
+                    candidates: vec![Candidate {
+                        path: format!("{path}/target"),
+                        name: "target".to_string(),
+                        rule_id: "rust.target".to_string(),
+                        category: Category::Build,
+                        bytes: *bytes,
+                        safety: Safety::Safe,
+                        requires_sudo: false,
+                        reasons: vec!["test fixture".to_string()],
+                        warnings: Vec::new(),
+                        restore_hint: "cargo build".to_string(),
+                        risk_score: 0.0,
+                        staleness_days: Some(1),
+                    }],
+                    total_bytes: *bytes,
+                    project_bytes: *bytes,
+                    artifact_percent: 100.0,
+                })
+                .collect(),
+        }
+    }
 
     #[test]
     fn maps_lockfile_to_project_root() {
@@ -279,5 +347,75 @@ mod tests {
             PathBuf::from("/repo/app")
         );
         assert!(project_root_for_lockfile(Path::new("/repo/app/package.json")).is_none());
+    }
+
+    #[test]
+    fn reconciles_missing_projects_in_non_empty_polling_scope() {
+        let mut state = WatchState {
+            by_project: BTreeMap::from([
+                ("/workspace/a".to_string(), candidate_map("/workspace/a", 1)),
+                ("/workspace/b".to_string(), candidate_map("/workspace/b", 2)),
+                ("/other/c".to_string(), candidate_map("/other/c", 3)),
+            ]),
+        };
+        let outside_before = state.by_project["/other/c"].clone();
+
+        state.update_project(
+            Path::new("/workspace"),
+            &report_with_projects(&[("/workspace/a", 4)]),
+        );
+
+        assert_eq!(
+            state.by_project["/workspace/a"]["/workspace/a/target"].bytes,
+            4
+        );
+        assert!(!state.by_project.contains_key("/workspace/b"));
+        assert!(state.by_project["/other/c"] == outside_before);
+    }
+
+    #[test]
+    fn empty_refresh_removes_descendants_without_string_prefix_collisions() {
+        let mut state = WatchState {
+            by_project: BTreeMap::from([
+                ("/workspace".to_string(), candidate_map("/workspace", 1)),
+                ("/workspace/a".to_string(), candidate_map("/workspace/a", 2)),
+                ("/workspace/b".to_string(), candidate_map("/workspace/b", 3)),
+                (
+                    "/workspace-ab".to_string(),
+                    candidate_map("/workspace-ab", 4),
+                ),
+            ]),
+        };
+
+        state.update_project(Path::new("/workspace"), &report_with_projects(&[]));
+
+        assert!(!state.by_project.contains_key("/workspace"));
+        assert!(!state.by_project.contains_key("/workspace/a"));
+        assert!(!state.by_project.contains_key("/workspace/b"));
+        assert!(state.by_project.contains_key("/workspace-ab"));
+    }
+
+    #[test]
+    fn single_project_refresh_preserves_sibling_state() {
+        let mut state = WatchState {
+            by_project: BTreeMap::from([
+                ("/workspace/a".to_string(), candidate_map("/workspace/a", 1)),
+                ("/workspace/b".to_string(), candidate_map("/workspace/b", 2)),
+                (
+                    "/workspace/ab".to_string(),
+                    candidate_map("/workspace/ab", 4),
+                ),
+            ]),
+        };
+        let sibling_before = state.by_project["/workspace/b"].clone();
+        let prefix_sibling_before = state.by_project["/workspace/ab"].clone();
+
+        state.update_project(
+            Path::new("/workspace/a"),
+            &report_with_projects(&[("/workspace/a", 3)]),
+        );
+
+        assert!(state.by_project["/workspace/b"] == sibling_before);
+        assert!(state.by_project["/workspace/ab"] == prefix_sibling_before);
     }
 }
