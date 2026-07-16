@@ -10,8 +10,9 @@
 
 ## Summary
 
-修正当前 `README.md` 对 `scan --json` staleness 字段的两处命名错误：report
-字段应为 `staleAfterDays`，candidate 字段应为 `stalenessDays`。配置文件
+修正当前 `README.md` 对 `scan --json` staleness 字段的两个错误 references，共三次
+token replacement：report 字段应为 `staleAfterDays`，candidate 字段应为
+`stalenessDays`。配置文件
 `.rclean.toml` 的 `stale_after_days` 键、Rust 内部字段、历史规格和运行时行为均保持不变。
 
 ## Problem
@@ -43,8 +44,8 @@
    `staleAfterDays`/`stalenessDays`。
 3. **B-003** user-rule 配置示例继续使用 `stale_after_days = 60`，不得把 TOML 键改为
    camelCase。
-4. **B-004** implementation diff 只修改 `README.md` 中两个错误 token，不顺带重写文案、
-   历史规格或生产代码。
+4. **B-004** implementation diff 只修改 `README.md` 两个 references 中的三次错误 token
+   occurrence，不顺带重写文案、历史规格或生产代码。
 5. **B-005** focused docs checks、`git diff --check` 与 `cargo fmt -- --check` 通过；Rust
    build/test 可因精确 docs-only diff 跳过，但 CI 仍作为合并门禁。
 
@@ -58,7 +59,7 @@
 ## Acceptance Criteria
 
 - B-001 至 B-005 在 tech spec/tasks 中完整映射。
-- README 两处错误 token 精确替换为公开 camelCase 名。
+- README 两个 references 中的三次错误 token occurrence 精确替换为公开 camelCase 名。
 - `.rclean.toml` 示例与后文正确 `stalenessDays` reference 保持有效。
 - Spec PR 与 implementation PR 分离；implementation 从 Spec 合并后的最新
   `origin/main` 开始。
