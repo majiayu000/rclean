@@ -34,6 +34,8 @@ const SMALL_PROJECT_COUNT: usize = 100;
 const BLOB_SIZE: u64 = 4 * 1024;
 const HUGE_DIR_COUNT: usize = 64;
 const HUGE_FILES_PER_DIR: usize = 32;
+const WIDE_PROJECT_COUNT: usize = 20;
+const WIDE_SOURCE_FILES_PER_PROJECT: usize = 500;
 
 fn write_sized_file(path: &Path, bytes: u64) {
     let file = fs::File::create(path).unwrap();
@@ -78,6 +80,23 @@ fn build_one_huge_fixture(root: &Path) {
     }
 }
 
+fn build_many_wide_source_fixture(root: &Path) {
+    for project_index in 0..WIDE_PROJECT_COUNT {
+        let project = root.join(format!("wide_{project_index:03}"));
+        let source = project.join("src");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(project.join("package.json"), b"{}").unwrap();
+
+        for file_index in 0..WIDE_SOURCE_FILES_PER_PROJECT {
+            fs::write(source.join(format!("source_{file_index:04}.js")), b"source").unwrap();
+        }
+
+        let node_modules = project.join("node_modules");
+        fs::create_dir(&node_modules).unwrap();
+        write_sized_file(&node_modules.join("blob"), BLOB_SIZE);
+    }
+}
+
 fn run_scan(rclean: &str, root: &Path) {
     let output = Command::new(rclean)
         .args(["scan", root.to_str().unwrap(), "--json", "--min-size", "0"])
@@ -95,6 +114,8 @@ fn bench_scan_throughput(c: &mut Criterion) {
     build_many_small_fixture(many_small.path());
     let one_huge = TempDir::new().unwrap();
     build_one_huge_fixture(one_huge.path());
+    let many_wide = TempDir::new().unwrap();
+    build_many_wide_source_fixture(many_wide.path());
 
     // Compiled by Cargo when `cargo bench` runs; points at the
     // release-mode rclean binary for this workspace.
@@ -112,6 +133,11 @@ fn bench_scan_throughput(c: &mut Criterion) {
     group.bench_function("one_huge_candidate_json", |b| {
         b.iter(|| {
             run_scan(rclean, one_huge.path());
+        });
+    });
+    group.bench_function("many_wide_source_projects_json", |b| {
+        b.iter(|| {
+            run_scan(rclean, many_wide.path());
         });
     });
     group.finish();
