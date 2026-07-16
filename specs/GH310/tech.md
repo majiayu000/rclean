@@ -14,7 +14,7 @@
 | `src/clean/deletion.rs` | 546 lines | Split test-only content, not production behavior. |
 | Production prefix | lines 1–305 plus blank line | Preserve lines 1–307 exactly. |
 | Inline wrapper | line 307 `#[cfg(test)]`, line 308 `mod tests {`, line 546 closing brace | Keep cfg line, replace wrapper with `mod tests;`. |
-| Inline module body | lines 309–545, 237 lines | Dedent exactly four spaces into child `tests.rs`. |
+| Inline module body | lines 309–545, 237 pre-format lines | Dedent exactly four spaces, then apply repository rustfmt; final child is 229 lines. |
 | Existing repository pattern | `scan/git_cache/tests.rs`, `doctor/tests.rs`, `clean/tests.rs` | Follow existing file/submodule layout. |
 | Duplicate search | #112/#126 split top-level clean modules; no deletion-test extraction issue/PR/spec | Use new #310 rather than reopen unrelated scope. |
 
@@ -33,7 +33,8 @@ Implementation is intentionally mechanical:
 2. Replace `mod tests { ... }` with `mod tests;` so the parent becomes exactly 308 lines.
 3. Create `src/clean/deletion/tests.rs` from the old inline body, lines 309–545, removing exactly one
    four-space indentation level.
-4. Run fmt, then require the extraction comparison to remain byte-for-byte equal after the planned dedent.
+4. Run fmt. Because the reduced nesting lets rustfmt collapse four expressions, compare the child byte-for-byte
+   with the same dedented baseline streamed through `rustfmt --emit stdout --edition 2021`.
 
 Rust resolves `mod tests;` declared from `clean/deletion.rs` to `clean/deletion/tests.rs`. Inside the child,
 `use super::*` still imports private items from `clean::deletion`, so no visibility or production code change
@@ -44,7 +45,7 @@ is necessary.
 | Invariant | Implementation | Verification |
 | --- | --- | --- |
 | B-001 | unchanged parent prefix + external module declaration | prefix diff, line count, exact tail |
-| B-002 | exact dedented inline body in child file | process-substitution `diff -u`, line count |
+| B-002 | rustfmt-normalized dedented inline body in child file | streamed rustfmt `diff -u`, line count |
 | B-003 | no edits inside moved body | exact relocation diff + focused tests/source checks |
 | B-004 | no fixture/cfg/predicate edits | exact relocation diff + three-platform CI |
 | B-005 | two-path refactor-only manifest | name-status and dependency/workflow guards |
@@ -55,7 +56,7 @@ is necessary.
 | Path | Change |
 | --- | --- |
 | `src/clean/deletion.rs` | Replace the inline test wrapper/body with `mod tests;`; preserve prefix. |
-| `src/clean/deletion/tests.rs` | Add exact dedented copy of the former inline module body. |
+| `src/clean/deletion/tests.rs` | Add the rustfmt-normalized dedented former inline module body. |
 
 No other file is permitted in the implementation diff.
 
@@ -66,27 +67,33 @@ Run after implementation and formatting, while the implementation branch still h
 
 ```sh
 test "$(wc -l < src/clean/deletion.rs | tr -d ' ')" -eq 308
-test "$(wc -l < src/clean/deletion/tests.rs | tr -d ' ')" -eq 237
+test "$(wc -l < src/clean/deletion/tests.rs | tr -d ' ')" -eq 229
 diff -u \
   <(git show origin/main:src/clean/deletion.rs | sed -n '1,307p') \
   <(sed -n '1,307p' src/clean/deletion.rs)
 test "$(sed -n '308p' src/clean/deletion.rs)" = 'mod tests;'
-diff -u \
-  <(git show origin/main:src/clean/deletion.rs | sed -n '309,545p' | sed 's/^    //') \
-  src/clean/deletion/tests.rs
+git show origin/main:src/clean/deletion.rs \
+  | sed -n '309,545p' \
+  | sed 's/^    //' \
+  | rustfmt --emit stdout --edition 2021 \
+  | diff -u - src/clean/deletion/tests.rs
 ```
 
-An empty `diff -u` result is required. Do not update the expected line numbers or normalize any other text if
-the base changes; fetch and re-evaluate the baseline instead.
+An empty `diff -u` result is required. The stream uses the same installed rustfmt as `cargo fmt`, so every
+post-move formatting change is reproduced from the original body rather than hand-approved. Do not update the
+expected line numbers or normalize any other text if the base changes; fetch and re-evaluate the baseline
+instead.
 
 ## Risks And Mitigations
 
 - **Wrong module resolution:** use the repository-established `deletion/tests.rs` layout and compile all
   feature combinations.
 - **Private helper access breaks:** retain `use super::*`; do not change visibility.
-- **Mechanical move hides edits:** exact prefix and dedented-body diffs must be empty after fmt.
+- **Mechanical move hides edits:** exact prefix diff and rustfmt-normalized dedented-body diff must be empty
+  after fmt.
 - **Dropped outer cfg:** preserve `#[cfg(test)]` on the parent `mod tests;` declaration.
-- **Test weakening:** preserve exact body and run VibeGuard test-integrity/test-weakening guards.
+- **Test weakening:** require the normalized-baseline byte diff and run VibeGuard test-integrity/test-weakening
+  guards.
 - **Production behavior drift:** parent production prefix must be identical and no production file other than
   the wrapper replacement is changed.
 - **Main drift:** require fresh `origin/main` equality before implementation and merge; stop if line baseline
@@ -113,8 +120,9 @@ Run SpecRail packet check and required PR gate, then require current-head Ubuntu
 
 ## Rollback
 
-Re-inline the exact contents of `src/clean/deletion/tests.rs` under `#[cfg(test)] mod tests { ... }` and remove
-the child file. No runtime, data, dependency or schema rollback exists.
+Re-inline the contents of `src/clean/deletion/tests.rs` under `#[cfg(test)] mod tests { ... }`, restore one
+indentation level, run rustfmt, and remove the child file. The result must equal the original baseline body. No
+runtime, data, dependency or schema rollback exists.
 
 ## Human Gates
 
