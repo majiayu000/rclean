@@ -37,9 +37,10 @@ fn rules_exits_cleanly_when_stdout_reader_is_closed() -> Result<(), Box<dyn std:
 
 #[test]
 fn doctor_exits_cleanly_when_stdout_reader_is_closed() -> Result<(), Box<dyn std::error::Error>> {
+    let expected_status = Command::cargo_bin("rclean")?.arg("doctor").output()?.status;
     let output = run_with_closed_stdout(&["doctor"])?;
 
-    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.status, expected_status);
     assert_no_output_panic(&output);
     Ok(())
 }
