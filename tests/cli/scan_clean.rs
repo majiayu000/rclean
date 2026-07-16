@@ -207,6 +207,125 @@ fn scan_write_plan_then_clean_plan_dry_run() {
 }
 
 #[test]
+fn duplicate_canonical_scan_roots_are_processed_once() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    std::fs::write(temp.path().join("package.json"), "{}")?;
+    std::fs::create_dir(temp.path().join("node_modules"))?;
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc")?;
+    let root = temp.path().to_string_lossy().into_owned();
+    let alias = temp.path().join(".").to_string_lossy().into_owned();
+    let plan = temp.path().join("plan.json");
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    let output = scan
+        .args([
+            "scan",
+            root.as_str(),
+            root.as_str(),
+            alias.as_str(),
+            "--json",
+            "--write-plan",
+            plan.to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Value = serde_json::from_slice(&output)?;
+
+    assert_eq!(report["roots"].as_array().unwrap().len(), 1);
+    assert_eq!(report["summary"]["projectsScanned"], 1);
+    assert_eq!(report["summary"]["candidates"], 1);
+    assert_eq!(report["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        report["projects"][0]["candidates"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let plan_json: Value = serde_json::from_str(&std::fs::read_to_string(&plan)?)?;
+    assert_eq!(plan_json["roots"].as_array().unwrap().len(), 1);
+    assert_eq!(plan_json["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(plan_json["selected"].as_array().unwrap().len(), 1);
+
+    let mut dry_run = Command::cargo_bin("rclean")?;
+    dry_run
+        .args(["clean", "--plan", plan.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan: 1 candidates"));
+    Ok(())
+}
+
+#[test]
+fn distinct_canonical_scan_roots_are_preserved() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let child = temp.path().join("child");
+    std::fs::create_dir(&child)?;
+    std::fs::write(child.join("package.json"), "{}")?;
+    std::fs::create_dir(child.join("node_modules"))?;
+    std::fs::write(child.join("node_modules").join("blob"), "abc")?;
+    let parent_arg = temp.path().to_string_lossy().into_owned();
+    let child_arg = child.to_string_lossy().into_owned();
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    let output = scan
+        .args([
+            "scan",
+            child_arg.as_str(),
+            parent_arg.as_str(),
+            child_arg.as_str(),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Value = serde_json::from_slice(&output)?;
+    let roots = report["roots"].as_array().unwrap();
+
+    assert_eq!(roots.len(), 2);
+    assert_eq!(roots[0], child.canonicalize()?.to_string_lossy().as_ref());
+    assert_eq!(
+        roots[1],
+        temp.path().canonicalize()?.to_string_lossy().as_ref()
+    );
+    Ok(())
+}
+
+#[test]
+fn invalid_duplicate_scan_root_is_not_silently_dropped() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let root = temp.path().to_string_lossy().into_owned();
+    let missing = temp.path().join("missing");
+    let missing_arg = missing.to_string_lossy().into_owned();
+
+    let mut scan = Command::cargo_bin("rclean")?;
+    scan.args([
+        "scan",
+        root.as_str(),
+        root.as_str(),
+        missing_arg.as_str(),
+        missing_arg.as_str(),
+        "--json",
+    ])
+    .assert()
+    .failure()
+    .stderr(
+        predicate::str::contains("cannot scan").and(predicate::str::contains(missing_arg.as_str())),
+    );
+    Ok(())
+}
+
+#[test]
 fn clean_plan_uses_permanent_delete_mode_from_plan() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     std::fs::write(temp.path().join("package.json"), "{}")?;
