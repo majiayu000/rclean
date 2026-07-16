@@ -19,7 +19,7 @@ use chrono::{DateTime, Utc};
 
 use crate::error::ScanError;
 use crate::model::{
-    ActivityInfo, Candidate, CandidateDraft, GitInfo, ProjectReport, Safety, Summary,
+    ActivityInfo, Candidate, CandidateDraft, GitInfo, ProjectReport, Safety, ScanWarning, Summary,
 };
 use crate::path_util::path_file_name;
 use crate::rules;
@@ -36,7 +36,7 @@ pub(crate) fn build_project_report(
     options: &ScanOptions,
     git_cache: &GitCache,
     source_sizes: &SourceSizeIndex,
-) -> Result<ProjectReport, ScanError> {
+) -> Result<(ProjectReport, Vec<ScanWarning>), ScanError> {
     let (kind, markers) = rules::detect_project_kind(dir);
     let git = git_cache.info_for(dir);
     let activity_time = project_activity(dir, options.max_depth).unwrap_or_else(SystemTime::now);
@@ -47,17 +47,20 @@ pub(crate) fn build_project_report(
             .unwrap_or_default()
             < age
     {
-        return Ok(ProjectReport {
-            path: dir.display().to_string(),
-            kind,
-            markers,
-            git,
-            activity: activity_info(activity_time, "computed"),
-            candidates: Vec::new(),
-            total_bytes: 0,
-            project_bytes: 0,
-            artifact_percent: 0.0,
-        });
+        return Ok((
+            ProjectReport {
+                path: dir.display().to_string(),
+                kind,
+                markers,
+                git,
+                activity: activity_info(activity_time, "computed"),
+                candidates: Vec::new(),
+                total_bytes: 0,
+                project_bytes: 0,
+                artifact_percent: 0.0,
+            },
+            Vec::new(),
+        ));
     }
 
     let size_summary = sizer::summarize(dir, &drafts, source_sizes, options.verbose);
@@ -119,17 +122,20 @@ pub(crate) fn build_project_report(
         (total_bytes as f64 / project_bytes as f64) * 100.0
     };
 
-    Ok(ProjectReport {
-        path: dir.display().to_string(),
-        kind,
-        markers,
-        git,
-        activity: activity_info(activity_time, "computed"),
-        candidates,
-        total_bytes,
-        project_bytes,
-        artifact_percent,
-    })
+    Ok((
+        ProjectReport {
+            path: dir.display().to_string(),
+            kind,
+            markers,
+            git,
+            activity: activity_info(activity_time, "computed"),
+            candidates,
+            total_bytes,
+            project_bytes,
+            artifact_percent,
+        },
+        size_summary.warnings,
+    ))
 }
 
 pub(crate) fn build_summary(projects: &[ProjectReport]) -> Summary {

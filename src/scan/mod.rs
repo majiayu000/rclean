@@ -209,7 +209,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
             if drafts.is_empty() {
                 continue;
             }
-            let project = build_project_report(
+            let (project, sizing_warnings) = build_project_report(
                 &project_dir,
                 &root,
                 drafts,
@@ -217,6 +217,7 @@ pub fn scan(paths: &[PathBuf], options: &ScanOptions) -> Result<ScanReport, Scan
                 &git_cache,
                 &source_sizes,
             )?;
+            warnings.extend(sizing_warnings);
             if let Some(counters) = &progress_counters {
                 counters.add_project();
             }
