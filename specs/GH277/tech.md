@@ -48,7 +48,8 @@ Restructure `run` without changing selection:
 
 1. Preserve interactive conflict and terminal gates.
 2. Scan and select exactly as today.
-3. If no candidates: print JSON only when requested, otherwise the existing human message; return 3.
+3. If no candidates: print JSON with `targetMet=false` only when requested, otherwise the existing
+   human message; return 3 even when target is zero, preserving current command behavior.
 4. For a non-empty proposal, print the existing human proposal only when JSON is false.
 5. Preserve interactive handoff.
 6. Resolve selected candidates and plan path; write the ActionPlan before JSON output.
@@ -68,7 +69,7 @@ must expose the selected subset and plan path.
 | B-003 Candidate reuse/order | candidate field assertions and selected path match with ActionPlan |
 | B-004 met result | exit 0, targetMet true, plan exists and parses |
 | B-005 shortfall result | exit 3, targetMet false, non-null plan exists and parses |
-| B-006 no candidates | exit 3, empty array, zero bytes, null path, explicit path absent |
+| B-006 no candidates | positive/zero targets both exit 3 with false, empty array, zero bytes, null path and no file |
 | B-007 fail-before-output | invalid/unwritable plan-path E2E asserts empty stdout and stderr error |
 | B-008 interactive conflict | existing E2E remains green |
 | B-009 human compatibility | existing met/unmet/no-candidate tests unchanged and green |
@@ -110,7 +111,8 @@ map B-001 through B-010 and reject undeclared JSON fields or output changes.
 - **partial stdout before plan error:** emit no JSON until plan write succeeds.
 - **null/absent drift:** keep `planPath` present as explicit null for no-candidate output.
 - **human regression:** extract rather than rewrite current strings; retain existing E2E assertions.
-- **exit-code drift:** compute target-met once from the existing threshold and retain 0/3 mapping.
+- **zero-target drift:** define target-met as non-empty proposal plus the existing byte threshold;
+  retain the current no-candidate exit 3 for zero as well as positive targets.
 - **plan/JSON mismatch:** tests compare selected candidate paths and the reported plan path.
 - **scope creep:** broken pipe, scan warnings, progress and selection logic are non-goals.
 

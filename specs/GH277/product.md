@@ -53,7 +53,7 @@ plan path 和 review hint；`jq` 因此解析失败，即使 free 自身退出 0
 | `schemaVersion` | integer | 当前固定为 `1`。 |
 | `targetBytes` | integer | 用户请求释放的精确 byte 数。 |
 | `selectedBytes` | integer | safe proposal 候选 byte 总和。 |
-| `targetMet` | boolean | `selectedBytes >= targetBytes`。 |
+| `targetMet` | boolean | 存在非空 safe proposal，且 `selectedBytes >= targetBytes`。 |
 | `planPath` | string or null | 成功写入的 ActionPlan path；无候选、未写计划时为 `null`。 |
 | `candidates` | array | 按实际 proposal 排名顺序排列的现有 `Candidate` JSON objects。 |
 
@@ -73,7 +73,8 @@ plan path 和 review hint；`jq` 因此解析失败，即使 free 自身退出 0
 5. **B-005** safe proposal 不足时仍写 reviewable ActionPlan，输出 `targetMet=false` 与非空
    `planPath`，exit 3；不输出人类 gap 文本。
 6. **B-006** 没有 eligible candidate 时输出 empty `candidates`、`selectedBytes=0`、
-   `targetMet=false`、`planPath=null`，不写计划，exit 3。
+   `targetMet=false`、`planPath=null`，不写计划，exit 3；`targetBytes=0` 也保持这个现有
+   no-candidate 结果，不把数学上的 `0 >= 0` 误报成命令成功。
 7. **B-007** plan serialization/write 或 proposal JSON serialization 失败时返回现有 error，
    不在 stdout 留下半个 JSON 或前置人类文本。
 8. **B-008** `free --interactive --json` 继续在任何 cleanup 前失败，错误在 stderr。
@@ -87,7 +88,7 @@ plan path 和 review hint；`jq` 因此解析失败，即使 free 自身退出 0
 - B-001 至 B-010 在 tech spec 和 tasks 中完整映射。
 - E2E tests 对三种 JSON 结果执行 `serde_json::from_slice`，并断言 stdout 无人类提示污染。
 - target-met 与 shortfall tests 同时解析实际 ActionPlan，证明 JSON path 指向已写入计划。
-- no-candidate test 证明未创建默认或显式 plan。
+- no-candidate tests 覆盖正数和 zero target，并证明未创建默认或显式 plan。
 - 现有人类输出 tests 保持通过。
 - README 给出 `free --json` 用法，architecture 文档记录独立 versioned schema。
 - Spec PR 只包含 `specs/GH277/`；implementation PR 独立创建。
