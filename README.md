@@ -31,7 +31,7 @@ This is a from-scratch Rust CLI. It already supports:
 - no-arg interactive cleanup flow in a TTY
 - `scan` with human table output
 - "Biggest wins" scan summary with project artifact percentage
-- staleness reporting with the `Stale` column and `stale_after_days` JSON field
+- staleness reporting with the `Stale` column and `staleAfterDays` JSON field
 - `scan --json`
 - `clean --dry-run`
 - `clean --all --permanent --yes`
@@ -199,7 +199,7 @@ delete phase stops the command before any artifact is removed; if cleanup has
 already completed, its computed success or failure status is preserved.
 
 Human scan output includes a `Stale` column. JSON output includes
-`stale_after_days` and each candidate's `staleness_days` when available.
+`staleAfterDays` and each candidate's `stalenessDays` when available.
 Recoverable cleanup summaries print the graveyard retention window and restore
 command so accidental deletions have an explicit path back.
 
