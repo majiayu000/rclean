@@ -234,8 +234,10 @@ selected `~/Library/Application Support/<app>` anchors on macOS or
 `~/.cache` and `~/.local/share/pnpm` on Linux. Existing
 `GOPATH` entries are included too. Paths that don't exist are
 filtered out silently. See the
-[Global Toolchain Caches](#global-toolchain-caches) table below
-for the full rule list.
+[published home-scope rule directory](#published-home-scope-rule-directory)
+below for the rules discovered by `--home`. Rules reached through `--tmp`,
+`--system`, or an explicit path scan are listed separately in the same
+directory.
 
 After installation:
 
@@ -322,11 +324,12 @@ These rules fire inside a project directory (require a marker like
 | .NET | `bin`, `obj` |
 | Ruby | `.bundle`, `vendor/bundle` |
 
-### Global toolchain caches
+### Published home-scope rule directory
 
-These rules fire on caches the toolchains maintain *outside*
-individual projects, under `$HOME`. Use `rclean scan --home` to
-let rclean find every applicable cache automatically:
+These published rules fire on caches maintained *outside* individual projects,
+under `$HOME`. Use `rclean scan --home` to let rclean find every applicable
+cache automatically. This table does not include project-scan rules or rules
+whose discovery scope is `--tmp`, `--system`, or an explicit path:
 
 | Rule id | Path | Safety | Restore |
 | --- | --- | --- | --- |
@@ -339,7 +342,7 @@ let rclean find every applicable cache automatically:
 | `jetbrains.logs` | `~/Library/Logs/JetBrains/<IDE><version>` (macOS) / `~/.cache/JetBrains/<IDE><version>/log` (Linux) / `%LOCALAPPDATA%/JetBrains/<IDE><version>/log` (Windows) | caution | close IDE; it recreates logs |
 | `android_studio.system_caches` | `~/Library/Caches/Google/AndroidStudio*/caches` (macOS) / `~/.cache/Google/AndroidStudio*/caches` (Linux) / `%LOCALAPPDATA%/Google/AndroidStudio*/caches` (Windows) | caution | close Android Studio; it recreates caches |
 | `android_studio.logs` | `~/Library/Logs/Google/AndroidStudio*` (macOS) / `~/.cache/Google/AndroidStudio*/log` (Linux) / `%LOCALAPPDATA%/Google/AndroidStudio*/log` (Windows) | caution | close Android Studio; it recreates logs |
-| `go.module_download_cache` | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | safe | next `go build` / `go test` |
+| `go.module_cache` | `~/go/pkg/mod` / `$GOPATH/pkg/mod` | caution | native `go clean -modcache`; modules redownload and offline builds may fail |
 | `go.build_cache` | `~/Library/Caches/go-build` (macOS) / `~/.cache/go-build` (Linux) | safe | next `go build` / `go test` |
 | `dart.pub_hosted_cache` | `~/.pub-cache/hosted` | caution | next `dart pub get` / `flutter pub get` |
 | `dart.pub_git_cache` | `~/.pub-cache/git` | caution | next `dart pub get` / `flutter pub get` |
@@ -372,12 +375,33 @@ let rclean find every applicable cache automatically:
 | `app.shipit_caches` | `~/Library/Caches/*.ShipIt` (macOS, Squirrel.Mac apps like VSCode/Notion) | safe | none — leftover update packages |
 | `chrome.cache` | `~/Library/Caches/Google/Chrome` (macOS) | safe | next browsing |
 | `chrome.google_updater` | `~/Library/Application Support/Google/GoogleUpdater` (macOS) | safe | Chrome rebuilds it on launch |
+| `app.lark_cache` | `~/Library/Caches/LarkInternational` (macOS) | safe | close Lark/Feishu; it recreates the cache on next launch |
+| `apple.wallpaper_aerial_videos` | `~/Library/Application Support/com.apple.wallpaper/aerials/videos` (macOS) | caution | System Settings redownloads selected aerials on demand |
+| `chrome.opt_guide_model` | `~/Library/Application Support/Google/Chrome/OptGuideOnDeviceModel` (macOS) | caution | close Chrome; it can redownload or rebuild the model |
+| `app.lark_update` | `~/Library/Application Support/LarkInternational/update` (macOS) | caution | close Lark/Feishu; future updates download again when needed |
+| `macos.geod_map_tiles` | `~/Library/Containers/com.apple.geod/Data/Library/Caches/com.apple.geod/MapTiles` (macOS) | caution | close dependent apps and wait for the owning service; map tiles redownload on demand |
+| `macos.mediaanalysisd_cache` | `~/Library/Containers/com.apple.mediaanalysisd/Data/Library/Caches/com.apple.mediaanalysisd` (macOS) | caution | close dependent apps and wait for the owning service; the cache is rebuilt when needed |
+| `macos.mediaanalysisd_tmp` | `~/Library/Containers/com.apple.mediaanalysisd/Data/tmp/MediaCache` (macOS) | caution | close dependent apps and wait for the owning service; temporary data is recreated when needed |
 | `editor.vscode_cache` | `~/Library/Application Support/Code/{logs,Cache,CachedData,Code Cache,GPUCache}` (macOS) | caution | close VS Code; it recreates caches |
 | `editor.cursor_cache` | `~/Library/Application Support/Cursor/{logs,Cache,CachedData,Code Cache,GPUCache}` (macOS) | caution | close Cursor; it recreates caches |
 | `editor.vscode_obsolete_extension` | `~/.vscode/extensions/<publisher>.<name>-<old-version>` | caution | Marketplace reinstall if needed |
 | `editor.cursor_obsolete_extension` | `~/.cursor/extensions/<publisher>.<name>-<old-version>` | caution | Marketplace reinstall if needed |
 | `claude.old_version` | `~/.local/share/claude/versions/<old-version>` | caution | Claude Code reinstalls if needed |
 | `app.electron_cache` | known macOS app support `Cache`, `Code Cache`, `GPUCache`, `Dawn*Cache` dirs | caution | close app; it recreates caches |
+
+### Other whole-machine and explicit-path rules
+
+These published rules use a discovery scope other than `--home`. An explicit
+path scan only inspects the path supplied by the user; in particular, the
+macOS `X` code-sign bucket is not part of the default `--tmp` roots.
+
+| Rule id | Discovery | Path | Safety | Restore / warning |
+| --- | --- | --- | --- | --- |
+| `go.module_download_cache` | explicit path scan | `~/go/pkg/mod/cache/download` / `$GOPATH/pkg/mod/cache/download` | caution | native `go clean -modcache`; modules redownload and offline builds may fail |
+| `macos.remem_dry_run_tmp` | `--tmp` | `/private/var/folders/<bucket>/<user>/T/remem-dry-run-*` (macOS) | safe | stop the process using it; persistent remem state lives elsewhere |
+| `agent.tmp_worktree` | `--tmp` | immediate child of a temp root named `remem-*`, `rclean-*`, `loom-*`, or `*review-target*`, with a project marker | caution | whole-worktree cleanup can remove local edits; stop users of the path and pass `--include-caution` |
+| `apple.idleassetsd` | `--system` | `/Library/Application Support/com.apple.idleassetsd` (macOS) | **report-only** (requires administrator access; never selected by `clean`) | manual review only; rclean never runs `sudo`; Wallpaper redownloads selected idle assets |
+| `macos.chrome_code_sign_clone` | explicit path scan | `/private/var/folders/<bucket>/<user>/X/com.google.Chrome.code_sign_clone` (macOS) | safe | close Chrome and related helpers; macOS recreates the temporary clone when needed |
 
 ### AI/ML model stores
 
