@@ -71,16 +71,21 @@ Implementation verification must show:
 git diff --name-only origin/main...HEAD
 git diff --check origin/main...HEAD
 wc -l src/doctor.rs src/doctor/common_entries.rs src/doctor/platform_entries.rs
-rg -n 'pub\(super\) fn (collect|extend)' src/doctor/common_entries.rs src/doctor/platform_entries.rs
-rg -n '^pub(\([^)]*\))? (fn|struct|enum|use|mod)' src/doctor.rs src/doctor/common_entries.rs src/doctor/platform_entries.rs
+rg -x 'pub\(super\) fn collect\(home: &Path\) -> Vec<DoctorEntry> \{' src/doctor/common_entries.rs
+rg -x 'pub\(super\) fn extend\(entries: &mut Vec<DoctorEntry>, home: &Path\) \{' src/doctor/platform_entries.rs
+test "$(rg -n '^\s*pub(\(| )' src/doctor/common_entries.rs src/doctor/platform_entries.rs | wc -l | tr -d ' ')" -eq 2
+git show 1bc358d4589233b6cf7d7c70d99a051fe758c2c1:src/doctor.rs | rg '^\s*pub(\(| )' > /tmp/gh329-parent-public.before
+rg '^\s*pub(\(| )' src/doctor.rs > /tmp/gh329-parent-public.after
+diff -u /tmp/gh329-parent-public.before /tmp/gh329-parent-public.after
 git diff origin/main...HEAD -- src/doctor/tests.rs src/doctor/anchors.rs Cargo.toml Cargo.lock .github README.md
 ```
 
 Expected contract:
 
 - changed paths are exactly the three B-006 paths;
-- the two child entry points occur exactly once and use only `pub(super)`;
-- the public-item search adds no item relative to baseline;
+- the two exact child entry-point signatures each occur once and the exhaustive child `pub*` count is exactly two;
+- the parent public surface, including functions, types, fields, constants, statics, aliases, and traits, has an
+  empty baseline/head diff;
 - tests, anchors, dependencies, workflows, and README diff are empty;
 - all three affected production files are below 400 lines.
 
