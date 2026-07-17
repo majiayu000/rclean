@@ -44,7 +44,7 @@ exit 1
     let output = Command::cargo_bin("rclean")?
         .env("RCLEAN_DOCKER_BIN", &fake)
         .env("RCLEAN_FAKE_DOCKER_LOG", temp.path().join("docker.log"))
-        .args(["docker", "report", "--json"])
+        .args(["docker", "report", "--json", "--timeout", "30s"])
         .assert()
         .code(3)
         .get_output()
@@ -100,7 +100,7 @@ fn docker_report_success_is_report_only_and_never_prunes() -> Result<(), Box<dyn
     let output = Command::cargo_bin("rclean")?
         .env("RCLEAN_DOCKER_BIN", &fake)
         .env("RCLEAN_FAKE_DOCKER_LOG", &log)
-        .args(["docker", "report", "--json"])
+        .args(["docker", "report", "--json", "--timeout", "30s"])
         .assert()
         .success()
         .get_output()
@@ -165,7 +165,7 @@ esac
 
     let output = Command::cargo_bin("rclean")?
         .env("RCLEAN_DOCKER_BIN", &fake)
-        .args(["docker", "report", "--json"])
+        .args(["docker", "report", "--json", "--timeout", "30s"])
         .assert()
         .code(3)
         .get_output()
