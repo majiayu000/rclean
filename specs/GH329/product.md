@@ -7,7 +7,7 @@
 ## Problem
 
 `src/doctor.rs` is 653 lines and its tests are already isolated. The remaining production file is dominated by
-the 515-line `diagnose_with_options` constructor, which combines public report orchestration with 59 ordered
+the 514-line `diagnose_with_options` constructor, which combines public report orchestration with 59 ordered
 shared and platform-specific applicability entries.
 
 This puts unrelated review responsibilities in one file and leaves the module above the repository's 200-400

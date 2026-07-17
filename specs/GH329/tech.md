@@ -84,11 +84,35 @@ Expected contract:
 - tests, anchors, dependencies, workflows, and README diff are empty;
 - all three affected production files are below 400 lines.
 
-For extraction equivalence, compare the body of `common_entries::collect` after removing its wrapper and final
-`entries` expression with baseline `src/doctor.rs:74-341`; compare the body of `platform_entries::extend` after
-removing only its wrapper with baseline `src/doctor.rs:343-570`. Both diffs must be empty. Compare the parent from
-`fn check_anchor` through EOF against baseline lines 579-653; that diff must also be empty. The implementation PR
-must record these fresh results rather than relying on visual similarity.
+Run the following fixed reconstruction proof from the implementation worktree. Each `diff -u` must exit zero; no
+normalization beyond the explicitly removed child-function wrapper lines and the common module's final `entries`
+return expression is allowed:
+
+```sh
+set -e
+base=1bc358d4589233b6cf7d7c70d99a051fe758c2c1
+
+git show "$base":src/doctor.rs | sed -n '74,341p' > /tmp/gh329-common.before
+sed -n '/^pub(super) fn collect/,/^}/p' src/doctor/common_entries.rs \
+  | sed '1d;$d' | sed '$d' > /tmp/gh329-common.after
+diff -u /tmp/gh329-common.before /tmp/gh329-common.after
+
+git show "$base":src/doctor.rs | sed -n '343,570p' > /tmp/gh329-platform.before
+sed -n '/^pub(super) fn extend/,/^}/p' src/doctor/platform_entries.rs \
+  | sed '1d;$d' > /tmp/gh329-platform.after
+diff -u /tmp/gh329-platform.before /tmp/gh329-platform.after
+
+git show "$base":src/doctor.rs | sed -n '579,653p' > /tmp/gh329-parent-tail.before
+sed -n '/^fn check_anchor/,$p' src/doctor.rs > /tmp/gh329-parent-tail.after
+diff -u /tmp/gh329-parent-tail.before /tmp/gh329-parent-tail.after
+
+test "$(shasum -a 256 src/doctor/tests.rs | cut -d ' ' -f 1)" \
+  = 07636a0b03500112f943da9e73588f3dec31e3478337d687c7a8bfff3c4e49c8
+```
+
+The implementation PR must record these fresh results rather than relying on visual similarity. If later merged
+work changes any recorded baseline slice before implementation starts, update the Spec in a separate reviewed
+Spec change instead of silently changing the comparison base or normalization.
 
 ## Behavioral Proof
 
