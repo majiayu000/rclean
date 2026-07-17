@@ -36,7 +36,7 @@ Implementation is intentionally mechanical:
 3. Create `src/rules/project/tests.rs` from baseline lines 385–629, removing exactly one four-space
    indentation level.
 4. Run fmt and compare the child byte-for-byte with the same dedented baseline streamed through
-   `rustfmt --emit stdout --edition 2021`.
+   `rustfmt --emit stdout --edition 2024`, matching the crate edition in `Cargo.toml`.
 
 Rust resolves `mod tests;` declared from `rules/project.rs` to `rules/project/tests.rs`. Existing explicit
 `use super::{...}` imports keep private access within the parent module; no visibility change is necessary.
@@ -75,13 +75,13 @@ test "$(sed -n '384p' src/rules/project.rs)" = 'mod tests;'
 git show origin/main:src/rules/project.rs \
   | sed -n '385,629p' \
   | sed 's/^    //' \
-  | rustfmt --emit stdout --edition 2021 \
+  | rustfmt --emit stdout --edition 2024 \
   | diff -u - src/rules/project/tests.rs
 ```
 
-Both diffs must be empty. The stream uses the same installed rustfmt as `cargo fmt`, so any formatting change is
-reproduced from the original body instead of hand-approved. If base layout changes, fetch and re-evaluate rather
-than changing expected coordinates opportunistically.
+Both diffs must be empty. The stream uses the same installed rustfmt and crate edition as `cargo fmt`, so any
+formatting change is reproduced from the original body instead of hand-approved. If base layout changes, fetch
+and re-evaluate rather than changing expected coordinates opportunistically.
 
 ## Risks And Mitigations
 

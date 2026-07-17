@@ -46,7 +46,8 @@ issues/PRs、`docs/specs/` 与 `specs/` 搜索没有发现已覆盖本次 test-o
 1. **B-001** `src/rules/project.rs` 基线第 1–383 行必须完全不变，并在第 384 行用
    `mod tests;` 结束；最终父文件恰好 384 行。
 2. **B-002** `src/rules/project/tests.rs` 必须等于基线父文件第 385–629 行逐行去掉四个前导空格
-   后，再由当前 toolchain 的 `rustfmt --edition 2021` 规范化的结果；最终 child 恰好 245 行。
+   后，再由当前 toolchain 按 crate edition 执行 `rustfmt --edition 2024` 规范化的结果；最终 child
+   恰好 245 行。
 3. **B-003** 九个 test names、`ProjectKindCase`、`write_marker`、`assert_matches_targeted`、两套
    cfg-gated `symlink_file` helpers、imports、fixtures 与 assertions 保持不变。
 4. **B-004** project-kind matrix、marker order/kind priority、exact-file semantics、snapshot limit/
@@ -67,8 +68,8 @@ issues/PRs、`docs/specs/` 与 `specs/` 搜索没有发现已覆盖本次 test-o
   构造；implementation review 必须再次确认。
 - 基线行号只对该 implementation branch 的 `origin/main` 有效；若 main 漂移改变
   `project.rs`，实现必须停止并重新生成 proof，不能套用旧坐标。
-- exact proof 必须在 fmt 后运行，把 dedented baseline 经同一 `rustfmt --emit stdout --edition 2021`
-  后再与 child 比较，且 `diff -u` 为空。
+- exact proof 必须在 fmt 后运行，把 dedented baseline 经与 `Cargo.toml` 相同的
+  `rustfmt --emit stdout --edition 2024` 后再与 child 比较，且 `diff -u` 为空。
 
 ## Acceptance Criteria
 
