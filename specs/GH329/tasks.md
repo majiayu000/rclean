@@ -9,11 +9,11 @@
 
 ## Status
 
-`planned` — implementation waits for merged GH329 Spec PR.
+`planned` — implementation resumes only after the GH329 Clippy-proof Spec correction merges.
 
 ## SpecRail Checklist
 
-- [ ] `SP329-T1` | Owner: `doctor` | Done when: the common ordered entry prefix moves exactly into one private child module | Verify: common extraction proof + focused stable/MSRV tests
+- [ ] `SP329-T1` | Owner: `doctor` | Done when: the common ordered entry prefix moves into one private child with only the fixed 12-token borrow normalization | Verify: normalized common extraction proof + focused stable/MSRV tests
 - [ ] `SP329-T2` | Owner: `doctor` | Done when: the platform suffix moves exactly into one private child and the parent preserves HOME/Docker orchestration | Verify: platform/parent source proofs + focused stable/MSRV tests
 - [ ] `SP329-T3` | Owner: `verification` | Done when: scope, sizes, unchanged tests/APIs, full local and remote gates pass | Verify: scope/full/VibeGuard/CI/review/PR gates
 
@@ -23,10 +23,13 @@
 - Covers: B-001, B-002, B-005, B-006
 - Change:
   - add `doctor/common_entries.rs` with exactly one `pub(super)` collector;
-  - move the existing common sequence without changing values, order, cfg predicates, or helper arguments;
+  - move the existing common sequence without changing values, order, cfg predicates, or effective helper
+    arguments, replacing exactly 12 now-redundant `&home` expressions with `home`;
   - return the constructed vector without adding a registry or wrapper.
-- Done when: inverse extraction reproduces baseline lines 74-341 exactly and the child remains below 400 lines.
-- Verify: exact common source proof, visibility search, line count, focused stable/MSRV doctor tests.
+- Done when: the fixed 12-token normalization has the recorded hash, inverse extraction reproduces that normalized
+  baseline exactly, and the child remains below 400 lines.
+- Verify: counted/hash-pinned normalized common source proof, visibility search, line count, focused stable/MSRV
+  doctor tests.
 
 ## SP329-T2 — Extract platform entries and retain orchestration
 
@@ -68,6 +71,7 @@
 
 - Start implementation only from the latest `origin/main` after this Spec merges.
 - Keep exact three-path scope; do not edit tests, anchors, rules, dependencies, workflows, or docs.
-- Preserve common/platform body order and cfg predicates mechanically; no registry, macro, alias, trait, or builder.
+- Preserve common/platform body order and cfg predicates mechanically; only the 12 approved common borrow tokens
+  may change inside moved bodies; no registry, macro, alias, trait, or builder.
 - Keep exactly two new `pub(super)` entry points and no new broader visibility.
 - Fresh local and remote gates plus standing merge authorization are required; never force push.
