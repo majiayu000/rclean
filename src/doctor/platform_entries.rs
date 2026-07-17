@@ -10,6 +10,9 @@ use super::check_anchor;
 use super::{check_any_anchor, skipped_anchor};
 
 pub(super) fn extend(entries: &mut Vec<DoctorEntry>, home: &Path) {
+    #[cfg(target_os = "windows")]
+    let _ = home;
+
     // macOS-only rules. On non-macOS the anchor never exists, so the
     // entry is reported as Skipped with a platform reason — gives
     // Linux users an accurate "this rule doesn't apply here" instead
