@@ -59,8 +59,8 @@ pub(super) fn extend(entries: &mut Vec<DoctorEntry>, home: &Path)
 Its body starts with exactly this explicit Windows-only parameter consumption:
 
 ```rust
-#[cfg(target_os = "windows")]
-let _ = home;
+    #[cfg(target_os = "windows")]
+    let _ = home;
 ```
 
 After that three-line prelude (including its trailing blank line), the body is the exact existing
@@ -111,8 +111,8 @@ Expected contract:
 
 Run the following fixed reconstruction proof from the implementation worktree. Each `diff -u` must exit zero. The
 only content normalization allowed is the exactly counted 12-token `&home` to `home` replacement in the common
-baseline; the commands may otherwise remove only child-function wrapper lines and the common module's final
-`entries` return expression:
+baseline; the commands may otherwise remove only child-function wrapper lines, the common module's final
+`entries` return expression, and the exact hash-pinned three-line platform prelude:
 
 ```sh
 set -e
