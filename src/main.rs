@@ -16,6 +16,8 @@ mod rules;
 mod scan;
 mod stamp;
 mod stdio;
+#[cfg(test)]
+mod test_support;
 #[cfg(feature = "tui")]
 mod tui;
 mod user_rules;
