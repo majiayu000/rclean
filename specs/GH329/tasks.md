@@ -14,7 +14,7 @@
 ## SpecRail Checklist
 
 - [ ] `SP329-T1` | Owner: `doctor` | Done when: the common ordered entry prefix moves into one private child with only the fixed 12-token borrow normalization | Verify: normalized common extraction proof + focused stable/MSRV tests
-- [ ] `SP329-T2` | Owner: `doctor` | Done when: the platform suffix moves exactly into one private child and the parent preserves HOME/Docker orchestration | Verify: platform/parent source proofs + focused stable/MSRV tests
+- [ ] `SP329-T2` | Owner: `doctor` | Done when: the platform suffix moves into one private child with only the hash-pinned Windows parameter-consumption prelude and the parent preserves HOME/Docker orchestration | Verify: prelude/platform/parent source proofs + focused stable/MSRV tests
 - [ ] `SP329-T3` | Owner: `verification` | Done when: scope, sizes, unchanged tests/APIs, full local and remote gates pass | Verify: scope/full/VibeGuard/CI/review/PR gates
 
 ## SP329-T1 — Extract common entries
@@ -38,12 +38,14 @@
 - Change:
   - add `doctor/platform_entries.rs` with exactly one `pub(super)` appender;
   - move the existing platform sequence without changing values, order, cfg predicates, or fallbacks;
+  - prepend only the specified Windows `let _ = home;` cfg block so all-platform Clippy passes without a lint
+    suppression or signature change;
   - reduce parent orchestration to HOME resolution, common collection, platform append, optional-last Docker append,
     and report return;
   - retain all types, APIs, low-level helpers, and the external test module in the parent.
-- Done when: platform and helper-tail source proofs are empty, tests remain byte-identical, and all three affected
-  production files are below 400 lines.
-- Verify: exact platform/parent/test proofs, path/API/visibility audits, focused stable/MSRV doctor tests.
+- Done when: the platform prelude hash matches, the platform and helper-tail reconstruction diffs are empty, tests
+  remain byte-identical, and all three affected production files are below 400 lines.
+- Verify: exact prelude/platform/parent/test proofs, path/API/visibility audits, focused stable/MSRV doctor tests.
 
 ## SP329-T3 — Prove merge readiness
 
@@ -72,6 +74,6 @@
 - Start implementation only from the latest `origin/main` after this Spec merges.
 - Keep exact three-path scope; do not edit tests, anchors, rules, dependencies, workflows, or docs.
 - Preserve common/platform body order and cfg predicates mechanically; only the 12 approved common borrow tokens
-  may change inside moved bodies; no registry, macro, alias, trait, or builder.
+  and the hash-pinned Windows platform prelude may differ; no lint allow, registry, macro, alias, trait, or builder.
 - Keep exactly two new `pub(super)` entry points and no new broader visibility.
 - Fresh local and remote gates plus standing merge authorization are required; never force push.
