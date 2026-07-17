@@ -25,6 +25,10 @@ At `origin/main` commit `1bc358d4589233b6cf7d7c70d99a051fe758c2c1`:
   `07636a0b03500112f943da9e73588f3dec31e3478337d687c7a8bfff3c4e49c8`.
 - Fresh `cargo check --all-targets --all-features` and `cargo test doctor::tests -- --nocapture` pass; the latter
   runs exactly three passing doctor tests.
+- Implementation head `a30471402faae947a3597c8e5ec8184c7af496f9` exposed one Windows-only boundary condition:
+  all Windows cfg branches emit fixed skipped anchors, so `platform_entries::extend` does not otherwise use its
+  `home` parameter and Windows Clippy rejects it under `-D unused-variables`. macOS, Ubuntu, and MSRV pass; the
+  failed Windows job is `87798768601` in run `29552796825`.
 - Search found no production-constructor split. #112/#124-#126 cover other modules and #265/#267 cover only the
   doctor test extraction/catalog assertion.
 
@@ -52,8 +56,18 @@ Add `src/doctor/platform_entries.rs` with one private-to-parent entry point:
 pub(super) fn extend(entries: &mut Vec<DoctorEntry>, home: &Path)
 ```
 
-Its body is the exact existing `src/doctor.rs:343-570` sequence. Platform-only imports must retain cfg guards so
-all platforms remain warning-free. It appends to the supplied vector and returns no replacement collection.
+Its body starts with exactly this explicit Windows-only parameter consumption:
+
+```rust
+    #[cfg(target_os = "windows")]
+    let _ = home;
+```
+
+After that three-line prelude (including its trailing blank line), the body is the exact existing
+`src/doctor.rs:343-570` sequence. The prelude has SHA-256
+`9db353faee45947401d8bbdcc0b484dc4184bc551ae4dc7ddd08a646cf8078f2` and is the only platform-body addition.
+It avoids a lint suppression while making the unchanged shared signature warning-free on Windows. Platform-only
+imports must retain cfg guards. The function appends to the supplied vector and returns no replacement collection.
 
 ### Parent orchestration
 
@@ -97,8 +111,8 @@ Expected contract:
 
 Run the following fixed reconstruction proof from the implementation worktree. Each `diff -u` must exit zero. The
 only content normalization allowed is the exactly counted 12-token `&home` to `home` replacement in the common
-baseline; the commands may otherwise remove only child-function wrapper lines and the common module's final
-`entries` return expression:
+baseline; the commands may otherwise remove only child-function wrapper lines, the common module's final
+`entries` return expression, and the exact hash-pinned three-line platform prelude:
 
 ```sh
 set -e
@@ -116,7 +130,11 @@ diff -u /tmp/gh329-common.before /tmp/gh329-common.after
 
 git show "$base":src/doctor.rs | sed -n '343,570p' > /tmp/gh329-platform.before
 sed -n '/^pub(super) fn extend/,/^}/p' src/doctor/platform_entries.rs \
-  | sed '1d;$d' > /tmp/gh329-platform.after
+  | sed -n '2,4p' > /tmp/gh329-platform.prelude
+test "$(shasum -a 256 /tmp/gh329-platform.prelude | cut -d ' ' -f 1)" \
+  = 9db353faee45947401d8bbdcc0b484dc4184bc551ae4dc7ddd08a646cf8078f2
+sed -n '/^pub(super) fn extend/,/^}/p' src/doctor/platform_entries.rs \
+  | sed '1d;$d' | sed '1,3d' > /tmp/gh329-platform.after
 diff -u /tmp/gh329-platform.before /tmp/gh329-platform.after
 
 git show "$base":src/doctor.rs | sed -n '579,653p' > /tmp/gh329-parent-tail.before
@@ -139,6 +157,8 @@ Source inspection and CI must confirm:
 - all existing cfg predicates remain attached to the same entry blocks;
 - all rule IDs, paths, reason strings, status variants, and effective anchor-helper arguments are unchanged; the
   only source spelling change inside moved bodies is the fixed 12-token common-module borrow simplification;
+- Windows explicitly consumes the otherwise-unused `home` parameter with the hash-pinned cfg prelude; no lint
+  `allow`, signature change, clone, fallback-path change, or non-Windows runtime statement is added;
 - missing HOME returns before child-module calls;
 - Docker remains optional, last, and uses `Duration::from_secs(5)`;
 - the three doctor test names and exact test file hash remain unchanged.
@@ -179,6 +199,9 @@ reviewThreads, current-head CI, independent review, and SpecRail required PR gat
   existing suffix, and Docker remains the final parent append.
 - Risk: borrow normalization masks another edit. Mitigation: require exactly 12 baseline tokens, zero child
   `&home` tokens, the fixed normalized hash, and an empty full-body diff.
+- Risk: the Windows unused-parameter fix masks a platform-entry change. Mitigation: pin the exact three-line
+  prelude hash, remove only those three lines for reconstruction, and require the remaining platform diff to be
+  empty on top of cross-platform CI.
 - Risk: private helpers become broader APIs. Mitigation: exactly two `pub(super)` functions and no re-exports.
 - Risk: a cleanup registry is introduced during the split. Mitigation: mechanical move only; no tables, macros,
   aliases, traits, builders, or dependencies.
