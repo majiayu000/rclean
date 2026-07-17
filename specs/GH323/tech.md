@@ -78,8 +78,9 @@ for round in 1 2 3; do
 done
 ```
 
-The pre-fix 12-way command fails with status 123 when any child test process fails. After the fix all three rounds
-must exit zero. This is bounded verification, not a retry mechanism; every run is required to pass.
+The pre-fix 12-way command exits non-zero when any child test process fails (GNU `xargs` commonly returns 123;
+macOS/BSD `xargs` returns 1). After the fix all three rounds must exit zero. This is bounded verification, not a
+retry mechanism; every run is required to pass.
 
 ## Risks And Mitigations
 
