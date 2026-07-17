@@ -92,7 +92,7 @@ rg -n 'fn (candidate|report_with)\(' src/free.rs src/output.rs
 rg -n 'pub\(crate\) fn ranking_(candidate|report)\(' src/test_support.rs
 rg -n 'mod test_support;' src/main.rs
 wc -l src/main.rs src/free.rs src/output.rs src/test_support.rs
-git diff -- Cargo.toml Cargo.lock .github
+git diff origin/main...HEAD -- Cargo.toml Cargo.lock .github
 ```
 
 Expected source contract:
@@ -132,14 +132,14 @@ Focused stable verification:
 
 ```sh
 cargo test free::tests -- --nocapture
-cargo test output::tests -- --nocapture
+cargo test output::tests -- --skip clean::output::tests --nocapture
 ```
 
 Focused Rust 1.95.0 verification:
 
 ```sh
 rustup run 1.95.0 cargo test free::tests -- --nocapture
-rustup run 1.95.0 cargo test output::tests -- --nocapture
+rustup run 1.95.0 cargo test output::tests -- --skip clean::output::tests --nocapture
 ```
 
 Full gate:
