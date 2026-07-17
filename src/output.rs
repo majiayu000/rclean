@@ -525,66 +525,13 @@ fn truncate(value: &str, width: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ActivityInfo, Category, ProjectReport, Summary};
-
-    fn candidate(name: &str, bytes: u64, staleness_days: Option<u64>) -> Candidate {
-        Candidate {
-            path: format!("/tmp/proj/{name}"),
-            name: name.to_string(),
-            rule_id: "rust.target".to_string(),
-            category: Category::Build,
-            bytes,
-            safety: Safety::Safe,
-            requires_sudo: false,
-            reasons: vec!["test".to_string()],
-            warnings: Vec::new(),
-            restore_hint: "cargo build".to_string(),
-            risk_score: 0.1,
-            staleness_days,
-        }
-    }
-
-    fn report_with(candidates: Vec<Candidate>) -> ScanReport {
-        ScanReport {
-            schema_version: 1,
-            tool_version: "test".to_string(),
-            scanned_at: "2026-07-03T00:00:00Z".to_string(),
-            roots: vec!["/tmp".to_string()],
-            disk_attribution: None,
-            warnings: Vec::new(),
-            stale_after_days: 30,
-            summary: Summary {
-                projects_scanned: 1,
-                projects_with_candidates: 1,
-                candidates: candidates.len(),
-                safe_candidates: candidates.len(),
-                caution_candidates: 0,
-                blocked_candidates: 0,
-                report_only_candidates: 0,
-                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
-            },
-            projects: vec![ProjectReport {
-                path: "/tmp/proj".to_string(),
-                kind: "Rust".to_string(),
-                markers: vec!["Cargo.toml".to_string()],
-                git: None,
-                activity: ActivityInfo {
-                    last_modified: "2026-05-01T00:00:00Z".to_string(),
-                    source: "test".to_string(),
-                },
-                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
-                project_bytes: 100,
-                artifact_percent: 50.0,
-                candidates,
-            }],
-        }
-    }
+    use crate::test_support::{ranking_candidate, ranking_report};
 
     #[test]
     fn biggest_wins_ranks_stale_candidates_before_larger_fresh_ones() {
-        let report = report_with(vec![
-            candidate("fresh-large", 3_000_000_000, Some(0)),
-            candidate("stale-small", 2_000_000_000, Some(94)),
+        let report = ranking_report(vec![
+            ranking_candidate("fresh-large", 3_000_000_000, Safety::Safe, Some(0)),
+            ranking_candidate("stale-small", 2_000_000_000, Safety::Safe, Some(94)),
         ]);
         let wins = biggest_wins(&report);
         assert_eq!(wins[0].1.name, "stale-small");
@@ -593,9 +540,9 @@ mod tests {
 
     #[test]
     fn biggest_wins_falls_back_to_size_within_the_same_staleness_group() {
-        let report = report_with(vec![
-            candidate("stale-small", 1_000, Some(40)),
-            candidate("stale-large", 2_000, Some(35)),
+        let report = ranking_report(vec![
+            ranking_candidate("stale-small", 1_000, Safety::Safe, Some(40)),
+            ranking_candidate("stale-large", 2_000, Safety::Safe, Some(35)),
         ]);
         let wins = biggest_wins(&report);
         assert_eq!(wins[0].1.name, "stale-large");

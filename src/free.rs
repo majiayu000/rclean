@@ -380,66 +380,13 @@ fn default_free_plan_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ActivityInfo, Category, ProjectReport, Summary};
-
-    fn candidate(name: &str, bytes: u64, safety: Safety, staleness: Option<u64>) -> Candidate {
-        Candidate {
-            path: format!("/tmp/proj/{name}"),
-            name: name.to_string(),
-            rule_id: "rust.target".to_string(),
-            category: Category::Build,
-            bytes,
-            safety,
-            requires_sudo: false,
-            reasons: vec!["test".to_string()],
-            warnings: Vec::new(),
-            restore_hint: "cargo build".to_string(),
-            risk_score: 0.1,
-            staleness_days: staleness,
-        }
-    }
-
-    fn report_with(candidates: Vec<Candidate>) -> ScanReport {
-        ScanReport {
-            schema_version: 1,
-            tool_version: "test".to_string(),
-            scanned_at: "2026-07-03T00:00:00Z".to_string(),
-            roots: vec!["/tmp".to_string()],
-            disk_attribution: None,
-            warnings: Vec::new(),
-            stale_after_days: 30,
-            summary: Summary {
-                projects_scanned: 1,
-                projects_with_candidates: 1,
-                candidates: candidates.len(),
-                safe_candidates: candidates.len(),
-                caution_candidates: 0,
-                blocked_candidates: 0,
-                report_only_candidates: 0,
-                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
-            },
-            projects: vec![ProjectReport {
-                path: "/tmp/proj".to_string(),
-                kind: "Rust".to_string(),
-                markers: vec!["Cargo.toml".to_string()],
-                git: None,
-                activity: ActivityInfo {
-                    last_modified: "2026-05-01T00:00:00Z".to_string(),
-                    source: "test".to_string(),
-                },
-                total_bytes: candidates.iter().map(|c| c.bytes).sum(),
-                project_bytes: 100,
-                artifact_percent: 50.0,
-                candidates,
-            }],
-        }
-    }
+    use crate::test_support::{ranking_candidate, ranking_report};
 
     #[test]
     fn prefers_stale_candidates_over_larger_fresh_ones() {
-        let report = report_with(vec![
-            candidate("fresh-large", 3_000, Safety::Safe, Some(0)),
-            candidate("stale-small", 2_000, Safety::Safe, Some(90)),
+        let report = ranking_report(vec![
+            ranking_candidate("fresh-large", 3_000, Safety::Safe, Some(0)),
+            ranking_candidate("stale-small", 2_000, Safety::Safe, Some(90)),
         ]);
         let proposal = select_for_target(&report, 1_500);
         assert_eq!(proposal.candidates.len(), 1);
@@ -448,11 +395,11 @@ mod tests {
 
     #[test]
     fn never_selects_non_safe_candidates_even_when_target_unmet() {
-        let report = report_with(vec![
-            candidate("safe-small", 1_000, Safety::Safe, Some(10)),
-            candidate("caution-huge", 100_000, Safety::Caution, Some(90)),
-            candidate("blocked-huge", 100_000, Safety::Blocked, Some(90)),
-            candidate("report-only-huge", 100_000, Safety::ReportOnly, Some(90)),
+        let report = ranking_report(vec![
+            ranking_candidate("safe-small", 1_000, Safety::Safe, Some(10)),
+            ranking_candidate("caution-huge", 100_000, Safety::Caution, Some(90)),
+            ranking_candidate("blocked-huge", 100_000, Safety::Blocked, Some(90)),
+            ranking_candidate("report-only-huge", 100_000, Safety::ReportOnly, Some(90)),
         ]);
         let proposal = select_for_target(&report, 50_000);
         assert_eq!(proposal.candidates.len(), 1);
@@ -462,10 +409,10 @@ mod tests {
 
     #[test]
     fn prunes_picks_the_target_can_spare() {
-        let report = report_with(vec![
-            candidate("oldest", 1_000, Safety::Safe, Some(90)),
-            candidate("older", 4_000, Safety::Safe, Some(60)),
-            candidate("old", 2_000, Safety::Safe, Some(40)),
+        let report = ranking_report(vec![
+            ranking_candidate("oldest", 1_000, Safety::Safe, Some(90)),
+            ranking_candidate("older", 4_000, Safety::Safe, Some(60)),
+            ranking_candidate("old", 2_000, Safety::Safe, Some(40)),
         ]);
         // Greedy picks oldest(1000) + older(4000) = 5000 >= 4500, then
         // the prune drops nothing (5000 - 1000 < 4500, 5000 - 4000 < 4500).
