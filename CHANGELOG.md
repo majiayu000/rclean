@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/),
 and the project adheres to semantic versioning. Pre-1.0, patch versions may
 include breaking changes per semver 0.x; each break is noted explicitly.
 
+## Unreleased
+
+### Changed
+
+- `rclean free <target>` no longer writes its ActionPlan into the current
+  working directory. The default location is now the user's state
+  directory (`$XDG_STATE_HOME/rclean/plans/`, `$HOME/.local/state/...`,
+  or the Windows `%LOCALAPPDATA%` equivalent). `free` never deletes, so
+  it should not leave files behind in the directory it happened to run
+  from. The resolved path is printed on every run and `--write-plan
+  <PATH>` still overrides it, so replay stays copy-pasteable. Scripts
+  that globbed `./rclean-free-*.json` need to pass `--write-plan`.
+  (#349)
+
+### Fixed
+
+- The `clean --graveyard` recovery summary printed `rclean restore <id>`,
+  which is not a valid invocation — `restore` requires `--id`. Pasting
+  the suggested command failed at the exact moment a user was trying to
+  undo a deletion. (#348)
+
 ## 0.2.0 - 2026-07-03
 
 ### Added

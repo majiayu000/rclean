@@ -41,6 +41,106 @@ fn free_target_met_writes_plan_and_exits_zero() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// Regression for #349: `free` never deletes, so it must not leave a
+/// plan file behind in whatever directory the user was standing in.
+#[test]
+fn free_default_plan_lands_in_state_dir_not_cwd() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+    let cwd = TempDir::new()?;
+    let state = TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    let assert = cmd
+        .current_dir(cwd.path())
+        .env("XDG_STATE_HOME", state.path())
+        .args([
+            "free",
+            "1kb",
+            temp.path().to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    // Nothing dropped into the working directory.
+    let stray: Vec<_> = std::fs::read_dir(cwd.path())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "free must leave the working directory clean, found: {stray:?}"
+    );
+
+    // The plan landed under $XDG_STATE_HOME/rclean/plans/ instead.
+    let plans_dir = state.path().join("rclean").join("plans");
+    let written: Vec<_> = std::fs::read_dir(&plans_dir)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "expected exactly one plan in {}",
+        plans_dir.display()
+    );
+
+    // It is a real ActionPlan, and both printed lines name its
+    // resolved path so the replay command is copy-pasteable.
+    let plan: Value = serde_json::from_str(&std::fs::read_to_string(&written[0])?)?;
+    assert_eq!(plan["deleteMode"], "trash");
+    assert!(!plan["selected"].as_array().unwrap().is_empty());
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone())?;
+    let resolved = written[0].display().to_string();
+    assert!(
+        stdout.contains(&format!("wrote action plan: {resolved}")),
+        "stdout must name the resolved plan path, got: {stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("rclean clean --plan {resolved}")),
+        "replay hint must name the resolved plan path, got: {stdout}"
+    );
+
+    assert!(temp.path().join("node_modules").exists());
+    Ok(())
+}
+
+/// `--write-plan` stays authoritative: the explicit destination is used
+/// and the state directory is left untouched.
+#[test]
+fn free_write_plan_overrides_the_state_dir_default() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+    let cwd = TempDir::new()?;
+    let state = TempDir::new()?;
+    let plan_path = temp.path().join("explicit-plan.json");
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.current_dir(cwd.path())
+        .env("XDG_STATE_HOME", state.path())
+        .args([
+            "free",
+            "1kb",
+            temp.path().to_str().unwrap(),
+            "--min-size",
+            "0",
+            "--write-plan",
+            plan_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    assert!(plan_path.is_file(), "--write-plan must win");
+    assert!(
+        !state.path().join("rclean").join("plans").exists(),
+        "--write-plan must not also populate the state directory"
+    );
+    Ok(())
+}
+
 #[test]
 fn free_target_unmet_states_the_gap_and_exits_3() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;

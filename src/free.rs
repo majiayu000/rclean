@@ -68,11 +68,25 @@ pub fn run(args: FreeArgs) -> Result<ExitCode, RcleanError> {
         return run_interactive(args, &report, &proposal);
     }
 
-    let plan_path = args
-        .common
-        .write_plan
-        .clone()
-        .unwrap_or_else(default_free_plan_path);
+    // Only the default location is created on demand. A user-supplied
+    // `--write-plan` path keeps failing when its parent is missing:
+    // that is an explicit destination, so a typo should surface rather
+    // than silently materialize a directory tree.
+    let plan_path = match args.common.write_plan.clone() {
+        Some(explicit) => explicit,
+        None => {
+            let path = default_free_plan_path();
+            if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir).map_err(|source| {
+                    CleanError::Generic(format!(
+                        "failed to create plan directory {}: {source}",
+                        dir.display()
+                    ))
+                })?;
+            }
+            path
+        }
+    };
     let selected: Vec<SelectedCandidate> = proposal
         .candidates
         .iter()
@@ -372,9 +386,13 @@ fn to_selected(candidate: &Candidate) -> SelectedCandidate {
     }
 }
 
+/// Default plan location (spec: `specs/GH349/product.md`). `free`
+/// never deletes, so it must not leave a file behind in whatever
+/// directory the user was standing in; the plan goes to the user's
+/// state directory and the resolved path is printed for replay.
 fn default_free_plan_path() -> PathBuf {
     let stamp = Utc::now().format("%Y%m%dT%H%M%SZ");
-    PathBuf::from(format!("rclean-free-{stamp}.json"))
+    plan::default_plans_dir().join(format!("rclean-free-{stamp}.json"))
 }
 
 #[cfg(test)]
