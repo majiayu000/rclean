@@ -74,6 +74,116 @@ fn parallel_walk_matches_serial_walk_for_nested_tree() {
     assert!(serial.warnings.is_empty());
 }
 
+/// Overwrite a file's mtime to `unix_secs` after the epoch so
+/// newest-mtime assertions are deterministic. The handle must be opened
+/// for writing: Windows rejects `set_modified` on a read-only handle
+/// with "Access is denied".
+fn set_mtime(path: &Path, unix_secs: u64) {
+    let when = UNIX_EPOCH + Duration::from_secs(unix_secs);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+}
+
+#[test]
+fn newest_mtime_is_captured_and_agrees_across_serial_and_parallel() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("old.bin"), [0; 3]).unwrap();
+    fs::create_dir(temp.path().join("sub")).unwrap();
+    fs::write(temp.path().join("sub/new.bin"), [0; 5]).unwrap();
+
+    // old.bin at t=1000, sub/new.bin at t=5000 -> newest is 5000.
+    set_mtime(&temp.path().join("old.bin"), 1_000);
+    set_mtime(&temp.path().join("sub/new.bin"), 5_000);
+    let expected = UNIX_EPOCH + Duration::from_secs(5_000);
+
+    let serial = dir_size_walkdir(temp.path());
+    let parallel = dir_size_walk_parallel(temp.path());
+
+    assert_eq!(serial.newest_mtime, Some(expected));
+    assert_eq!(
+        parallel.newest_mtime, serial.newest_mtime,
+        "parallel and serial walks must agree on the newest mtime"
+    );
+}
+
+#[test]
+fn epoch_mtime_is_not_treated_as_unseen_in_the_parallel_walk() {
+    // A file whose mtime is exactly UNIX_EPOCH (tar-normalized /
+    // reproducible-build trees) must still count as observed, or the
+    // candidate would fall back to the parent activity and re-earn the
+    // #354 bug. The parallel path encodes seconds+1 to keep 0 free as
+    // the "unseen" sentinel; this guards that encoding.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("epoch.bin"), [0; 3]).unwrap();
+    set_mtime(&temp.path().join("epoch.bin"), 0);
+
+    let parallel = dir_size_walk_parallel(temp.path());
+    let serial = dir_size_walkdir(temp.path());
+
+    assert_eq!(parallel.newest_mtime, Some(UNIX_EPOCH));
+    assert_eq!(
+        parallel.newest_mtime, serial.newest_mtime,
+        "epoch-0 mtime must be observed identically by both walks"
+    );
+}
+
+#[test]
+fn single_file_candidate_reports_its_own_mtime() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("blob");
+    fs::write(&file, [0; 4]).unwrap();
+    set_mtime(&file, 2_500);
+
+    let outcome = dir_size(&file, false);
+
+    assert_eq!(outcome.bytes, 4);
+    assert_eq!(
+        outcome.newest_mtime,
+        Some(UNIX_EPOCH + Duration::from_secs(2_500))
+    );
+}
+
+#[test]
+fn empty_candidate_reports_no_mtime() {
+    let temp = TempDir::new().unwrap();
+    fs::create_dir(temp.path().join("empty")).unwrap();
+
+    let outcome = dir_size(&temp.path().join("empty"), false);
+
+    assert_eq!(outcome.bytes, 0);
+    assert_eq!(outcome.newest_mtime, None);
+}
+
+#[test]
+fn summarize_reports_per_candidate_activity() {
+    let temp = TempDir::new().unwrap();
+    let old_dir = temp.path().join("node_modules");
+    let fresh_dir = temp.path().join(".next");
+    fs::create_dir(&old_dir).unwrap();
+    fs::create_dir(&fresh_dir).unwrap();
+    fs::write(old_dir.join("a"), [0; 2]).unwrap();
+    fs::write(fresh_dir.join("b"), [0; 2]).unwrap();
+    set_mtime(&old_dir.join("a"), 1_000);
+    set_mtime(&fresh_dir.join("b"), 9_000);
+
+    let drafts = vec![draft(old_dir, Safety::Safe), draft(fresh_dir, Safety::Safe)];
+    let empty_index = SourceSizeIndex::from_dir_sizes(&DirSizes::new());
+    let summary = summarize(temp.path(), &drafts, &empty_index, false);
+
+    assert_eq!(
+        summary.candidate_activity,
+        vec![
+            Some(UNIX_EPOCH + Duration::from_secs(1_000)),
+            Some(UNIX_EPOCH + Duration::from_secs(9_000)),
+        ],
+        "each candidate reports its own newest mtime, not a shared value"
+    );
+}
+
 #[test]
 fn missing_candidate_root_returns_metadata_warning() {
     let temp = TempDir::new().unwrap();

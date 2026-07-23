@@ -123,3 +123,57 @@ fn project_activities_preserves_missing_project_slots() {
             .all(|activity| *activity >= before && *activity <= after)
     );
 }
+
+/// End-to-end for #354: a candidate whose own content is old must report
+/// its true age even when the surrounding project activity is fresh
+/// (the situation a busy shared parent like `~/Library/Caches` creates).
+#[test]
+fn staleness_reflects_candidate_age_not_a_fresh_project_activity() {
+    use crate::model::{Category, Safety};
+    use crate::scan::sizer::SourceSizeIndex;
+    use std::time::Duration;
+
+    let temp = TempDir::new().unwrap();
+    let cache = temp.path().join("node_modules");
+    fs::create_dir(&cache).unwrap();
+    let old = SystemTime::now() - Duration::from_secs(40 * 86_400);
+    write_with_modified(&cache.join("blob"), old);
+
+    let drafts = vec![CandidateDraft {
+        path: cache.clone(),
+        name: "node_modules".to_string(),
+        rule_id: "node.node_modules".to_string(),
+        category: Category::Deps,
+        safety: Safety::Safe,
+        reasons: Vec::new(),
+        warnings: Vec::new(),
+        restore_hint: "npm install".to_string(),
+    }];
+
+    let options = ScanOptions {
+        min_size: 0,
+        ..ScanOptions::default()
+    };
+    let source_sizes = SourceSizeIndex::from_dir_sizes(&Default::default());
+
+    // Project activity is "now" — as if an unrelated sibling under the
+    // same parent was just touched. Pre-#354 this made the candidate
+    // read 0d; it must now report its own ~40-day age.
+    let (report, _warnings) = build_project_report(
+        temp.path(),
+        temp.path(),
+        drafts,
+        &options,
+        &GitCache::new(),
+        &source_sizes,
+        SystemTime::now(),
+    )
+    .unwrap();
+
+    let candidate = &report.candidates[0];
+    assert_eq!(
+        candidate.staleness_days,
+        Some(40),
+        "candidate must report its own 40-day age, not the fresh project activity"
+    );
+}

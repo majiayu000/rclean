@@ -8,6 +8,18 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ## Unreleased
 
+### Fixed
+
+- `staleness_days` (the "untouched Nd" column, and the signal `free`
+  ranks and `--older-than` filters by) now reflects each candidate's
+  own newest file instead of its parent directory's activity. Caches
+  sharing a busy parent like `~/Library/Caches` previously all read
+  `0d` because an unrelated OS file under that parent was touched
+  recently; a genuinely stale 2.9 GB Yarn cache now reports its real
+  17-day age. The newest mtime is captured during the existing size
+  walk, so no extra filesystem traversal is added. `risk_score` is
+  unchanged. (#354)
+
 ### Changed
 
 - `rclean free <target>` no longer writes its ActionPlan into the current
