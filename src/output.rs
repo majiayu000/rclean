@@ -235,6 +235,21 @@ pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
             );
         }
     }
+    print_table_legend()?;
+    Ok(())
+}
+
+/// Safety and Risk are independent axes; side by side without this note
+/// they read as contradictory (a `safe` row can outscore a `caution`
+/// one). Clarify that Safety gates cleaning while Risk is advisory.
+fn print_table_legend() -> Result<(), RcleanError> {
+    outln!();
+    outln!(
+        "Safety gates cleaning: safe = auto-selected by --all, caution = opt-in, blocked = never, report-only = inspect only."
+    );
+    outln!(
+        "Risk (0.00-0.85) is an independent advisory score, not a gate; it does not track Safety."
+    );
     Ok(())
 }
 

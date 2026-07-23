@@ -40,7 +40,40 @@ fn scan_table_shows_biggest_wins_and_junk_percent() {
         .success()
         .stdout(predicate::str::contains("Biggest wins:"))
         .stdout(predicate::str::contains("Junk"))
-        .stdout(predicate::str::contains("60.0%"));
+        .stdout(predicate::str::contains("60.0%"))
+        // The legend disambiguates the Safety and Risk columns (#356).
+        .stdout(predicate::str::contains("Safety gates cleaning"))
+        .stdout(predicate::str::contains(
+            "Risk (0.00-0.85) is an independent advisory score",
+        ));
+}
+
+/// The legend is human-only; `--json` output must stay pure.
+#[test]
+fn scan_json_has_no_table_legend() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let assert = cmd
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(
+        !stdout.contains("Safety gates cleaning"),
+        "JSON output must not carry the human legend"
+    );
+    // And it is still valid JSON.
+    serde_json::from_str::<serde_json::Value>(&stdout).expect("stdout must be pure JSON");
 }
 
 #[test]

@@ -8,6 +8,15 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ## Unreleased
 
+### Added
+
+- The `scan` table now prints a two-line legend clarifying that the
+  `Safety` column gates cleaning (safe = auto-selected by `--all`,
+  caution = opt-in, blocked = never, report-only = inspect only) while
+  `Risk` is an independent advisory score that does not gate anything.
+  Side by side without it, a `safe` row outscoring a `caution` row read
+  as contradictory. Human output only; `--json` is unchanged. (#356)
+
 ### Fixed
 
 - `staleness_days` (the "untouched Nd" column, and the signal `free`
