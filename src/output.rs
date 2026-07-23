@@ -185,7 +185,7 @@ pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
             outln!(
                 "  {}. {}/{} - {} reclaimable ({}, {}, {}{})",
                 index + 1,
-                truncate(&project_name, 44),
+                truncate_path(&project_name, 44),
                 candidate.name,
                 format_bytes(candidate.bytes),
                 format_percent(project.artifact_percent),
@@ -222,7 +222,7 @@ pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
                 .unwrap_or_default();
             outln!(
                 "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} {}",
-                truncate(&project_name, 30),
+                truncate_path(&project_name, 30),
                 truncate(&project.kind, 13),
                 truncate(&candidate.name, 18),
                 candidate.category,
@@ -537,6 +537,22 @@ fn truncate(value: &str, width: usize) -> String {
         .collect()
 }
 
+/// Truncate a path from the LEFT, keeping the tail. The distinguishing
+/// part of a path is its end (the app or project name); right-truncating
+/// collapses `~/Library/Application Support/{Code,Cursor}` to the same
+/// `~/Library/Application Support~` and loses exactly what the reader
+/// needs (#358).
+fn truncate_path(value: &str, width: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= width {
+        return value.to_string();
+    }
+    let tail: String = chars[chars.len() - width.saturating_sub(1)..]
+        .iter()
+        .collect();
+    format!("~{tail}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,5 +583,24 @@ mod tests {
     fn format_staleness_renders_days_or_dash() {
         assert_eq!(format_staleness(Some(94)), "94d");
         assert_eq!(format_staleness(None), "-");
+    }
+
+    #[test]
+    fn truncate_path_keeps_the_distinguishing_tail() {
+        // Two apps that collapse to the same string under right-
+        // truncation must stay distinct under path truncation (#358).
+        let code = "~/Library/Application Support/Code";
+        let cursor = "~/Library/Application Support/Cursor";
+        let a = truncate_path(code, 30);
+        let b = truncate_path(cursor, 30);
+        assert_ne!(a, b, "distinct apps must not collapse to one string");
+        assert!(a.ends_with("Code"), "app name must survive, got: {a}");
+        assert!(b.ends_with("Cursor"), "app name must survive, got: {b}");
+        assert_eq!(a.chars().count(), 30);
+    }
+
+    #[test]
+    fn truncate_path_leaves_short_paths_untouched() {
+        assert_eq!(truncate_path("~/.cache/uv", 30), "~/.cache/uv");
     }
 }
