@@ -15,6 +15,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
 };
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
@@ -82,6 +83,12 @@ fn indexed_parent(path: &Path) -> Option<&Path> {
 
 pub(crate) struct SizeSummary {
     pub candidate_bytes: Vec<u64>,
+    /// Newest file mtime seen inside each candidate, parallel to
+    /// `candidate_bytes`. `None` when the candidate was not walked
+    /// (e.g. blocked). Feeds per-candidate `staleness_days` so a cache
+    /// under a busy shared parent reports its own age rather than a
+    /// sibling's (spec: `specs/GH354/product.md`).
+    pub candidate_activity: Vec<Option<SystemTime>>,
     pub source_bytes: u64,
     pub warnings: Vec<ScanWarning>,
 }
@@ -89,6 +96,7 @@ pub(crate) struct SizeSummary {
 #[derive(Debug, Default, PartialEq, Eq)]
 struct SizeOutcome {
     bytes: u64,
+    newest_mtime: Option<SystemTime>,
     warnings: Vec<ScanWarning>,
 }
 
@@ -96,18 +104,53 @@ impl SizeOutcome {
     fn with_bytes(bytes: u64) -> Self {
         Self {
             bytes,
+            newest_mtime: None,
             warnings: Vec::new(),
         }
     }
 
     fn merge(&mut self, mut other: Self) {
         self.bytes = self.bytes.saturating_add(other.bytes);
+        self.observe_mtime(other.newest_mtime);
         self.warnings.append(&mut other.warnings);
+    }
+
+    /// Fold in a file mtime, keeping the newest seen.
+    fn observe_mtime(&mut self, mtime: Option<SystemTime>) {
+        if let Some(mtime) = mtime
+            && self.newest_mtime.is_none_or(|current| mtime > current)
+        {
+            self.newest_mtime = Some(mtime);
+        }
     }
 
     fn sort_warnings(&mut self) {
         self.warnings
             .sort_by(|left, right| warning_parts(left).cmp(&warning_parts(right)));
+    }
+}
+
+/// Unix-seconds representation of a mtime for the atomic max in the
+/// parallel walk. `0` means "no mtime seen".
+fn mtime_to_secs(mtime: SystemTime) -> u64 {
+    mtime
+        .duration_since(UNIX_EPOCH)
+        .map(|age| age.as_secs())
+        .unwrap_or(0)
+}
+
+fn secs_to_mtime(secs: u64) -> Option<SystemTime> {
+    (secs > 0).then(|| UNIX_EPOCH + Duration::from_secs(secs))
+}
+
+/// Compare-exchange max, mirroring [`saturating_atomic_add`].
+fn atomic_max(slot: &AtomicU64, value: u64) {
+    let mut current = slot.load(Ordering::Relaxed);
+    while value > current {
+        match slot.compare_exchange_weak(current, value, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(actual) => current = actual,
+        }
     }
 }
 
@@ -128,6 +171,10 @@ pub(crate) fn summarize(
         })
         .collect();
     let candidate_bytes = outcomes.iter().map(|outcome| outcome.bytes).collect();
+    let candidate_activity = outcomes
+        .iter()
+        .map(|outcome| outcome.newest_mtime)
+        .collect();
     let warnings = outcomes
         .into_iter()
         .flat_map(|outcome| outcome.warnings)
@@ -141,6 +188,7 @@ pub(crate) fn summarize(
 
     SizeSummary {
         candidate_bytes,
+        candidate_activity,
         source_bytes,
         warnings,
     }
@@ -148,7 +196,11 @@ pub(crate) fn summarize(
 
 fn dir_size(path: &Path, _verbose: bool) -> SizeOutcome {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => SizeOutcome::with_bytes(metadata.len()),
+        Ok(metadata) if metadata.is_file() => {
+            let mut outcome = SizeOutcome::with_bytes(metadata.len());
+            outcome.observe_mtime(metadata.modified().ok());
+            outcome
+        }
         Ok(metadata) if metadata.is_dir() => {
             let mut partition = partition_parallel_roots(path);
             let walked = dir_size_roots(&partition.roots);
@@ -161,6 +213,7 @@ fn dir_size(path: &Path, _verbose: bool) -> SizeOutcome {
             debug!(path = %path.display(), error = %err, "dir_size metadata error");
             SizeOutcome {
                 bytes: 0,
+                newest_mtime: None,
                 warnings: vec![ScanWarning::MetadataError {
                     path: path.to_path_buf(),
                     error: err.to_string(),
@@ -177,12 +230,17 @@ struct SizePartition {
 
 fn partition_parallel_roots(path: &Path) -> SizePartition {
     let mut bytes: u64 = 0;
+    let mut newest_mtime: Option<SystemTime> = None;
     let mut current = path.to_path_buf();
 
     loop {
         if should_walk_parallel(&current) {
             return SizePartition {
-                outcome: SizeOutcome::with_bytes(bytes),
+                outcome: SizeOutcome {
+                    bytes,
+                    newest_mtime,
+                    warnings: Vec::new(),
+                },
                 roots: vec![current],
             };
         }
@@ -197,6 +255,7 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
                 return SizePartition {
                     outcome: SizeOutcome {
                         bytes,
+                        newest_mtime,
                         warnings: vec![ScanWarning::WalkError {
                             path: Some(current),
                             error: err.to_string(),
@@ -223,6 +282,11 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
             match fs::symlink_metadata(&entry_path) {
                 Ok(metadata) if metadata.is_file() => {
                     bytes = bytes.saturating_add(metadata.len());
+                    if let Ok(mtime) = metadata.modified()
+                        && newest_mtime.is_none_or(|current| mtime > current)
+                    {
+                        newest_mtime = Some(mtime);
+                    }
                 }
                 Ok(metadata) if metadata.is_dir() => {
                     subdirs.push(entry_path);
@@ -244,7 +308,11 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
             0 => {
                 sort_warnings(&mut warnings);
                 return SizePartition {
-                    outcome: SizeOutcome { bytes, warnings },
+                    outcome: SizeOutcome {
+                        bytes,
+                        newest_mtime,
+                        warnings,
+                    },
                     roots: Vec::new(),
                 };
             }
@@ -256,7 +324,11 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
                 if !warnings.is_empty() {
                     sort_warnings(&mut warnings);
                     return SizePartition {
-                        outcome: SizeOutcome { bytes, warnings },
+                        outcome: SizeOutcome {
+                            bytes,
+                            newest_mtime,
+                            warnings,
+                        },
                         roots: subdirs,
                     };
                 }
@@ -267,7 +339,11 @@ fn partition_parallel_roots(path: &Path) -> SizePartition {
             _ => {
                 sort_warnings(&mut warnings);
                 return SizePartition {
-                    outcome: SizeOutcome { bytes, warnings },
+                    outcome: SizeOutcome {
+                        bytes,
+                        newest_mtime,
+                        warnings,
+                    },
                     roots: subdirs,
                 };
             }
@@ -303,6 +379,8 @@ fn dir_size_roots(roots: &[PathBuf]) -> SizeOutcome {
 
 fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
     let total = Arc::new(AtomicU64::new(0));
+    // Newest file mtime as Unix seconds; 0 means none seen.
+    let newest_secs = Arc::new(AtomicU64::new(0));
     let warnings = Arc::new(Mutex::new(Vec::new()));
     let walk_root = path.to_path_buf();
 
@@ -315,6 +393,7 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
 
     builder.build_parallel().run(|| {
         let total = Arc::clone(&total);
+        let newest_secs = Arc::clone(&newest_secs);
         let warnings = Arc::clone(&warnings);
         let walk_root = walk_root.clone();
         Box::new(move |result| {
@@ -337,6 +416,9 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
             match entry.metadata() {
                 Ok(metadata) => {
                     saturating_atomic_add(&total, metadata.len());
+                    if let Ok(mtime) = metadata.modified() {
+                        atomic_max(&newest_secs, mtime_to_secs(mtime));
+                    }
                 }
                 Err(err) => {
                     debug!(path = %entry.path().display(), error = %err, "dir_size metadata error");
@@ -360,6 +442,7 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
     sort_warnings(&mut warnings);
     SizeOutcome {
         bytes: total.load(Ordering::Relaxed),
+        newest_mtime: secs_to_mtime(newest_secs.load(Ordering::Relaxed)),
         warnings,
     }
 }
@@ -446,6 +529,7 @@ fn dir_size_walkdir(path: &Path) -> SizeOutcome {
         match entry.metadata() {
             Ok(metadata) if metadata.is_file() => {
                 outcome.bytes = outcome.bytes.saturating_add(metadata.len());
+                outcome.observe_mtime(metadata.modified().ok());
             }
             Ok(_) => {}
             Err(err) => {

@@ -69,7 +69,11 @@ pub(crate) fn build_project_report(
 
     let mut candidates = Vec::new();
     let project_risk_score = (drafts.len() > 1).then(OnceCell::new);
-    for (mut draft, bytes) in drafts.into_iter().zip(size_summary.candidate_bytes) {
+    for (index, (mut draft, bytes)) in drafts
+        .into_iter()
+        .zip(size_summary.candidate_bytes.iter().copied())
+        .enumerate()
+    {
         if let Some(git) = &git
             && git.dirty
             && draft.safety == Safety::Safe
@@ -94,8 +98,20 @@ pub(crate) fn build_project_report(
             None => compute_risk_score(git.as_ref(), activity_time, dir),
         };
         let requires_sudo = rules::requires_sudo(&draft.rule_id);
+        // Staleness is per candidate: a cache under a busy shared
+        // parent must report its own age, not a sibling's (spec:
+        // specs/GH354). The sizer captured each candidate's newest
+        // mtime during the byte walk; fall back to the project
+        // activity time only when the candidate was not walked
+        // (blocked/report-only), never to a misleading 0d.
+        let candidate_activity = size_summary
+            .candidate_activity
+            .get(index)
+            .copied()
+            .flatten()
+            .unwrap_or(activity_time);
         let staleness_days = SystemTime::now()
-            .duration_since(activity_time)
+            .duration_since(candidate_activity)
             .ok()
             .map(|age| age.as_secs() / 86_400);
 
