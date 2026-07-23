@@ -110,9 +110,12 @@ The repository already has a fake-docker harness in
   in `collect_resources` (`src/docker.rs:200-229`). A fully
   unreachable daemon still fails fast at the first probe (one bound,
   20s vs the previous 5s). But a *degraded* daemon that answers
-  `docker version` and then hangs on each subsequent call can now take
-  up to ~100s (5 x 20s) before the user sees anything, against ~25s
-  before. That is a real 4x regression in the degraded case, accepted
+  `docker version` promptly and then hangs on each of the four
+  `collect_resources` calls now takes up to ~80s before the user sees
+  anything, against ~20s before; the absolute ceiling, if the probe
+  itself also nearly exhausts its bound while still succeeding, is
+  ~100s (5 x 20s) against ~25s. That is a real 4x regression in the
+  degraded case, accepted
   here because the previous default produced a confidently wrong
   answer on healthy machines — the common case — and `--timeout` lets
   a caller bound it lower.

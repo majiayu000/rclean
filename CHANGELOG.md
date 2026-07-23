@@ -34,9 +34,11 @@ include breaking changes per semver 0.x; each break is noted explicitly.
   reported." when the probe itself failed, the same sentence used for a
   successful query that found nothing. "We failed to look" was
   presented as "there is nothing to clean" — on a machine with ~8 GB
-  reclaimable. The failure path now says the query did not succeed and
-  points at `--timeout`. Exit codes and JSON output are unchanged; only
-  the human rendering was ambiguous. (#350)
+  reclaimable. The failure path now says the query did not succeed, and
+  points at `--timeout` only when the failure actually was a timeout —
+  raising it does nothing for a missing binary or a permissions error.
+  Exit codes and JSON output are unchanged; only the human rendering
+  was ambiguous. (#350)
 
 - The `clean --graveyard` recovery summary printed `rclean restore <id>`,
   which is not a valid invocation — `restore` requires `--id`. Pasting
