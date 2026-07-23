@@ -23,6 +23,13 @@ use command::{run_docker_command, status_from_command_error};
 /// pins them together.
 pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// `doctor --docker` only runs the liveness probe (`docker version`),
+/// never `system df`, so it does not need the report bound above and
+/// should not make a diagnostic command sit for 20s against a dead
+/// daemon. Named here rather than left as a literal in `doctor` so
+/// every Docker timeout in the crate is declared in one place.
+pub(crate) const DOCTOR_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone)]
 pub struct DockerReportOptions {
     pub docker_bin: Option<PathBuf>,
@@ -253,8 +260,15 @@ pub fn print_report(report: &DockerReport) -> Result<(), RcleanError> {
             // claiming there is none is a wrong answer, not a cautious
             // one (AGENTS.md: no silent degradation).
             outln!(
-                "Docker was not queried successfully, so nothing can be reported about reclaimable space. Retry with a longer --timeout."
+                "Docker was not queried successfully, so nothing can be reported about reclaimable space."
             );
+            // Only suggest the flag that can actually help. Telling
+            // someone with a missing binary or a permissions problem
+            // to raise --timeout sends them to re-run a command that
+            // will fail identically.
+            if matches!(status, DockerStatus::TimedOut { .. }) {
+                outln!("Retry with a longer --timeout.");
+            }
             return Ok(());
         }
     }

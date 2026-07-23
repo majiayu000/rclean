@@ -24,6 +24,25 @@ Tech spec: `specs/GH350/tech.md`
       --all-targets --all-features -- -D warnings`, `cargo test`, plus
       a manual `docker report` run on the real daemon.
 
+## Post-Review Follow-ups (PR #353)
+
+- [x] R1: `src/doctor.rs:72` held a third hardcoded
+      `Duration::from_secs(5)` that neither constant above covered, and
+      the tech spec wrongly claimed `doctor --docker` routes through
+      `DockerReportOptions::default()`. Named it
+      `docker::DOCTOR_PROBE_TIMEOUT`, kept at 5s deliberately (that
+      path only runs the fast `docker version` probe), and corrected
+      the spec.
+- [x] R2: The risk section claimed "20s instead of 5s". The timeout is
+      per-command across five sequential calls, so a degraded daemon
+      can now take ~100s vs ~25s. Documented the real worst case and
+      recorded a single-report-deadline follow-up.
+- [x] R3: "Retry with a longer --timeout." was printed for every
+      failure kind, including a missing binary and permission denied,
+      where it is useless advice. Now emitted only for `TimedOut`, with
+      `docker_report_non_timeout_failure_does_not_suggest_timeout`
+      covering it.
+
 ## Deviation From The Tech Spec
 
 T7 was specified as "successful empty probe still prints 'No Docker

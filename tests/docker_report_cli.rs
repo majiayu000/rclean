@@ -131,6 +131,40 @@ sleep 5
     Ok(())
 }
 
+/// A missing binary cannot be fixed by raising `--timeout`, so the
+/// failure must not suggest it. It still must not claim an empty
+/// result.
+#[test]
+fn docker_report_non_timeout_failure_does_not_suggest_timeout()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let missing = temp.path().join("definitely-not-docker");
+
+    let output = Command::cargo_bin("rclean")?
+        .env("RCLEAN_DOCKER_BIN", &missing)
+        .args(["docker", "report"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output)?;
+
+    assert!(
+        !stdout.contains("No Docker cleanup resources reported."),
+        "a failed probe must not assert an empty result, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Docker was not queried successfully"),
+        "a failed probe must say the query failed, got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("--timeout"),
+        "a missing binary is not a timeout; do not send the user to re-run with a longer one, got: {stdout}"
+    );
+    Ok(())
+}
+
 /// The counterpart: a probe that succeeds and finds nothing
 /// reclaimable renders its (zero-count) table and must never carry the
 /// failure wording, so the two cases stay distinguishable.

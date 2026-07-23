@@ -35,10 +35,20 @@ The same sentence serves two incompatible meanings. Default timeout is
 ### 1. Default timeout
 
 Raise `DEFAULT_TIMEOUT` to 20s and change the clap `default_value` to
-`"20s"` so `--help` and behavior agree. Both constants must move
-together — the clap default is what actually applies on the CLI path,
-and `DEFAULT_TIMEOUT` is what applies to `DockerReportOptions::default()`
-used by `doctor --docker` and tests.
+`"20s"` so `--help` and behavior agree. Both must move together: the
+clap default applies on the CLI path, `DEFAULT_TIMEOUT` applies to
+`DockerReportOptions::default()` and tests.
+
+There is a **third** Docker timeout, which an earlier draft of this
+spec got wrong by claiming `doctor --docker` routes through
+`DockerReportOptions::default()`. It does not: `src/doctor.rs:72`
+passed a hardcoded `Duration::from_secs(5)` straight to
+`probe_for_doctor`, touching neither constant above. It is now named
+`DOCTOR_PROBE_TIMEOUT` in `docker.rs` and deliberately stays at 5s —
+that path only runs the fast `docker version` liveness probe, never
+`system df`, and a diagnostic command should not sit for 20s against a
+dead daemon. Naming it keeps every Docker timeout in the crate declared
+in one module instead of leaving a literal in `doctor`.
 
 20s is chosen as roughly 3x the measured 7.15s worst case here, leaving
 headroom for a larger image set without making a genuinely hung daemon
@@ -93,9 +103,23 @@ The repository already has a fake-docker harness in
 
 - **Trust model:** none. `docker report` is read-only and never selects
   or deletes; resource classification is untouched.
-- **Behavior change:** a hung daemon now blocks for 20s instead of 5s
-  before reporting failure. Acceptable: the previous default returned a
-  misleading answer quickly, which is worse than a slower correct one,
-  and `--timeout` still lets a caller bound it lower.
+- **Behavior change / worst-case latency:** the timeout is a
+  **per-command** bound, not a bound on the whole report. The success
+  path runs five sequential Docker CLI calls — `docker version` in
+  `probe`, then `system df`, `image ls`, `container ls`, `network ls`
+  in `collect_resources` (`src/docker.rs:200-229`). A fully
+  unreachable daemon still fails fast at the first probe (one bound,
+  20s vs the previous 5s). But a *degraded* daemon that answers
+  `docker version` and then hangs on each subsequent call can now take
+  up to ~100s (5 x 20s) before the user sees anything, against ~25s
+  before. That is a real 4x regression in the degraded case, accepted
+  here because the previous default produced a confidently wrong
+  answer on healthy machines — the common case — and `--timeout` lets
+  a caller bound it lower.
+
+  A single deadline for the whole report, rather than per-command,
+  would remove the multiplication. That is an architectural change to
+  the command runner and is deliberately out of scope for this issue;
+  it is worth a follow-up.
 - **JSON contract:** unchanged. Only `print_report` (human path) is
   edited.
