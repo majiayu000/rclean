@@ -108,6 +108,54 @@ fn free_default_plan_lands_in_state_dir_not_cwd() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// With every home environment variable stripped there is no user
+/// directory to resolve, so the plan goes to a namespaced
+/// `./.rclean-plans/` rather than dropping loose timestamped files
+/// into the working directory. Proves the Known Limitations claim in
+/// `specs/GH349/product.md`.
+#[test]
+fn free_without_any_home_env_uses_a_namespaced_directory() -> Result<(), Box<dyn std::error::Error>>
+{
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+    let cwd = TempDir::new()?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.current_dir(cwd.path())
+        .env_remove("XDG_STATE_HOME")
+        .env_remove("LOCALAPPDATA")
+        .env_remove("HOME")
+        .env_remove("USERPROFILE")
+        .args([
+            "free",
+            "1kb",
+            temp.path().to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success();
+
+    let entries: Vec<_> = std::fs::read_dir(cwd.path())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        entries,
+        vec![".rclean-plans".to_string()],
+        "stripped environment must yield one namespaced directory, not loose files"
+    );
+
+    let plans: Vec<_> = std::fs::read_dir(cwd.path().join(".rclean-plans"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    assert_eq!(plans.len(), 1, "the plan should live inside that directory");
+    let plan: Value = serde_json::from_str(&std::fs::read_to_string(&plans[0])?)?;
+    assert_eq!(plan["deleteMode"], "trash");
+    Ok(())
+}
+
 /// A state directory that cannot be created is an error, never a
 /// silent fall back to writing the plan into the working directory
 /// (AGENTS.md: no silent degradation).
