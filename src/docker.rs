@@ -11,7 +11,17 @@ use crate::stdio::outln;
 
 use command::{run_docker_command, status_from_command_error};
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// `docker system df` walks every image, container, and volume layer,
+/// so multi-second runs are normal on a populated daemon rather than a
+/// sign of trouble -- 7.15s measured against Docker 29.5.3 (spec:
+/// `specs/GH350/product.md`). The previous 5s default therefore failed
+/// on ordinary machines and made the user find `--timeout` before they
+/// could get any answer.
+///
+/// Must stay in sync with the `--timeout` clap default in
+/// `cli::DockerReportArgs`; `default_timeout_matches_cli_default`
+/// pins them together.
+pub(crate) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone)]
 pub struct DockerReportOptions {
@@ -238,7 +248,13 @@ pub fn print_report(report: &DockerReport) -> Result<(), RcleanError> {
         }
         status => {
             outln!("Reason: {}", status_reason(status));
-            outln!("No Docker cleanup resources reported.");
+            // Never reuse the empty-result sentence here. The probe
+            // failed, so rclean knows nothing about reclaimable space;
+            // claiming there is none is a wrong answer, not a cautious
+            // one (AGENTS.md: no silent degradation).
+            outln!(
+                "Docker was not queried successfully, so nothing can be reported about reclaimable space. Retry with a longer --timeout."
+            );
             return Ok(());
         }
     }
@@ -521,6 +537,31 @@ fn status_reason(status: &DockerStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The clap default is what actually applies on the CLI path and
+    /// `DEFAULT_TIMEOUT` is what applies to
+    /// `DockerReportOptions::default()`. If they drift, `--help`
+    /// advertises one bound while some call sites use another.
+    #[test]
+    fn default_timeout_matches_cli_default() {
+        use clap::Parser as _;
+
+        let cli = crate::cli::Cli::parse_from(["rclean", "docker", "report"]);
+        let crate::cli::Commands::Docker(args) = cli.command.expect("docker command") else {
+            panic!("expected the docker subcommand");
+        };
+        let crate::cli::DockerCommands::Report(report) = args.command;
+
+        let parsed = crate::parse::parse_timeout_duration(&report.timeout)
+            .expect("the clap default must be a parseable duration");
+        assert_eq!(
+            parsed,
+            DEFAULT_TIMEOUT,
+            "--timeout default ({}) and docker::DEFAULT_TIMEOUT ({}s) disagree",
+            report.timeout,
+            DEFAULT_TIMEOUT.as_secs()
+        );
+    }
 
     #[test]
     fn docker_taxonomy_keeps_no_resource_safe() {

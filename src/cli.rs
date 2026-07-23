@@ -83,7 +83,11 @@ pub struct DockerReportArgs {
     pub json: bool,
 
     /// Timeout for each Docker CLI inspection command. Examples: 5s, 1m.
-    #[arg(long, default_value = "5s")]
+    // Not a doc comment: clap renders those into --help, and the
+    // sync constraint is an internal detail. Must stay in sync with
+    // `docker::DEFAULT_TIMEOUT`; pinned by
+    // `docker::tests::default_timeout_matches_cli_default`.
+    #[arg(long, default_value = "20s")]
     pub timeout: String,
 }
 

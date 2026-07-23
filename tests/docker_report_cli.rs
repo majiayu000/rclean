@@ -89,6 +89,97 @@ sleep 5
     Ok(())
 }
 
+/// Regression for #350: a failed probe must not borrow the sentence
+/// used for a genuinely empty result. rclean did not manage to look,
+/// so it cannot report that there is nothing to reclaim.
+#[cfg(unix)]
+#[test]
+fn docker_report_human_failure_never_claims_an_empty_result()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let fake = write_fake_docker(
+        temp.path(),
+        r#"#!/bin/sh
+printf '%s\n' "$*" >> "$RCLEAN_FAKE_DOCKER_LOG"
+sleep 5
+"#,
+    )?;
+
+    let output = Command::cargo_bin("rclean")?
+        .env("RCLEAN_DOCKER_BIN", &fake)
+        .env("RCLEAN_FAKE_DOCKER_LOG", temp.path().join("docker.log"))
+        .args(["docker", "report", "--timeout", "1s"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output)?;
+
+    assert!(
+        !stdout.contains("No Docker cleanup resources reported."),
+        "a failed probe must not assert an empty result, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Docker was not queried successfully"),
+        "a failed probe must say the query failed, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("--timeout"),
+        "the failure should point at the flag that fixes it, got: {stdout}"
+    );
+    Ok(())
+}
+
+/// The counterpart: a probe that succeeds and finds nothing
+/// reclaimable renders its (zero-count) table and must never carry the
+/// failure wording, so the two cases stay distinguishable.
+#[cfg(unix)]
+#[test]
+fn docker_report_human_success_with_nothing_to_clean_is_not_a_failure()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    // Reports a live daemon, then an empty `system df`.
+    let fake = write_fake_docker(
+        temp.path(),
+        r#"#!/bin/sh
+printf '%s\n' "$*" >> "$RCLEAN_FAKE_DOCKER_LOG"
+case "$*" in
+  *"version"*) printf '29.5.3\n' ;;
+  *) : ;;
+esac
+"#,
+    )?;
+
+    let output = Command::cargo_bin("rclean")?
+        .env("RCLEAN_DOCKER_BIN", &fake)
+        .env("RCLEAN_FAKE_DOCKER_LOG", temp.path().join("docker.log"))
+        .args(["docker", "report", "--timeout", "30s"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output)?;
+
+    assert!(
+        stdout.contains("Docker: available"),
+        "a successful probe must report the daemon as available, got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("Docker was not queried successfully"),
+        "a successful query must not claim it failed, got: {stdout}"
+    );
+    // Zero-count rows still render, which is how a real successful
+    // probe with nothing reclaimable looks: the taxonomy is always
+    // emitted rather than collapsing into a single sentence.
+    assert!(
+        stdout.contains("docker.dangling_images"),
+        "the resource taxonomy should still render, got: {stdout}"
+    );
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 fn docker_report_success_is_report_only_and_never_prunes() -> Result<(), Box<dyn std::error::Error>>
