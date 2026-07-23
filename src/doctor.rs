@@ -69,7 +69,7 @@ pub fn diagnose_with_options(options: DoctorOptions) -> DoctorReport {
     platform_entries::extend(&mut entries, &home);
 
     if options.include_docker {
-        entries.push(check_docker_daemon(Duration::from_secs(5)));
+        entries.push(check_docker_daemon(crate::docker::DOCTOR_PROBE_TIMEOUT));
     }
 
     DoctorReport { entries }
