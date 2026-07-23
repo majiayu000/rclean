@@ -227,5 +227,5 @@ fn clean_graveyard_prints_recovery_summary() {
         .assert()
         .success()
         .stdout(predicate::str::contains("recoverable for 7 days"))
-        .stdout(predicate::str::contains("rclean restore"));
+        .stdout(predicate::str::contains("rclean restore --id <id>"));
 }

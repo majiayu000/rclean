@@ -102,7 +102,7 @@ fn recovery_summary_line(delete_mode: &str, bytes: u64) -> String {
         // Retention matches the graveyard manifest (7 days, see
         // graveyard::manifest).
         "graveyard" => format!(
-            "freed {freed} - recoverable for 7 days via `rclean restore <id>`; list graves with `rclean graveyard list`"
+            "freed {freed} - recoverable for 7 days via `rclean restore --id <id>`; list graves with `rclean graveyard list`"
         ),
         "trash" => format!("freed {freed} - recoverable from the OS Trash until you empty it"),
         _ => format!("freed {freed} - permanently deleted, not recoverable"),
@@ -134,7 +134,9 @@ mod tests {
     fn recovery_summary_names_the_restore_path_per_mode() {
         let graveyard = recovery_summary_line("graveyard", 1024);
         assert!(graveyard.contains("recoverable for 7 days"));
-        assert!(graveyard.contains("rclean restore"));
+        // Assert the full signature: `restore` takes `--id`, so a hint
+        // without the flag is a command that errors out when pasted.
+        assert!(graveyard.contains("rclean restore --id <id>"));
 
         let trash = recovery_summary_line("trash", 1024);
         assert!(trash.contains("OS Trash"));
