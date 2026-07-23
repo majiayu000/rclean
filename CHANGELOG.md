@@ -16,9 +16,11 @@ include breaking changes per semver 0.x; each break is noted explicitly.
   or the Windows `%LOCALAPPDATA%` equivalent). `free` never deletes, so
   it should not leave files behind in the directory it happened to run
   from. The resolved path is printed on every run and `--write-plan
-  <PATH>` still overrides it, so replay stays copy-pasteable. Scripts
-  that globbed `./rclean-free-*.json` need to pass `--write-plan`.
-  (#349)
+  <PATH>` still overrides it, so replay stays copy-pasteable. With no
+  home environment at all (stripped CI sandboxes) the plan goes to a
+  namespaced `./.rclean-plans/`, mirroring the graveyard's
+  `./.rclean-graveyard` fallback. Scripts that globbed
+  `./rclean-free-*.json` need to pass `--write-plan`. (#349)
 
 ### Fixed
 

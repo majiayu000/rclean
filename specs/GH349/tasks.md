@@ -27,6 +27,26 @@ Tech spec: `specs/GH349/tech.md`
       `cargo clippy --all-targets --all-features -- -D warnings`,
       `cargo test`, plus a manual `free` run confirming a clean cwd.
 
+## Post-Review Follow-ups (PR #352)
+
+- [x] R1: Reuse one crate-wide env lock. The unit test mutated
+      `HOME`/XDG vars unlocked while `doctor::tests` already had a
+      module-private `HOME_LOCK` for the same variables — two separate
+      mutexes do not serialize against each other, so `cargo test
+      --lib` could race. Moved the lock and guard into
+      `src/test_support.rs` as `with_env_vars`/`EnvGuard` and pointed
+      both modules at it.
+- [x] R2: Namespace the stripped-environment fallback. It returned a
+      bare relative filename, silently reproducing the reported bug in
+      that edge case, and the doc comment's "matches the graveyard's
+      fallback posture" was inaccurate. Now `./.rclean-plans/`,
+      mirroring `./.rclean-graveyard`, with the residual gap recorded
+      under Known Limitations in `product.md`.
+- [x] R3: Cover the directory-creation failure path. T5 claimed the
+      error is propagated with no silent cwd fallback but nothing
+      tested it; added
+      `free_reports_an_unusable_state_dir_instead_of_falling_back_to_cwd`.
+
 ## Deviations From The Tech Spec
 
 - The resolver landed in `src/plan/location.rs`, not a new top-level

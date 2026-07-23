@@ -78,7 +78,22 @@ The working directory is left untouched.
 5. The printed `wrote action plan:` and `rclean clean --plan` lines both
    show the same resolved path.
 6. With every home-directory environment variable unset, the command
-   still succeeds rather than failing to resolve a path.
+   still succeeds, writing into a namespaced `./.rclean-plans/`
+   directory rather than dropping loose files in the working directory.
+7. A state directory that cannot be created is reported as an error.
+   `free` never silently falls back to writing into the working
+   directory, which would reintroduce the reported problem.
+
+## Known Limitations
+
+With every home-directory environment variable stripped — mainly CI
+sandboxes — there is no user directory to resolve, so the plan is
+written relative to the working directory under `./.rclean-plans/`.
+This is one ignorable directory rather than the accumulating loose
+files the issue reports, and it matches `graveyard::default_root()`'s
+`./.rclean-graveyard` fallback, but it is not a fully clean working
+directory. Callers that need a guaranteed location in such an
+environment should pass `--write-plan`.
 
 ## Follow-up
 

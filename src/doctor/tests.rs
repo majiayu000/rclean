@@ -1,10 +1,8 @@
 use super::*;
+use crate::test_support::{EnvGuard, with_env_vars};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
-
-static HOME_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn diagnose_matches_global_rule_catalog_exactly() {
@@ -74,33 +72,10 @@ fn diagnose_marks_missing_anchor_skipped() {
 /// Test helper that swaps HOME for the duration of the test and
 /// restores it on drop. Avoids leaking the override into other
 /// tests in the same binary.
-fn with_home(path: &Path) -> HomeGuard {
-    let lock = HOME_LOCK.lock().expect("HOME test mutex poisoned");
-    let previous = std::env::var_os("HOME");
-    // SAFETY: HOME_LOCK serializes every test in this module that
-    // mutates the process environment, and Drop restores HOME.
-    unsafe {
-        std::env::set_var("HOME", path);
-    }
-    HomeGuard {
-        previous,
-        _lock: lock,
-    }
-}
-
-struct HomeGuard {
-    previous: Option<std::ffi::OsString>,
-    _lock: MutexGuard<'static, ()>,
-}
-
-impl Drop for HomeGuard {
-    fn drop(&mut self) {
-        // SAFETY: see with_home above.
-        unsafe {
-            match &self.previous {
-                Some(v) => std::env::set_var("HOME", v),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
+///
+/// Backed by the crate-wide lock in `test_support` rather than a
+/// module-local one: other modules override the same variables, and a
+/// per-module mutex would not serialize against them.
+fn with_home(path: &Path) -> EnvGuard {
+    with_env_vars(&[("HOME", Some(&path.display().to_string()))])
 }

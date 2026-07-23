@@ -30,13 +30,18 @@ files, and resolve the default plan path through it.
 ///                $HOME/.local/state/rclean/plans
 ///   Windows:     %LOCALAPPDATA%\rclean\plans
 ///                %USERPROFILE%\AppData\Local\rclean\plans
-/// Last resort:   ./ (current behavior) when no home env var is set.
-pub fn plans_dir() -> PathBuf
+/// Last resort:   ./.rclean-plans/ when no home env var is set.
+pub fn default_plans_dir() -> PathBuf
 ```
 
 The env-var precedence and the last-resort fallback deliberately mirror
 `graveyard::default_root()` (`src/graveyard/mod.rs:44`) so the two agree
-on which environment wins. Plans use the *state* directory rather than
+on which environment wins. The fallback is a namespaced
+`./.rclean-plans/` directory rather than a bare relative filename: with
+no home environment the plan still has to go somewhere relative, but a
+single ignorable directory is not the loose-timestamped-file litter
+this issue is about, and it matches the graveyard's
+`./.rclean-graveyard` posture. Plans use the *state* directory rather than
 the *data* directory: a plan is a regenerable proposal, whereas a grave
 holds the only copy of deleted bytes.
 

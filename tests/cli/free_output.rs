@@ -108,6 +108,48 @@ fn free_default_plan_lands_in_state_dir_not_cwd() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// A state directory that cannot be created is an error, never a
+/// silent fall back to writing the plan into the working directory
+/// (AGENTS.md: no silent degradation).
+#[test]
+fn free_reports_an_unusable_state_dir_instead_of_falling_back_to_cwd()
+-> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    build_free_fixture(&temp);
+    let cwd = TempDir::new()?;
+    let blocker = TempDir::new()?;
+
+    // XDG_STATE_HOME points at a regular file, so create_dir_all for
+    // `<file>/rclean/plans` cannot succeed.
+    let file_path = blocker.path().join("not-a-directory");
+    std::fs::write(&file_path, b"blocker")?;
+
+    let mut cmd = Command::cargo_bin("rclean")?;
+    cmd.current_dir(cwd.path())
+        .env("XDG_STATE_HOME", &file_path)
+        .args([
+            "free",
+            "1kb",
+            temp.path().to_str().unwrap(),
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to create plan directory"));
+
+    let stray: Vec<_> = std::fs::read_dir(cwd.path())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "a failed state dir must not degrade into a cwd write, found: {stray:?}"
+    );
+    assert!(temp.path().join("node_modules").exists());
+    Ok(())
+}
+
 /// `--write-plan` stays authoritative: the explicit destination is used
 /// and the state directory is left untouched.
 #[test]
