@@ -19,6 +19,12 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ### Fixed
 
+- The `scan` table's Project column now truncates long paths from the
+  left, keeping the tail. Right-truncation collapsed distinct apps —
+  `~/Library/Application Support/Code` and `.../Cursor` — to the same
+  `~/Library/Application Support~`, hiding the one part that
+  distinguishes them. (#358)
+
 - `staleness_days` (the "untouched Nd" column, and the signal `free`
   ranks and `--older-than` filters by) now reflects each candidate's
   own newest file instead of its parent directory's activity. Caches
