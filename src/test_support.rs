@@ -1,4 +1,75 @@
+use std::ffi::OsString;
+use std::sync::{Mutex, MutexGuard};
+
 use crate::model::{ActivityInfo, Candidate, Category, ProjectReport, Safety, ScanReport, Summary};
+
+/// Serializes every unit test that mutates the process environment.
+///
+/// `cargo test --lib` runs tests in one process, in parallel. Home and
+/// XDG variables are process-global, so two modules overriding them
+/// concurrently produce flaky, order-dependent failures. This lock is
+/// crate-wide on purpose: a per-module mutex would not serialize
+/// against another module touching the same variable.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Swaps environment variables for the duration of a test and restores
+/// the previous values on drop.
+pub(crate) fn with_env_vars(vars: &[(&str, Option<&str>)]) -> EnvGuard {
+    let lock = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+    let previous = vars
+        .iter()
+        .map(|(key, _)| ((*key).to_string(), std::env::var_os(key)))
+        .collect();
+    for (key, value) in vars {
+        // SAFETY: ENV_LOCK serializes every test that mutates the
+        // process environment, and Drop restores the previous values.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
+    EnvGuard {
+        previous,
+        _lock: lock,
+    }
+}
+
+pub(crate) struct EnvGuard {
+    previous: Vec<(String, Option<OsString>)>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl EnvGuard {
+    /// Re-points variables while still holding the lock, so one test
+    /// can walk through several environments without releasing it.
+    pub(crate) fn set(&self, vars: &[(&str, Option<&str>)]) {
+        for (key, value) in vars {
+            // SAFETY: see with_env_vars; the lock is still held.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (key, value) in &self.previous {
+            // SAFETY: see with_env_vars.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+}
 
 pub(crate) fn ranking_candidate(
     name: &str,
