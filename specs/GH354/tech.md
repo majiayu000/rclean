@@ -72,9 +72,12 @@ let staleness_days = SystemTime::now()
 `activity_time` unchanged — that signal is intentional for risk, and
 only the displayed/consumed staleness was wrong.
 
-The fallback to `activity_time` covers acceptance criterion 3: blocked
-candidates get `SizeOutcome::default()` (no walk, `newest_mtime = None`),
-so they inherit the project activity rather than a misleading `0d`.
+The fallback to `activity_time` covers acceptance criterion 3: only
+`Safety::Blocked` candidates get `SizeOutcome::default()` (no walk,
+`newest_mtime = None`) in `summarize`, so they inherit the project
+activity rather than a misleading `0d`. `ReportOnly` candidates are
+still walked and get their own real per-candidate mtime — better than
+the fallback, so no special-casing is needed.
 
 ## Why the sizer, not a second walk
 
@@ -97,9 +100,12 @@ metadata that is already fetched.
 
 Unit (`sizer`):
 - A dir whose files have known mtimes reports the newest.
-- The parallel path (enough entries to cross
-  `PARALLEL_DIRECT_ENTRY_THRESHOLD`) reports the same newest mtime as the
-  serial path for the same tree.
+- `dir_size_walk_parallel` and `dir_size_walkdir` report the same newest
+  mtime for the same tree (called directly, matching the existing
+  `parallel_walk_matches_serial_walk_for_nested_tree` style; the atomic
+  path is exercised regardless of the 1000-entry dispatcher threshold).
+- A file with an exactly-epoch mtime is still observed, not dropped as
+  the sentinel.
 - A single-file candidate reports that file's mtime.
 - An empty / unwalked candidate reports `None`.
 

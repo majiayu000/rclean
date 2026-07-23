@@ -130,17 +130,23 @@ impl SizeOutcome {
     }
 }
 
-/// Unix-seconds representation of a mtime for the atomic max in the
-/// parallel walk. `0` means "no mtime seen".
-fn mtime_to_secs(mtime: SystemTime) -> u64 {
+/// Encode a mtime for the atomic max in the parallel walk. The atom's
+/// sentinel `0` means "no mtime seen", so real times are stored as
+/// `seconds-since-epoch + 1`. Without the offset, a file whose mtime is
+/// exactly `UNIX_EPOCH` (reproducible-build and tar-normalized trees do
+/// this) would be indistinguishable from "unseen", making the candidate
+/// fall back to the parent's activity — the very bug #354 fixes.
+/// Times at or before the epoch clamp to the smallest real code (`1`).
+fn mtime_to_code(mtime: SystemTime) -> u64 {
     mtime
         .duration_since(UNIX_EPOCH)
-        .map(|age| age.as_secs())
-        .unwrap_or(0)
+        .map(|age| age.as_secs().saturating_add(1))
+        .unwrap_or(1)
 }
 
-fn secs_to_mtime(secs: u64) -> Option<SystemTime> {
-    (secs > 0).then(|| UNIX_EPOCH + Duration::from_secs(secs))
+fn code_to_mtime(code: u64) -> Option<SystemTime> {
+    code.checked_sub(1)
+        .map(|secs| UNIX_EPOCH + Duration::from_secs(secs))
 }
 
 /// Compare-exchange max, mirroring [`saturating_atomic_add`].
@@ -379,8 +385,9 @@ fn dir_size_roots(roots: &[PathBuf]) -> SizeOutcome {
 
 fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
     let total = Arc::new(AtomicU64::new(0));
-    // Newest file mtime as Unix seconds; 0 means none seen.
-    let newest_secs = Arc::new(AtomicU64::new(0));
+    // Newest mtime, encoded as seconds-since-epoch + 1 so the sentinel
+    // 0 stays distinct from a real epoch-0 mtime (see mtime_to_code).
+    let newest_code = Arc::new(AtomicU64::new(0));
     let warnings = Arc::new(Mutex::new(Vec::new()));
     let walk_root = path.to_path_buf();
 
@@ -393,7 +400,7 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
 
     builder.build_parallel().run(|| {
         let total = Arc::clone(&total);
-        let newest_secs = Arc::clone(&newest_secs);
+        let newest_code = Arc::clone(&newest_code);
         let warnings = Arc::clone(&warnings);
         let walk_root = walk_root.clone();
         Box::new(move |result| {
@@ -417,7 +424,7 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
                 Ok(metadata) => {
                     saturating_atomic_add(&total, metadata.len());
                     if let Ok(mtime) = metadata.modified() {
-                        atomic_max(&newest_secs, mtime_to_secs(mtime));
+                        atomic_max(&newest_code, mtime_to_code(mtime));
                     }
                 }
                 Err(err) => {
@@ -442,7 +449,7 @@ fn dir_size_walk_parallel(path: &Path) -> SizeOutcome {
     sort_warnings(&mut warnings);
     SizeOutcome {
         bytes: total.load(Ordering::Relaxed),
-        newest_mtime: secs_to_mtime(newest_secs.load(Ordering::Relaxed)),
+        newest_mtime: code_to_mtime(newest_code.load(Ordering::Relaxed)),
         warnings,
     }
 }

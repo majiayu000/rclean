@@ -74,11 +74,15 @@ fn parallel_walk_matches_serial_walk_for_nested_tree() {
     assert!(serial.warnings.is_empty());
 }
 
-/// Overwrite a file's mtime to `secs` before the Unix epoch offset used
-/// by the fixtures, so newest-mtime assertions are deterministic.
+/// Overwrite a file's mtime to `unix_secs` after the epoch so
+/// newest-mtime assertions are deterministic. The handle must be opened
+/// for writing: Windows rejects `set_modified` on a read-only handle
+/// with "Access is denied".
 fn set_mtime(path: &Path, unix_secs: u64) {
     let when = UNIX_EPOCH + Duration::from_secs(unix_secs);
-    std::fs::File::open(path)
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
         .unwrap()
         .set_modified(when)
         .unwrap();
@@ -103,6 +107,27 @@ fn newest_mtime_is_captured_and_agrees_across_serial_and_parallel() {
     assert_eq!(
         parallel.newest_mtime, serial.newest_mtime,
         "parallel and serial walks must agree on the newest mtime"
+    );
+}
+
+#[test]
+fn epoch_mtime_is_not_treated_as_unseen_in_the_parallel_walk() {
+    // A file whose mtime is exactly UNIX_EPOCH (tar-normalized /
+    // reproducible-build trees) must still count as observed, or the
+    // candidate would fall back to the parent activity and re-earn the
+    // #354 bug. The parallel path encodes seconds+1 to keep 0 free as
+    // the "unseen" sentinel; this guards that encoding.
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("epoch.bin"), [0; 3]).unwrap();
+    set_mtime(&temp.path().join("epoch.bin"), 0);
+
+    let parallel = dir_size_walk_parallel(temp.path());
+    let serial = dir_size_walkdir(temp.path());
+
+    assert_eq!(parallel.newest_mtime, Some(UNIX_EPOCH));
+    assert_eq!(
+        parallel.newest_mtime, serial.newest_mtime,
+        "epoch-0 mtime must be observed identically by both walks"
     );
 }
 

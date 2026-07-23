@@ -83,9 +83,9 @@ per-candidate age.
    `staleness_days = N`, even when a sibling under the same parent was
    touched today.
 2. A single-file candidate reports staleness from that file's mtime.
-3. A candidate the sizer did not walk (blocked / report-only, no size
-   computation) falls back to the project activity time rather than
-   showing a wrong `0d` or panicking.
+3. A `Blocked` candidate (which the sizer does not walk) falls back to
+   the project activity time rather than showing a wrong `0d` or
+   panicking. `ReportOnly` candidates are walked and get their own age.
 4. `risk_score` values are unchanged for the same fixtures.
 5. No additional full-tree walk is introduced; the mtime is captured
    during the existing size walk.
