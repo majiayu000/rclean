@@ -213,17 +213,22 @@ pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
 
     for project in &report.projects {
         let project_name = short_path(&project.path);
-        for candidate in &project.candidates {
+        for (index, candidate) in sorted_candidates(project).into_iter().enumerate() {
             let reason = candidate
                 .reasons
                 .first()
                 .or_else(|| candidate.warnings.first())
                 .cloned()
                 .unwrap_or_default();
+            let project_cell = if index == 0 {
+                truncate_path(&project_name, 30)
+            } else {
+                String::new()
+            };
             outln!(
                 "{:<30} {:<13} {:<18} {:<8} {:>10} {:>7} {:<8} {:>5} {:>6} {}",
-                truncate_path(&project_name, 30),
-                truncate(&project.kind, 13),
+                project_cell,
+                truncate(candidate_kind(&project.kind, &candidate.rule_id), 13),
                 truncate(&candidate.name, 18),
                 candidate.category,
                 format_bytes(candidate.bytes),
@@ -237,6 +242,34 @@ pub fn print_table(report: &ScanReport) -> Result<(), RcleanError> {
     }
     print_table_legend()?;
     Ok(())
+}
+
+/// Return the human-table Kind for one candidate.
+///
+/// Project markers remain the strongest signal. Global cache roots usually
+/// have no marker, so their `Unknown` project kind falls back to the ecosystem
+/// already encoded in the candidate's rule id.
+fn candidate_kind<'a>(project_kind: &'a str, rule_id: &'a str) -> &'a str {
+    if project_kind != "Unknown" {
+        return project_kind;
+    }
+
+    rule_id.split_once('.').map_or(rule_id, |(ecosystem, _)| {
+        if ecosystem.is_empty() {
+            rule_id
+        } else {
+            ecosystem
+        }
+    })
+}
+
+/// Build a display-only ordering without mutating the report consumed by
+/// JSON, selection, or ActionPlan code. Slice sorting is stable, so equal-size
+/// candidates keep their scan order.
+fn sorted_candidates(project: &ProjectReport) -> Vec<&Candidate> {
+    let mut candidates = project.candidates.iter().collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.bytes));
+    candidates
 }
 
 /// Safety and Risk are independent axes; side by side without this note
@@ -602,5 +635,60 @@ mod tests {
     #[test]
     fn truncate_path_leaves_short_paths_untouched() {
         assert_eq!(truncate_path("~/.cache/uv", 30), "~/.cache/uv");
+    }
+
+    #[test]
+    fn candidate_kind_keeps_known_project_kind() {
+        assert_eq!(candidate_kind("Rust", "rust.target"), "Rust");
+        assert_eq!(candidate_kind("Node.js", "node.node_modules"), "Node.js");
+    }
+
+    #[test]
+    fn candidate_kind_uses_rule_ecosystem_for_unknown_projects() {
+        assert_eq!(candidate_kind("Unknown", "go.build_cache"), "go");
+        assert_eq!(candidate_kind("Unknown", "editor.vscode_cache"), "editor");
+        assert_eq!(candidate_kind("Unknown", "custom"), "custom");
+        assert_eq!(candidate_kind("Unknown", ".invalid"), ".invalid");
+    }
+
+    #[test]
+    fn sorted_candidates_orders_by_size_without_mutating_the_report() {
+        let report = ranking_report(vec![
+            ranking_candidate("small", 1, Safety::Safe, Some(1)),
+            ranking_candidate("large", 3, Safety::Safe, Some(1)),
+            ranking_candidate("medium", 2, Safety::Safe, Some(1)),
+        ]);
+
+        let ordered = sorted_candidates(&report.projects[0])
+            .into_iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ordered, ["large", "medium", "small"]);
+        assert_eq!(
+            report.projects[0]
+                .candidates
+                .iter()
+                .map(|candidate| candidate.name.as_str())
+                .collect::<Vec<_>>(),
+            ["small", "large", "medium"],
+            "display ordering must not mutate the report"
+        );
+    }
+
+    #[test]
+    fn sorted_candidates_keeps_equal_size_input_order() {
+        let report = ranking_report(vec![
+            ranking_candidate("first", 2, Safety::Safe, Some(1)),
+            ranking_candidate("second", 2, Safety::Safe, Some(1)),
+            ranking_candidate("third", 2, Safety::Safe, Some(1)),
+        ]);
+
+        let ordered = sorted_candidates(&report.projects[0])
+            .into_iter()
+            .map(|candidate| candidate.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ordered, ["first", "second", "third"]);
     }
 }

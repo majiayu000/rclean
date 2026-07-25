@@ -37,6 +37,14 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ### Changed
 
+- The human `scan` table now shows the candidate's rule ecosystem in
+  `Kind` when a global-cache project has no marker, so rows read `go`,
+  `node`, or `editor` instead of an all-`Unknown` column. Candidates
+  within one project are stably ordered by size and visually grouped by
+  printing the project path on the first row only. Every candidate
+  still has its own row; JSON output, selection, and ActionPlan behavior
+  are unchanged. (#358)
+
 - `rclean free <target>` no longer writes its ActionPlan into the current
   working directory. The default location is now the user's state
   directory (`$XDG_STATE_HOME/rclean/plans/`, `$HOME/.local/state/...`,
