@@ -22,10 +22,12 @@
 mod error;
 mod id;
 mod manifest;
+mod restore;
 mod store;
 
 pub use error::GraveyardError;
 pub use manifest::{GraveId, ManifestReader, ManifestRecord, RecordWriter};
+pub use restore::{filter_records, run_restore};
 pub use store::{Grave, GraveInput, Graveyard};
 
 use std::path::PathBuf;

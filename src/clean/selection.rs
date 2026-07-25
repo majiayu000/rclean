@@ -189,7 +189,7 @@ fn preselected_indices(
         .collect()
 }
 
-pub(super) fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, CleanError> {
+pub(crate) fn parse_selection(input: &str, count: usize) -> Result<Vec<usize>, CleanError> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
