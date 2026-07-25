@@ -48,6 +48,128 @@ fn scan_table_shows_biggest_wins_and_junk_percent() {
         ));
 }
 
+fn scan_table_rows(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .skip_while(|line| !(line.len() >= 100 && line.chars().all(|ch| ch == '-')))
+        .skip(1)
+        .take_while(|line| !line.starts_with("Safety gates cleaning:"))
+        .filter(|line| !line.trim().is_empty())
+        .collect()
+}
+
+fn fixed_width_field(line: &str, start: usize, width: usize) -> String {
+    line.chars().skip(start).take(width).collect()
+}
+
+#[test]
+fn scan_table_shows_ecosystem_kind_for_global_cache() {
+    let temp = TempDir::new().unwrap();
+    let cache = temp.path().join(".npm").join("_cacache");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("blob"), "abc").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let output = cmd
+        .env("HOME", temp.path())
+        .env_remove("GOPATH")
+        .args(["scan", "--home", "--min-size", "0"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+    let rows = scan_table_rows(&stdout);
+    let cache_row = rows
+        .iter()
+        .find(|line| line.contains("_cacache"))
+        .expect("human table should contain the npm cache candidate");
+
+    assert_eq!(
+        fixed_width_field(cache_row, 31, 13).trim(),
+        "node",
+        "Unknown global-cache projects should show their rule ecosystem: {cache_row}"
+    );
+}
+
+#[test]
+fn scan_table_groups_project_rows_without_collapsing_candidates() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "1234567").unwrap();
+    std::fs::create_dir(temp.path().join(".next")).unwrap();
+    std::fs::write(temp.path().join(".next").join("blob"), "x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let output = cmd
+        .args(["scan", temp.path().to_str().unwrap(), "--min-size", "0"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+    let rows = scan_table_rows(&stdout);
+
+    assert_eq!(rows.len(), 2, "one human row must remain per candidate");
+    assert!(
+        rows[0].contains("node_modules"),
+        "larger candidate should render first: {rows:?}"
+    );
+    assert!(
+        rows[1].contains(".next"),
+        "smaller candidate should render second: {rows:?}"
+    );
+    assert!(
+        !fixed_width_field(rows[0], 0, 30).trim().is_empty(),
+        "the group head must show its project path"
+    );
+    assert!(
+        fixed_width_field(rows[1], 0, 30).trim().is_empty(),
+        "continuation rows should not repeat the project path: {}",
+        rows[1]
+    );
+    assert_eq!(fixed_width_field(rows[0], 31, 13).trim(), "Node.js");
+    assert_eq!(fixed_width_field(rows[1], 31, 13).trim(), "Node.js");
+}
+
+#[test]
+fn scan_json_keeps_all_candidates_after_human_grouping() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("package.json"), "{}").unwrap();
+    std::fs::create_dir(temp.path().join("node_modules")).unwrap();
+    std::fs::write(temp.path().join("node_modules").join("blob"), "1234567").unwrap();
+    std::fs::create_dir(temp.path().join(".next")).unwrap();
+    std::fs::write(temp.path().join(".next").join("blob"), "x").unwrap();
+
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    let output = cmd
+        .args([
+            "scan",
+            temp.path().to_str().unwrap(),
+            "--json",
+            "--min-size",
+            "0",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let report: Value = serde_json::from_slice(&output).unwrap();
+    let candidates = report["projects"][0]["candidates"].as_array().unwrap();
+    let names = candidates
+        .iter()
+        .map(|candidate| candidate["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(candidates.len(), 2);
+    assert!(names.contains(&"node_modules"));
+    assert!(names.contains(&".next"));
+}
+
 /// The legend is human-only; `--json` output must stay pure.
 #[test]
 fn scan_json_has_no_table_legend() {
