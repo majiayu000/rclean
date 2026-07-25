@@ -214,21 +214,12 @@ fn run() -> Result<ExitCode, RcleanError> {
             stdio::finish_output(status, output::print_doctor(&report))
         }
         #[cfg(feature = "graveyard")]
-        Commands::Restore(args) => {
-            let yard = graveyard::Graveyard::open(graveyard::default_root());
-            let record = yard.restore_by_id(&args.id, args.to.as_deref())?;
-            eprintln!(
-                "restored {} -> {}",
-                record.id,
-                record.original_path.display()
-            );
-            Ok(ExitCode::SUCCESS)
-        }
+        Commands::Restore(args) => graveyard::run_restore(args),
         #[cfg(feature = "graveyard")]
         Commands::Graveyard(args) => match args.command {
             cli::GraveyardCommands::List(list_args) => {
                 let yard = graveyard::Graveyard::open(graveyard::default_root());
-                let records = yard.list()?;
+                let records = graveyard::filter_records(yard.list()?, list_args.older_than);
                 let output_result = if list_args.json {
                     let json = serde_json::to_string_pretty(&records)
                         .map_err(error::RcleanError::Output)?;

@@ -10,6 +10,13 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ### Added
 
+- Add newest-first interactive `restore` selection with numbered/range/all
+  choices, confirmation, existing per-item restore safety checks, and explicit
+  restored/skipped/failed summaries.
+- Add zero-write `restore --dry-run` previews for direct and interactive
+  restores, plus matching human/JSON `graveyard list --older-than` filtering.
+  Filter-driven bulk restore, forced overwrite, and `list --plan` remain
+  unsupported.
 - The `scan` table now prints a two-line legend clarifying that the
   `Safety` column gates cleaning (safe = auto-selected by `--all`,
   caution = opt-in, blocked = never, report-only = inspect only) while

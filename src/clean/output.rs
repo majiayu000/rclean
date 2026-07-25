@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io::{self, BufRead, Write};
 
 use crate::cli::CleanArgs;
 use crate::error::{CleanError, RcleanError};
@@ -63,24 +63,42 @@ pub fn confirm_if_needed(
             "move to Trash"
         }
     };
-    print!(
-        "Confirm: {mode} {} candidates ({})? [y/N] ",
+    let prompt = format!(
+        "Confirm: {mode} {} candidates ({})?",
         selected.len(),
         format_bytes(total)
     );
-    io::stdout()
+    confirm_prompt(&prompt, "clean cancelled")
+}
+
+fn confirm_prompt(prompt: &str, cancelled_message: &str) -> Result<(), CleanError> {
+    let stdin = io::stdin();
+    let mut input = stdin.lock();
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+    confirm_prompt_with_io(prompt, cancelled_message, &mut input, &mut output)
+}
+
+pub(crate) fn confirm_prompt_with_io<R: BufRead, W: Write>(
+    prompt: &str,
+    cancelled_message: &str,
+    input: &mut R,
+    output: &mut W,
+) -> Result<(), CleanError> {
+    write!(output, "{prompt} [y/N] ")
+        .map_err(|err| CleanError::Generic(format!("failed to write confirmation: {err}")))?;
+    output
         .flush()
         .map_err(|err| CleanError::Generic(format!("failed to flush stdout: {err}")))?;
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
+    let mut answer = String::new();
+    input
+        .read_line(&mut answer)
         .map_err(|err| CleanError::Generic(format!("failed to read confirmation: {err}")))?;
-    let answer = input.trim().to_ascii_lowercase();
+    let answer = answer.trim().to_ascii_lowercase();
     if answer == "y" || answer == "yes" {
         Ok(())
     } else {
-        Err(CleanError::Generic("clean cancelled".to_string()))
+        Err(CleanError::Generic(cancelled_message.to_string()))
     }
 }
 

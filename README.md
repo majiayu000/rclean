@@ -160,6 +160,9 @@ cargo run --bin rclean -- scan ~/code
 cargo run --bin rclean -- scan ~/code --json
 cargo run --bin rclean -- clean ~/code --all --dry-run
 cargo run --bin rclean -- clean ~/code --all --permanent --yes
+cargo run --bin rclean -- restore
+cargo run --bin rclean -- restore --id <ID> --dry-run
+cargo run --bin rclean -- graveyard list --older-than 5d
 cargo run --bin rclean -- tui ~/code
 cargo run --bin rclean -- free 20gb ~/code --write-plan free-plan.json
 cargo run --bin rclean -- free 20gb ~/code --json --write-plan free-plan.json
@@ -202,6 +205,32 @@ Human scan output includes a `Stale` column. JSON output includes
 `staleAfterDays` and each candidate's `stalenessDays` when available.
 Recoverable cleanup summaries print the graveyard retention window and restore
 command so accidental deletions have an explicit path back.
+
+### Recoverable cleanup and restore
+
+Use `rclean graveyard list` to inspect active graves. Add `--older-than <DURATION>`
+to show only records older than a duration such as `24h`, `5d`, or `2w`; the
+same filter applies to human and JSON output.
+
+Restore one grave directly with `rclean restore --id <ID>`. Add `--to <PATH>` to
+choose another destination. Running `rclean restore` without `--id` on a
+terminal opens a newest-first numbered selector that accepts numbers, ranges,
+`all`, or `q`, then asks for confirmation. Every selected item still passes
+through the same target-exists and symlink checks as a direct restore. A batch
+continues after an item is skipped or fails, prints restored/skipped/failed
+totals, and exits non-zero when any item was not restored.
+
+Add `--dry-run` to either form to preview the selected restore operations
+without moving payloads, creating target directories, or updating the
+manifest:
+
+```sh
+rclean restore --id <ID> --dry-run
+rclean restore --dry-run
+```
+
+Filter-driven bulk restore (`restore --since` or `restore --plan`), bulk
+`--to`, `graveyard list --plan`, and forced overwrite are not supported.
 
 ### Whole-machine cleanup
 

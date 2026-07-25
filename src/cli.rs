@@ -145,12 +145,16 @@ pub struct AgentOptimizeArgs {
 pub struct RestoreArgs {
     /// id of the grave to restore (from `rclean graveyard list`).
     #[arg(long = "id", value_name = "ID")]
-    pub id: String,
+    pub id: Option<String>,
 
     /// Restore to this path instead of the original. Useful when the
     /// original location is now occupied.
-    #[arg(long, value_name = "PATH")]
+    #[arg(long, value_name = "PATH", requires = "id")]
     pub to: Option<PathBuf>,
+
+    /// Show which grave(s) would be attempted without writing to disk.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[cfg(feature = "graveyard")]
@@ -175,6 +179,10 @@ pub struct GraveyardListArgs {
     /// Emit machine-readable JSON instead of a table.
     #[arg(long)]
     pub json: bool,
+
+    /// Show graves deleted more than this duration ago (for example 1h or 5d).
+    #[arg(long, value_name = "DURATION", value_parser = parse_duration)]
+    pub older_than: Option<Duration>,
 }
 
 #[cfg(feature = "graveyard")]
