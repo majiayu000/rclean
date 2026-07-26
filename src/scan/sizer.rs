@@ -229,6 +229,12 @@ fn dir_size(path: &Path, _verbose: bool) -> SizeOutcome {
     }
 }
 
+/// Public re-entry point used when a plan is replayed: the bytes stored in
+/// the plan may be stale, so recompute them from disk just before deletion.
+pub(crate) fn candidate_dir_size_bytes(path: &Path) -> u64 {
+    dir_size(path, false).bytes
+}
+
 struct SizePartition {
     outcome: SizeOutcome,
     roots: Vec<PathBuf>,

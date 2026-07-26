@@ -53,7 +53,7 @@ pub(crate) use safety::{
     apply_path_safety, dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
     is_runtime_or_system_path,
 };
-pub(crate) use sizer::SourceSizeIndex;
+pub(crate) use sizer::{SourceSizeIndex, candidate_dir_size_bytes};
 pub(crate) use walker::{WalkScratch, walk_parallel};
 
 #[derive(Debug, Clone)]

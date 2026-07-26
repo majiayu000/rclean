@@ -312,7 +312,7 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
     }
     let (selected, report) = if let Some(action_plan) = &action_plan {
         let selected = plan::selected_from_action_plan(action_plan)?;
-        plan::revalidate_selected(action_plan, &selected)?;
+        let selected = plan::revalidate_selected(action_plan, selected)?;
         (selected, None)
     } else {
         let options = args.common.to_scan_options()?;

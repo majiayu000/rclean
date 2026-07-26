@@ -84,7 +84,7 @@ fn writes_and_revalidates_plan() {
     let selected = selected_from_action_plan(&plan).unwrap();
 
     assert_eq!(selected.len(), 1);
-    revalidate_selected(&plan, &selected).unwrap();
+    let _ = revalidate_selected(&plan, selected).unwrap();
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn revalidation_rejects_stale_plan_path() {
     let selected = selected_from_action_plan(&plan).unwrap();
     fs::remove_dir_all(&candidate).unwrap();
 
-    assert!(revalidate_selected(&plan, &selected).is_err());
+    assert!(revalidate_selected(&plan, selected).is_err());
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn revalidation_rejects_symlinked_plan_path() {
     #[cfg(windows)]
     std::os::windows::fs::symlink_dir(&real, &candidate).unwrap();
 
-    assert!(revalidate_selected(&plan, &selected).is_err());
+    assert!(revalidate_selected(&plan, selected).is_err());
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn revalidation_rejects_hardlinked_plan_path() {
     fs::write(&original, "content").unwrap();
     fs::hard_link(&original, &candidate).unwrap();
 
-    let err = revalidate_selected(&plan, &selected)
+    let err = revalidate_selected(&plan, selected)
         .expect_err("hardlinked plan path must be rejected")
         .to_string();
 
@@ -310,6 +310,79 @@ fn tampered_plan_promoting_blocked_to_safe_is_rejected() {
     assert!(
         err.contains("/usr/local/lib/node_modules") || err.contains("not recognized"),
         "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn tampered_plan_safety_field_is_not_trusted_for_recognizable_path() {
+    let temp = TempDir::new().unwrap();
+    let project = temp.path().join("project");
+    let shared_target = temp.path().join("shared-target");
+    let candidate = project.join("target");
+    fs::create_dir_all(&candidate).unwrap();
+    fs::create_dir_all(project.join(".cargo")).unwrap();
+    fs::create_dir_all(&shared_target).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    // A target-dir outside the project makes the project's target directory
+    // shared; classify_candidate will promote its safety to Blocked.
+    fs::write(
+        project.join(".cargo").join("config.toml"),
+        "[build]\ntarget-dir = \"../shared-target\"\n",
+    )
+    .unwrap();
+
+    let plan_path = temp.path().join("plan.json");
+    let mut report = report(&project, &candidate);
+    report.projects[0].candidates[0].name = "target".to_string();
+    report.projects[0].candidates[0].rule_id = "rust.target".to_string();
+    report.projects[0].kind = "Rust".to_string();
+    report.projects[0].markers = vec!["Cargo.toml".to_string()];
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+
+    // Attacker flips the serialized safety to Safe while leaving the path
+    // recognizable; the plan loader must recompute safety and refuse.
+    let raw = fs::read_to_string(&plan_path).unwrap();
+    let mut plan: ActionPlan = serde_json::from_str(&raw).unwrap();
+    plan.selected[0].safety = Safety::Safe;
+    let tampered_json = serde_json::to_string_pretty(&plan).unwrap();
+    fs::write(&plan_path, tampered_json).unwrap();
+
+    let plan = read_action_plan(&plan_path).unwrap();
+    let err = selected_from_action_plan(&plan)
+        .expect_err("should reject a tampered safety field")
+        .to_string();
+    assert!(
+        err.contains("Blocked") || err.contains("blocked"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn revalidation_updates_stale_bytes_from_disk() {
+    let temp = TempDir::new().unwrap();
+    let candidate = create_node_project(temp.path());
+    let plan_path = temp.path().join("plan.json");
+    let report = report(temp.path(), &candidate);
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+    let plan = read_action_plan(&plan_path).unwrap();
+    let selected = selected_from_action_plan(&plan).unwrap();
+    assert_eq!(selected[0].bytes, 3);
+
+    // Rebuild the candidate tree between scan and replay; revalidation must
+    // reflect the new on-disk size instead of the stale plan value.
+    fs::write(candidate.join("extra.dat"), vec![0u8; 100]).unwrap();
+
+    let updated = revalidate_selected(&plan, selected).unwrap();
+    assert!(
+        updated[0].bytes >= 100,
+        "expected revalidated bytes to include the new file, got {}",
+        updated[0].bytes
     );
 }
 
@@ -390,7 +463,7 @@ fn revalidate_selected_rejects_docker_storage_path() {
         risk_score: 0.0,
     }];
 
-    let err = revalidate_selected(&plan, &selected)
+    let err = revalidate_selected(&plan, selected)
         .expect_err("Docker daemon storage must fail replay revalidation")
         .to_string();
 
