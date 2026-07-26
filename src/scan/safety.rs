@@ -128,15 +128,20 @@ pub(crate) fn apply_path_safety(root: &Path, draft: &mut CandidateDraft) {
     }
 
     if root != Path::new(".") {
-        let root = root.canonicalize().ok();
-        let candidate = draft.path.canonicalize().ok();
-        if let (Some(root), Some(candidate)) = (root, candidate)
-            && !candidate.starts_with(root)
-        {
-            draft.safety = Safety::Blocked;
-            draft
-                .warnings
-                .push("candidate resolves outside the scan root".to_string());
+        match (root.canonicalize(), draft.path.canonicalize()) {
+            (Ok(root), Ok(candidate)) if !candidate.starts_with(&root) => {
+                draft.safety = Safety::Blocked;
+                draft
+                    .warnings
+                    .push("candidate resolves outside the scan root".to_string());
+            }
+            (Err(err), _) | (_, Err(err)) => {
+                draft.safety = Safety::Blocked;
+                draft.warnings.push(format!(
+                    "failed to canonicalize path for containment check: {err}"
+                ));
+            }
+            _ => {}
         }
     }
 }
@@ -229,9 +234,10 @@ fn component_name(component: std::path::Component<'_>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DangerousLink, dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
-        is_runtime_or_system_path,
+        CandidateDraft, DangerousLink, Safety, apply_path_safety, dangerous_link_kind,
+        is_docker_storage_path, is_protected_user_data_path, is_runtime_or_system_path,
     };
+    use crate::model::Category;
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -416,5 +422,65 @@ mod tests {
         assert!(!is_protected_user_data_path(&PathBuf::from(
             "/Users/me/.config/sessions/foo"
         )));
+    }
+
+    #[test]
+    fn canonicalize_failure_blocks_candidate() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let missing = root.join("missing");
+
+        let mut draft = CandidateDraft {
+            path: missing,
+            name: "missing".to_string(),
+            rule_id: "test".to_string(),
+            category: Category::Build,
+            safety: Safety::Safe,
+            reasons: vec!["test".to_string()],
+            warnings: Vec::new(),
+            restore_hint: "test".to_string(),
+        };
+
+        apply_path_safety(&root, &mut draft);
+
+        assert_eq!(draft.safety, Safety::Blocked);
+        assert!(
+            draft.warnings.iter().any(|w| w.contains("canonicalize")),
+            "expected canonicalization warning, got {:?}",
+            draft.warnings
+        );
+    }
+
+    #[test]
+    fn candidate_resolving_outside_root_is_blocked() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("root");
+        let outside = temp.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+
+        let mut draft = CandidateDraft {
+            path: outside,
+            name: "outside".to_string(),
+            rule_id: "test".to_string(),
+            category: Category::Build,
+            safety: Safety::Safe,
+            reasons: vec!["test".to_string()],
+            warnings: Vec::new(),
+            restore_hint: "test".to_string(),
+        };
+
+        apply_path_safety(&root, &mut draft);
+
+        assert_eq!(draft.safety, Safety::Blocked);
+        assert!(
+            draft
+                .warnings
+                .iter()
+                .any(|w| w.contains("outside the scan root")),
+            "expected containment warning, got {:?}",
+            draft.warnings
+        );
     }
 }
