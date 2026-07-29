@@ -82,10 +82,10 @@ body:
     validations:
       required: false
   - type: input
-    id: linked_spec
+    id: linked_design_record
     attributes:
-      label: Linked SpecRail spec
+      label: Linked design record
       description: Required when the fix is substantial or changes rule behavior.
-      placeholder: "specs/GH123/product.md"
+      placeholder: "specs/GH123/"
     validations:
       required: false
