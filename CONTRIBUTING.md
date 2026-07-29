@@ -54,8 +54,11 @@ in the PR body.
 AI agents should start with [`AGENTS.md`](AGENTS.md). Small docs-only
 changes can be handled directly with focused verification. Substantial
 rule, safety, CLI, or multi-module changes need a linked GitHub issue
-and, when behavior is ambiguous or risky, a SpecRail packet under
-`specs/GH<number>/`.
+and, when behavior is ambiguous or risky, a repo-native design packet under
+`specs/GH<number>/`. These packets record product, technical, and task
+decisions; they are not an external workflow instruction or live execution
+status. See [`specs/README.md`](specs/README.md) for the retained packet index
+and format.
 
 ## PR shape
 
