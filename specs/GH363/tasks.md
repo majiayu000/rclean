@@ -10,10 +10,11 @@
 
 ## Status
 
-`verified_pending_push` — maintainer authorization was received in the active
-goal thread. RED/GREEN and the complete local repository/MSRV gate passed. No
-GitHub write or merge may bypass the current-head review, CI, and closure gates
-below.
+`remote_gate_in_progress` — maintainer authorization was received in the active
+goal thread. RED/GREEN and the complete local repository/MSRV gate passed on
+the branch integrated with the latest `main`. The original branch is pushed
+and its blocking review thread is resolved. GitHub remains authoritative for
+the current-head CI and merge/closure state.
 
 ## Implementation Tasks
 
@@ -76,18 +77,29 @@ below.
 
 ### SP363-T5 — Original PR branch update
 
-- [ ] Commit with sign-off on `fix/audit-h5-h8-c1`.
-- [ ] Fetch remote state and confirm the original PR head before push.
-- [ ] Push only the original branch.
-- [ ] Wait for current-head CI and connector review.
-- [ ] Reply to and resolve the existing review thread with verification evidence.
+Completed before this spec snapshot:
+
+- signed commits were created on `fix/audit-h5-h8-c1`;
+- remote head was refreshed and matched before each fast-forward push;
+- the branch was integrated with the latest `main` without force-push;
+- the existing review thread was answered with RED/GREEN/full-gate evidence
+  and resolved;
+- an independent current-head reviewer reported no blocking findings.
+
+The remaining current-head CI state is intentionally recorded in GitHub rather
+than pre-marked in a commit that would itself trigger a newer CI run.
 
 ### SP363-T6 — Merge and closure
 
-- [ ] Obtain an independent current-head merge review.
-- [ ] Re-check head SHA, CI, merge state, and GraphQL review threads.
-- [ ] Merge only after every gate is clean.
-- [ ] Confirm remote PR closure and branch state.
+Operational closure gate:
+
+- re-check head SHA, CI, merge state, and GraphQL review threads;
+- merge only after every gate is clean;
+- confirm remote PR closure and branch state.
+
+These are live GitHub transitions performed after the final commit. Their
+authoritative evidence belongs in PR #363 and the queue closure ledger, not in
+checkboxes that would be stale as soon as this file changed.
 
 ## Invariant Coverage Audit
 
