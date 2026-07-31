@@ -10,9 +10,10 @@
 
 ## Status
 
-`implementation_in_progress` — maintainer authorization was received in the
-active goal thread. No GitHub write or merge may bypass the current-head review,
-CI, and closure gates below.
+`verified_pending_push` — maintainer authorization was received in the active
+goal thread. RED/GREEN and the complete local repository/MSRV gate passed. No
+GitHub write or merge may bypass the current-head review, CI, and closure gates
+below.
 
 ## Implementation Tasks
 
@@ -49,8 +50,8 @@ CI, and closure gates below.
 
 ### SP363-T4 — Scope and complete repository gate
 
-- [ ] Confirm no forbidden file is modified.
-- [ ] Run formatting, clippy, full tests, release build, and Rust 1.95 gates.
+- [x] Confirm no forbidden file is modified.
+- [x] Run formatting, clippy, full tests, release build, and Rust 1.95 gates.
 - Covers: B-001 through B-006.
 - Verify:
   - `git diff --check`
@@ -60,6 +61,16 @@ CI, and closure gates below.
   - `cargo build --release`
   - `rustup run 1.95 cargo build --all-targets --all-features`
   - `rustup run 1.95 cargo test`
+
+## Local Verification Evidence
+
+- SpecRail commit: `121616c`
+- Production and regression commit: `a5e7c86`
+- RED: the new replay regression returned success with only 7 readable bytes.
+- GREEN: the same regression rejected two unreadable descendants and preserved
+  both paths in the error.
+- Full gate: fmt, clippy, all tests, release build, Rust 1.95 all-targets build,
+  and Rust 1.95 tests passed.
 
 ## Remote Tasks
 
