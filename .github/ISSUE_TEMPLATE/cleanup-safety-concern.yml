@@ -85,22 +85,22 @@ body:
     validations:
       required: false
   - type: dropdown
-    id: specrail_route
+    id: implementation_route
     attributes:
-      label: SpecRail route
+      label: Implementation route
       description: Choose how this should be handled before implementation.
       options:
         - maintainer review before public details
-        - write_spec before implementation
+        - design record before implementation
         - bugfix with regression test
         - docs-only direct
     validations:
       required: true
   - type: input
-    id: linked_spec
+    id: linked_design_record
     attributes:
-      label: Linked SpecRail spec
+      label: Linked design record
       description: Required before implementation for trust-model behavior changes.
-      placeholder: "specs/GH123/product.md"
+      placeholder: "specs/GH123/"
     validations:
       required: false

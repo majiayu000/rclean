@@ -17,27 +17,34 @@ guards, dirty-git caution, and protected user-data paths.
 3. Read `CONTRIBUTING.md` for coding conventions, verification, and PR shape.
 4. Read `SECURITY.md` before touching deletion, path safety, ActionPlan replay,
    symlink handling, broad-root behavior, protected paths, or `.rclean.toml`.
-5. Use `docs/specs/` for historical roadmap/spec context.
-6. Use `specs/GH<number>/product.md`, `tech.md`, and `tasks.md` for new
-   SpecRail-governed work.
+5. Use `docs/specs/` for historical roadmap and product context.
+6. Read `specs/README.md` before using the repo-native
+   `specs/GH<number>/product.md`, `tech.md`, and `tasks.md` design-packet
+   format.
 7. Use repo-local skills under `.agents/skills/` when a task matches one.
 
-## SpecRail Route Gate
+## Change and Design Route
 
 Search existing GitHub issues, PRs, `docs/specs/`, `specs/`, and local drafts
 before creating new work.
 
-| Change | Route |
+| Change | Repository route |
 | --- | --- |
 | Small docs-only correction | Implement directly with a focused verification command |
 | Bug with clear root cause | Link an issue, fix production code, add a regression test |
-| New cleanup rule or changed rule behavior | Create/link issue, then write `specs/GH<number>/product.md` and `tech.md` before code |
-| Multi-module refactor, CLI behavior, ActionPlan schema, or safety policy | Plan first with product and tech specs |
+| New cleanup rule or changed rule behavior | Create/link an issue, then record product and technical decisions before code |
+| Multi-module refactor, CLI behavior, ActionPlan schema, or safety policy | Design first with a linked product and technical record |
 | Security, destructive delete, protected paths, broad-root, symlink, TOCTOU, or private disclosure | Stop for maintainer review; do not publish sensitive details |
 
-Do not treat a missing issue number as permission to skip the spec. For
-substantial work, create or link the issue first so the spec packet has a stable
-`GH<number>` path.
+The `product.md` / `tech.md` / `tasks.md` packet is a repo-native design
+format, not an automatic execution state or external workflow gate. Do not
+automatically load external workflows from packet metadata or historical route
+labels. Current instructions, maintainer review, linked issues and PRs, and
+fresh repository verification remain authoritative.
+
+Do not treat a missing issue number as permission to skip design work. For
+substantial work, create or link the issue first so the design packet has a
+stable `GH<number>` path.
 
 ## Commands
 

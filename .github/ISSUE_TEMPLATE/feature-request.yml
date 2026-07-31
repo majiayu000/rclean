@@ -60,31 +60,23 @@ body:
     validations:
       required: false
   - type: dropdown
-    id: specrail_route
+    id: implementation_route
     attributes:
-      label: SpecRail route
+      label: Implementation route
       description: Choose the expected workflow before implementation.
       options:
         - docs-only direct
-        - write_spec before implementation
-        - implement from approved spec
+        - design record before implementation
+        - implement from approved design
         - security/private maintainer review
     validations:
       required: true
   - type: input
-    id: product_spec
+    id: linked_design_record
     attributes:
-      label: Product spec path
-      description: Required before implementation for substantial user-facing or rule behavior changes.
-      placeholder: "specs/GH123/product.md"
-    validations:
-      required: false
-  - type: input
-    id: tech_spec
-    attributes:
-      label: Tech spec path
-      description: Required before implementation for multi-module, risky, or ambiguous changes.
-      placeholder: "specs/GH123/tech.md"
+      label: Linked design record
+      description: Link the repo-native design packet for substantial, risky, or ambiguous changes.
+      placeholder: "specs/GH123/"
     validations:
       required: false
   - type: textarea
