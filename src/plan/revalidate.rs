@@ -155,7 +155,17 @@ pub fn revalidate_selected(
         // The bytes stored in the plan reflect the size at scan time; rebuilds
         // or partial cleanups may have changed the tree. Recompute so downstream
         // output and audit logs show the actual amount about to be freed.
-        candidate.bytes = candidate_dir_size_bytes(&candidate.path);
+        candidate.bytes = candidate_dir_size_bytes(&candidate.path).map_err(|warnings| {
+            let details = warnings
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            PlanError::Generic(format!(
+                "failed to determine current size for {}: {details}",
+                candidate.path.display()
+            ))
+        })?;
 
         updated.push(candidate);
     }

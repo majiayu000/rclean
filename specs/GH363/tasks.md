@@ -28,7 +28,7 @@ CI, and closure gates below.
 
 ### SP363-T2 — Failing replay regression
 
-- [ ] Add the Unix unreadable-descendant plan replay test.
+- [x] Add the Unix unreadable-descendant plan replay test.
 - Covers: B-002, B-003, B-004.
 - Done when: the focused test fails against the current production code because
   replay incorrectly succeeds with partial bytes.
@@ -37,8 +37,8 @@ CI, and closure gates below.
 
 ### SP363-T3 — Strict replay sizing
 
-- [ ] Make the replay-only sizer adapter return all warnings as an error.
-- [ ] Map those warnings to contextual `PlanError` in `revalidate_selected`.
+- [x] Make the replay-only sizer adapter return all warnings as an error.
+- [x] Map those warnings to contextual `PlanError` in `revalidate_selected`.
 - Covers: B-001 through B-005.
 - Done when: the RED test becomes GREEN and the existing stale-byte test stays
   green without changing ordinary scan behavior.

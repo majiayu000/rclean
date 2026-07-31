@@ -1,4 +1,6 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
@@ -384,6 +386,62 @@ fn revalidation_updates_stale_bytes_from_disk() {
         "expected revalidated bytes to include the new file, got {}",
         updated[0].bytes
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn revalidation_rejects_incomplete_current_size() {
+    let temp = TempDir::new().unwrap();
+    let candidate = create_node_project(temp.path());
+    fs::write(candidate.join("readable.dat"), b"visible").unwrap();
+    let unreadable = [
+        candidate.join("unreadable-a"),
+        candidate.join("unreadable-b"),
+    ];
+    for path in &unreadable {
+        fs::create_dir(path).unwrap();
+        fs::write(path.join("hidden.dat"), b"hidden").unwrap();
+    }
+    let plan_path = temp.path().join("plan.json");
+    let report = report(temp.path(), &candidate);
+
+    write_action_plan(&report, &plan_path, false, false, "trash").unwrap();
+    let plan = read_action_plan(&plan_path).unwrap();
+    let selected = selected_from_action_plan(&plan).unwrap();
+
+    let original_modes = unreadable
+        .iter()
+        .map(|path| fs::metadata(path).unwrap().permissions().mode())
+        .collect::<Vec<_>>();
+    for path in &unreadable {
+        let mut denied_permissions = fs::metadata(path).unwrap().permissions();
+        denied_permissions.set_mode(0o000);
+        fs::set_permissions(path, denied_permissions).unwrap();
+    }
+
+    let result = revalidate_selected(&plan, selected);
+
+    for (path, original_mode) in unreadable.iter().zip(original_modes) {
+        let mut restored_permissions = fs::metadata(path).unwrap().permissions();
+        restored_permissions.set_mode(original_mode);
+        fs::set_permissions(path, restored_permissions).unwrap();
+    }
+
+    let err = result
+        .expect_err("incomplete current sizing must abort ActionPlan replay")
+        .to_string();
+    assert!(
+        err.contains(&candidate.display().to_string()),
+        "error should identify candidate {}: {err}",
+        candidate.display()
+    );
+    for path in &unreadable {
+        assert!(
+            err.contains(&path.display().to_string()),
+            "error should preserve unreadable path {}: {err}",
+            path.display()
+        );
+    }
 }
 
 #[test]

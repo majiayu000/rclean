@@ -231,8 +231,13 @@ fn dir_size(path: &Path, _verbose: bool) -> SizeOutcome {
 
 /// Public re-entry point used when a plan is replayed: the bytes stored in
 /// the plan may be stale, so recompute them from disk just before deletion.
-pub(crate) fn candidate_dir_size_bytes(path: &Path) -> u64 {
-    dir_size(path, false).bytes
+pub(crate) fn candidate_dir_size_bytes(path: &Path) -> Result<u64, Vec<ScanWarning>> {
+    let outcome = dir_size(path, false);
+    if outcome.warnings.is_empty() {
+        Ok(outcome.bytes)
+    } else {
+        Err(outcome.warnings)
+    }
 }
 
 struct SizePartition {
