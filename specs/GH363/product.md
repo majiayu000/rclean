@@ -73,12 +73,13 @@ size and propagated into cleanup output, audit records, or graveyard metadata.
 
 ## Acceptance Criteria
 
-- A deterministic Unix regression creates a valid replay candidate with a
-  readable file and an unreadable descendant.
-- The regression fails against PR #363's current head because replay succeeds
-  with partial bytes.
-- After the production fix, replay returns an error containing both the
-  candidate path and unreadable descendant path.
+- Recorded RED evidence proves the prior adapter accepted 7 readable bytes
+  after its size walk reported an unreadable descendant.
+- A privilege-independent sizer test proves the real replay adapter rejects a
+  deterministic metadata warning.
+- A privilege-independent plan test injects both `WalkError` and
+  `MetadataError`, then proves replay returns an error containing the candidate
+  and both failing paths.
 - A candidate that grows after plan creation still receives its current size.
 - Existing sizer warning tests and all plan safety tests remain green.
 - Full repository and Rust 1.95 gates pass.

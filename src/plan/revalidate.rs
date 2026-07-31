@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
-use crate::model::{CandidateDraft, ProjectReport, Safety};
+use crate::model::{CandidateDraft, ProjectReport, Safety, ScanWarning};
 use crate::path_util::path_file_name;
 use crate::rules;
 use crate::scan::{
@@ -94,6 +94,17 @@ pub fn revalidate_selected(
     plan: &ActionPlan,
     selected: Vec<SelectedCandidate>,
 ) -> Result<Vec<SelectedCandidate>, PlanError> {
+    revalidate_selected_with_sizer(plan, selected, candidate_dir_size_bytes)
+}
+
+pub(super) fn revalidate_selected_with_sizer<F>(
+    plan: &ActionPlan,
+    selected: Vec<SelectedCandidate>,
+    mut current_size: F,
+) -> Result<Vec<SelectedCandidate>, PlanError>
+where
+    F: FnMut(&Path) -> Result<u64, Vec<ScanWarning>>,
+{
     let roots = plan
         .roots
         .iter()
@@ -155,7 +166,7 @@ pub fn revalidate_selected(
         // The bytes stored in the plan reflect the size at scan time; rebuilds
         // or partial cleanups may have changed the tree. Recompute so downstream
         // output and audit logs show the actual amount about to be freed.
-        candidate.bytes = candidate_dir_size_bytes(&candidate.path).map_err(|warnings| {
+        candidate.bytes = current_size(&candidate.path).map_err(|warnings| {
             let details = warnings
                 .iter()
                 .map(ToString::to_string)

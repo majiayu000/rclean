@@ -17,7 +17,8 @@
     "specs/GH363/tasks.md",
     "src/plan/revalidate.rs",
     "src/plan/tests.rs",
-    "src/scan/sizer.rs"
+    "src/scan/sizer.rs",
+    "src/scan/sizer/tests.rs"
   ],
   "spec_refs": [
     "specs/GH363/product.md",
@@ -82,21 +83,24 @@ implementation and retained in deterministic sizer order.
 The existing `?` in the clean workflow propagates `PlanError`, so confirmation,
 deletion, audit persistence, and graveyard persistence are not reached.
 
-### 3. Regression fixture
+### 3. Privilege-independent regression fixtures
 
-Add a Unix-gated test in `src/plan/tests.rs`:
+Use two deterministic layers instead of relying on `chmod 0o000`, which root
+or a process with `CAP_DAC_OVERRIDE` can still read:
 
-1. create a valid Node project and ActionPlan;
-2. add a readable file plus a child directory containing a file;
-3. select from the plan;
-4. change the child directory mode to `0o000`;
-5. call `revalidate_selected`;
-6. restore the original mode before fixture teardown;
-7. assert failure text includes the candidate and unreadable child paths.
+1. In `src/scan/sizer/tests.rs`, call the real replay adapter with a missing
+   path and assert that it returns the resulting `MetadataError`, not `Ok(0)`.
+2. Route public `revalidate_selected` through a crate-internal generic helper
+   that accepts the current-size function. Production passes
+   `candidate_dir_size_bytes`.
+3. In `src/plan/tests.rs`, pass a test closure returning two structured
+   warnings (`WalkError` and `MetadataError`) with distinct paths.
+4. Assert the plan error includes the candidate, both paths, and both error
+   messages.
 
-The permission mode must be restored before assertions so a failed assertion
-does not leave cleanup dependent on unreadable fixture contents. The test is
-Unix-only because Windows ACL semantics are not equivalent.
+The injected function changes no public API or production behavior. It makes
+the plan-boundary contract deterministic on Unix, Windows, root containers,
+and capability-enabled build environments.
 
 ## Error Contract
 
@@ -113,8 +117,9 @@ No warning is logged and ignored. No stale-byte fallback exists.
 | File | Change |
 | --- | --- |
 | `src/scan/sizer.rs` | Return a strict result from the replay-only adapter. |
+| `src/scan/sizer/tests.rs` | Prove the real adapter rejects deterministic metadata failure. |
 | `src/plan/revalidate.rs` | Convert all sizing warnings to contextual `PlanError`. |
-| `src/plan/tests.rs` | Add the failing-before-fix permission regression. |
+| `src/plan/tests.rs` | Inject structured sizing failures and prove complete propagation. |
 | `specs/GH363/*` | Record product, technical, task, and verification contracts. |
 
 ## Forbidden Scope
@@ -133,8 +138,8 @@ maintainer gate.
 | Invariant | Implementation | Verification |
 | --- | --- | --- |
 | B-001 | fallible adapter success branch | existing stale-byte update test |
-| B-002 | warning vector maps to `PlanError` | Unix unreadable-child regression |
-| B-003 | contextual join of all warnings | regression path assertions + sizer warning ordering tests |
+| B-002 | warning vector maps to `PlanError` | injected plan regression |
+| B-003 | contextual join of all warnings | two injected paths/messages + sizer warning ordering tests |
 | B-004 | no fallback branch | code inspection + regression fails before deletion |
 | B-005 | `summarize` unchanged | existing scan/sizer test suite |
 | B-006 | no trust-gate changes | existing plan and safety tests + full suite |
@@ -165,8 +170,8 @@ rustup run 1.95 cargo test
 - **Ordinary scan regression:** the strict result exists only at the replay
   adapter; scan summarizing remains unchanged.
 - **Lost diagnostics:** the error joins the complete warning vector.
-- **Platform-dependent permission test:** Unix-gated fixture with explicit
-  permission restoration; Windows retains coverage through existing metadata
-  and plan tests.
+- **Test seam drift:** the injected function is crate-internal, while the
+  public production wrapper always supplies the real replay adapter; both
+  layers have direct tests.
 - **Scope drift:** planned paths and forbidden paths are machine-readable and
   reviewed before commit.

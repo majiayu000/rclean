@@ -30,7 +30,7 @@ the current-head CI and merge/closure state.
 
 ### SP363-T2 — Failing replay regression
 
-- [x] Add the Unix unreadable-descendant plan replay test.
+- [x] Add privilege-independent adapter and plan-boundary regressions.
 - Covers: B-002, B-003, B-004.
 - Done when: the focused test fails against the current production code because
   replay incorrectly succeeds with partial bytes.
@@ -68,8 +68,8 @@ the current-head CI and merge/closure state.
 - SpecRail commit: `121616c`
 - Production and regression commit: `a5e7c86`
 - RED: the new replay regression returned success with only 7 readable bytes.
-- GREEN: the same regression rejected two unreadable descendants and preserved
-  both paths in the error.
+- GREEN: the final deterministic regressions reject real adapter metadata
+  failure and preserve two injected warning paths/messages at the plan boundary.
 - Full gate: fmt, clippy, all tests, release build, Rust 1.95 all-targets build,
   and Rust 1.95 tests passed.
 
@@ -84,7 +84,9 @@ Completed before this spec snapshot:
 - the branch was integrated with the latest `main` without force-push;
 - the existing review thread was answered with RED/GREEN/full-gate evidence
   and resolved;
-- an independent current-head reviewer reported no blocking findings.
+- an independent reviewer confirmed the production fix; the current-head
+  connector's test-portability finding is addressed by privilege-independent
+  fixtures.
 
 The remaining current-head CI state is intentionally recorded in GitHub rather
 than pre-marked in a commit that would itself trigger a newer CI run.
