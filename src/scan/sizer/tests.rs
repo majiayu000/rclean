@@ -200,6 +200,21 @@ fn missing_candidate_root_returns_metadata_warning() {
 }
 
 #[test]
+fn replay_size_adapter_rejects_metadata_warning() {
+    let temp = TempDir::new().unwrap();
+    let missing = temp.path().join("missing-target");
+
+    let warnings =
+        candidate_dir_size_bytes(&missing).expect_err("replay sizing must reject incomplete data");
+
+    assert_eq!(warnings.len(), 1);
+    assert!(matches!(
+        &warnings[0],
+        ScanWarning::MetadataError { path, .. } if path == &missing
+    ));
+}
+
+#[test]
 fn blocked_candidate_is_not_sized_or_warned() {
     let temp = TempDir::new().unwrap();
     let missing = temp.path().join("blocked-target");

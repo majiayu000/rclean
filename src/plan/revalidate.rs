@@ -3,12 +3,12 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::clean::SelectedCandidate;
 use crate::error::PlanError;
-use crate::model::{CandidateDraft, ProjectReport, Safety};
+use crate::model::{CandidateDraft, ProjectReport, Safety, ScanWarning};
 use crate::path_util::path_file_name;
 use crate::rules;
 use crate::scan::{
-    dangerous_link_kind, is_docker_storage_path, is_protected_user_data_path,
-    is_runtime_or_system_path,
+    candidate_dir_size_bytes, dangerous_link_kind, is_docker_storage_path,
+    is_protected_user_data_path, is_runtime_or_system_path,
 };
 use crate::user_rules::UserRuleSet;
 
@@ -92,8 +92,19 @@ fn requires_sudo_plan_reason(path: &str, rule_id: &str) -> String {
 
 pub fn revalidate_selected(
     plan: &ActionPlan,
-    selected: &[SelectedCandidate],
-) -> Result<(), PlanError> {
+    selected: Vec<SelectedCandidate>,
+) -> Result<Vec<SelectedCandidate>, PlanError> {
+    revalidate_selected_with_sizer(plan, selected, candidate_dir_size_bytes)
+}
+
+pub(super) fn revalidate_selected_with_sizer<F>(
+    plan: &ActionPlan,
+    selected: Vec<SelectedCandidate>,
+    mut current_size: F,
+) -> Result<Vec<SelectedCandidate>, PlanError>
+where
+    F: FnMut(&Path) -> Result<u64, Vec<ScanWarning>>,
+{
     let roots = plan
         .roots
         .iter()
@@ -105,7 +116,8 @@ pub fn revalidate_selected(
         ));
     }
 
-    for candidate in selected {
+    let mut updated = Vec::with_capacity(selected.len());
+    for mut candidate in selected {
         let metadata = fs::symlink_metadata(&candidate.path).map_err(|source| PlanError::Io {
             path: candidate.path.clone(),
             source,
@@ -150,9 +162,26 @@ pub fn revalidate_selected(
                 candidate.path.display()
             )));
         }
+
+        // The bytes stored in the plan reflect the size at scan time; rebuilds
+        // or partial cleanups may have changed the tree. Recompute so downstream
+        // output and audit logs show the actual amount about to be freed.
+        candidate.bytes = current_size(&candidate.path).map_err(|warnings| {
+            let details = warnings
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("; ");
+            PlanError::Generic(format!(
+                "failed to determine current size for {}: {details}",
+                candidate.path.display()
+            ))
+        })?;
+
+        updated.push(candidate);
     }
 
-    Ok(())
+    Ok(updated)
 }
 
 fn classify_plan_candidate(
