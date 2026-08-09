@@ -41,7 +41,7 @@ use crate::user_rules::UserRuleSet;
 
 use super::progress::ProgressCounters;
 use super::safety::{apply_path_safety, is_skip_dir, is_skip_name};
-use super::sizer::DirSizes;
+use super::sizer::{DirSizes, sort_warnings};
 use super::{IgnoreMatcher, ScanOptions, should_include};
 
 type WalkOutput = (
@@ -96,9 +96,10 @@ impl WalkScratch {
         let sizes = sizes
             .into_inner()
             .map_err(|_| poison_error("walk scratch sizes mutex"))?;
-        let warnings = warnings
+        let mut warnings = warnings
             .into_inner()
             .map_err(|_| poison_error("walk scratch warnings mutex"))?;
+        sort_warnings(&mut warnings);
         Ok((drafts, sizes, warnings))
     }
 
