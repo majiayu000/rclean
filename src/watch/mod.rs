@@ -12,7 +12,7 @@ use crate::error::{PlanError, RcleanError, ScanError};
 use crate::model::{Safety, ScanReport, format_bytes};
 use crate::path_util::path_file_name;
 use crate::stdio::outln;
-use crate::{output, parse, plan, scan};
+use crate::{output, plan, scan};
 
 const IDLE_DEGRADE_AFTER: Duration = Duration::from_secs(20 * 60);
 
@@ -78,7 +78,7 @@ pub fn run(args: WatchArgs) -> Result<ExitCode, RcleanError> {
 fn run_inner(args: WatchArgs) -> Result<ExitCode, RcleanError> {
     let options = args.common.to_scan_options()?;
     let roots = args.common.paths_or_current_dir();
-    let every = parse::parse_duration(&args.every)?;
+    let every = args.every;
 
     let report = scan::scan(&roots, &options)?;
     output::print_table(&report)?;

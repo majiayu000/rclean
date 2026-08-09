@@ -20,7 +20,7 @@ a repository-native design format after an issue is linked. Follow
 
 ## Complete retained index
 
-There are exactly 50 historical packet directories and 150 packet files in the
+There are exactly 51 historical packet directories and 153 packet files in the
 index below. Every packet contains one `product.md`, one `tech.md`, and one
 `tasks.md`.
 
@@ -76,3 +76,4 @@ index below. Every packet contains one `product.md`, one `tech.md`, and one
 | GH358 | [product](GH358/product.md) | [tech](GH358/tech.md) | [tasks](GH358/tasks.md) |
 | GH361 | [product](GH361/product.md) | [tech](GH361/tech.md) | [tasks](GH361/tasks.md) |
 | GH369 | [product](GH369/product.md) | [tech](GH369/tech.md) | [tasks](GH369/tasks.md) |
+| GH373 | [product](GH373/product.md) | [tech](GH373/tech.md) | [tasks](GH373/tasks.md) |

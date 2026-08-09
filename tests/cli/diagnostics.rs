@@ -155,6 +155,17 @@ fn watch_help_exposes_poll_interval() {
         .stdout(predicate::str::contains("--every"));
 }
 
+#[test]
+fn watch_rejects_scan_age_units_before_scanning() {
+    let mut cmd = Command::cargo_bin("rclean").unwrap();
+    cmd.args(["watch", "--every", "5d"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid timeout unit 'd'. Use s, m, or h",
+        ));
+}
+
 #[cfg(feature = "tui")]
 #[test]
 fn tui_falls_back_to_text_selection_when_alt_screen_unavailable() {
