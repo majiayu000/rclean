@@ -32,6 +32,11 @@ include breaking changes per semver 0.x; each break is noted explicitly.
   (`s`, `m`, and `h`); scan-age flags keep their existing month semantics.
   (#373)
 
+- Parallel scan warnings now use the same deterministic kind/path/message
+  order as candidate sizing warnings. Identical scans no longer reorder JSON
+  warnings based on worker completion timing, and no warnings are dropped or
+  deduplicated. (#374)
+
 - The `scan` table's Project column now truncates long paths from the
   left, keeping the tail. Right-truncation collapsed distinct apps —
   `~/Library/Application Support/Code` and `.../Cursor` — to the same

@@ -563,7 +563,7 @@ fn dir_size_walkdir(path: &Path) -> SizeOutcome {
     outcome
 }
 
-fn sort_warnings(warnings: &mut [ScanWarning]) {
+pub(super) fn sort_warnings(warnings: &mut [ScanWarning]) {
     warnings.sort_by(|left, right| warning_parts(left).cmp(&warning_parts(right)));
 }
 
