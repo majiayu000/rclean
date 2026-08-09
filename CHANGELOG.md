@@ -26,6 +26,12 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ### Fixed
 
+- `watch --every 5m` now polls every five minutes instead of interpreting `m`
+  as the scan-age parser's 30-day month and waiting 150 days. Watch intervals
+  are validated before scanning and accept the existing short-duration units
+  (`s`, `m`, and `h`); scan-age flags keep their existing month semantics.
+  (#373)
+
 - Parallel scan warnings now use the same deterministic kind/path/message
   order as candidate sizing warnings. Identical scans no longer reorder JSON
   warnings based on worker completion timing, and no warnings are dropped or
