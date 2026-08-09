@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 
 use crate::agent::AgentTool;
 use crate::model::Category;
-use crate::parse::{parse_duration, parse_size};
+use crate::parse::{parse_duration, parse_size, parse_timeout_duration};
 use crate::scan::{DEFAULT_ACTIVITY_DEPTH, DEFAULT_GIT_TIMEOUT_SECS, ScanOptions};
 
 #[derive(Debug, Parser)]
@@ -353,8 +353,12 @@ pub struct WatchArgs {
     pub common: CommonScanArgs,
 
     /// Poll interval after the watcher is idle or unavailable. Examples: 60s, 5m.
-    #[arg(long, default_value = "60s")]
-    pub every: String,
+    #[arg(
+        long,
+        default_value = "60s",
+        value_parser = parse_timeout_duration
+    )]
+    pub every: Duration,
 }
 
 #[derive(Debug, Args)]
@@ -592,4 +596,41 @@ fn tmp_workspace_paths() -> Vec<PathBuf> {
     roots.sort();
     roots.dedup();
     roots
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn watch_args(argv: &[&str]) -> WatchArgs {
+        let cli = Cli::try_parse_from(argv).expect("watch arguments should parse");
+        let Some(Commands::Watch(args)) = cli.command else {
+            panic!("expected watch command");
+        };
+        args
+    }
+
+    #[test]
+    fn watch_interval_uses_short_duration_semantics() {
+        assert_eq!(
+            watch_args(&["rclean", "watch"]).every,
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            watch_args(&["rclean", "watch", "--every", "5m"]).every,
+            Duration::from_secs(5 * 60)
+        );
+        assert_eq!(
+            watch_args(&["rclean", "watch", "--every", "1h"]).every,
+            Duration::from_secs(60 * 60)
+        );
+    }
+
+    #[test]
+    fn watch_interval_rejects_scan_age_only_units() {
+        let error = Cli::try_parse_from(["rclean", "watch", "--every", "5d"])
+            .expect_err("watch intervals must reject scan-age-only units");
+
+        assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
+    }
 }
