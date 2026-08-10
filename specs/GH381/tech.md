@@ -12,6 +12,8 @@
   "issue": 381,
   "complete": true,
   "paths": [
+    "Cargo.lock",
+    "Cargo.toml",
     "CHANGELOG.md",
     "specs/README.md",
     "specs/GH381/product.md",
@@ -56,7 +58,15 @@ Use two content rows for the summary and controls:
 - controls row 2: search, sort, filter, movement, and a short review/confirm cue.
 
 Add an explicit candidate column title and include the textual safety value in
-every row. Color and glyphs remain supplementary signals.
+every row. Color and glyphs remain supplementary signals. Use Unicode display
+width and grapheme-aware truncation so CJK and emoji paths fit the same terminal
+column budget as ASCII paths. When a narrow viewport cannot fit the fixed
+metadata columns plus a useful path tail, collapse the row to the truncated path
+tail instead of overflowing the viewport.
+
+Pass a typed continuation value into the selector. Cleanup callers describe the
+existing confirmation step, while standalone `tui` describes ActionPlan writing
+and states that it does not clean.
 
 ### Cancellation contract
 
@@ -71,6 +81,8 @@ The three TUI callers handle `Cancelled` immediately with exit code 3:
 - `free --interactive` returns before plan rendering and confirmation.
 
 No cancellation path reaches selection, confirmation, or deletion logic.
+For clean with `--write-plan`, plan writing happens only after the selection
+outcome is confirmed, so cancellation neither creates nor overwrites the path.
 
 ## Product-to-Test Mapping
 
@@ -82,6 +94,8 @@ No cancellation path reaches selection, confirmation, or deletion logic.
 | B-005 | early returns in three callers | match branches plus existing output tests |
 | B-006 | confirmed vector unchanged | existing selector/clean/free suites |
 | B-007 | text path wraps `Confirmed` | feature-combination tests |
+| B-008 | display-width-aware row fitting | CJK/emoji row-width unit test |
+| B-009 | typed selector continuation | clean/standalone controls unit tests |
 
 ## Verification
 

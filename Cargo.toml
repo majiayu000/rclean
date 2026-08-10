@@ -28,7 +28,12 @@ pkg-fmt = "zip"
 [features]
 default = ["graveyard", "tui"]
 graveyard = []
-tui = ["dep:crossterm", "dep:ratatui"]
+tui = [
+    "dep:crossterm",
+    "dep:ratatui",
+    "dep:unicode-truncate",
+    "dep:unicode-width",
+]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
@@ -47,6 +52,8 @@ toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 trash = "5.2"
+unicode-truncate = { version = "2", optional = true }
+unicode-width = { version = "0.2", optional = true }
 wait-timeout = "0.2"
 walkdir = "2.5"
 clap_complete = "4.5"

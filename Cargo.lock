@@ -1746,6 +1746,8 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trash",
+ "unicode-truncate",
+ "unicode-width",
  "wait-timeout",
  "walkdir",
 ]

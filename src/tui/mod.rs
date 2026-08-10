@@ -12,6 +12,7 @@ use crate::cli::CommonScanArgs;
 use crate::error::RcleanError;
 use crate::model::ScanReport;
 use crate::{plan, scan};
+use select::SelectionNextStep;
 
 pub fn select_candidates(
     report: &ScanReport,
@@ -21,7 +22,7 @@ pub fn select_candidates(
         eprintln!("alternate screen unavailable; falling back to text selection");
         return select_interactively_text(report, include_caution).map(SelectionOutcome::Confirmed);
     }
-    select::run(report)
+    select::run(report, SelectionNextStep::ConfirmCleanup)
 }
 
 pub fn select_candidates_with_preselected(
@@ -38,13 +39,24 @@ pub fn select_candidates_with_preselected(
         )
         .map(SelectionOutcome::Confirmed);
     }
-    select::run_with_preselected(report, preselected_paths)
+    select::run_with_preselected(report, preselected_paths, SelectionNextStep::ConfirmCleanup)
+}
+
+fn select_candidates_for_plan(
+    report: &ScanReport,
+    include_caution: bool,
+) -> Result<SelectionOutcome, crate::error::CleanError> {
+    if !theme::supports_alternate_screen() {
+        eprintln!("alternate screen unavailable; falling back to text selection");
+        return select_interactively_text(report, include_caution).map(SelectionOutcome::Confirmed);
+    }
+    select::run(report, SelectionNextStep::WriteActionPlan)
 }
 
 pub fn run_command(args: CommonScanArgs) -> Result<ExitCode, RcleanError> {
     let options = args.to_scan_options()?;
     let report = scan::scan(&args.paths_or_current_dir(), &options)?;
-    let selected = match select_candidates(&report, args.include_caution)? {
+    let selected = match select_candidates_for_plan(&report, args.include_caution)? {
         SelectionOutcome::Confirmed(selected) => selected,
         SelectionOutcome::Cancelled => return Ok(ExitCode::from(3)),
     };

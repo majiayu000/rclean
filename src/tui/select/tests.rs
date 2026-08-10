@@ -145,7 +145,8 @@ fn preselects_matching_safe_candidate_by_path() {
     let mut preselected = BTreeSet::new();
     preselected.insert(PathBuf::from("/tmp/root/app/node_modules"));
 
-    let app = SelectorApp::new_with_preselected(&report, &preselected);
+    let app =
+        SelectorApp::new_with_preselected(&report, &preselected, SelectionNextStep::ConfirmCleanup);
 
     assert_eq!(app.selected.len(), 1);
     let selected = app.selected_candidates();
@@ -211,7 +212,7 @@ fn compact_summary_and_controls_keep_critical_actions_within_80_columns() {
     assert_eq!(summary_lines.len(), 2);
     assert!(summary_lines[1].contains("Reclaim"));
     assert!(summary_lines[1].contains("Selected"));
-    assert!(summary_lines[1].chars().count() <= 78);
+    assert!(display_width(summary_lines[1]) <= 78);
 
     let controls = app.controls();
     let control_lines = controls.lines().collect::<Vec<_>>();
@@ -224,7 +225,23 @@ fn compact_summary_and_controls_keep_critical_actions_within_80_columns() {
     ] {
         assert!(control_lines[0].contains(label));
     }
-    assert!(control_lines.iter().all(|line| line.chars().count() <= 78));
+    assert!(control_lines.iter().all(|line| display_width(line) <= 78));
+}
+
+#[test]
+fn standalone_tui_controls_describe_action_plan_without_cleanup() {
+    let report = selector_report();
+    let app = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::WriteActionPlan,
+    );
+
+    let controls = app.controls();
+    assert!(controls.contains("[enter] plan"));
+    assert!(controls.contains("save ActionPlan; no cleanup"));
+    assert!(!controls.contains("confirm follows"));
+    assert!(controls.lines().all(|line| display_width(line) <= 78));
 }
 
 #[test]
@@ -233,13 +250,36 @@ fn candidate_row_is_labeled_and_keeps_the_distinguishing_path_tail() {
     let app = SelectorApp::new(&report);
     assert!(CANDIDATE_COLUMNS.contains("Safety"));
     assert!(CANDIDATE_COLUMNS.contains("Stale"));
-    assert!(CANDIDATE_COLUMNS.chars().count() <= 78);
+    assert!(display_width(CANDIDATE_COLUMNS) <= 78);
 
     let row = app.list_item_text(0, 76);
     assert!(row.contains("safe"));
     assert!(row.contains("node_modules"));
     assert!(row.ends_with("node_modules"));
-    assert!(row.chars().count() <= 76);
+    assert!(display_width(&row) <= 76);
+}
+
+#[test]
+fn candidate_row_truncates_wide_unicode_by_terminal_columns() {
+    let mut report = fixture_report();
+    report.projects[0].candidates[0].name = "缓存缓存缓存缓存缓存缓存缓存缓存缓存".to_string();
+    report.projects[0].candidates[0].path = "/tmp/root/项目/缓存/🧰工具/node_modules".to_string();
+    let app = SelectorApp::new(&report);
+
+    let row = app.list_item_text(0, 76);
+
+    assert!(row.ends_with("node_modules"));
+    assert!(display_width(&row) <= 76);
+
+    for width in 0..=56 {
+        let row = app.list_item_text(0, width);
+        assert!(
+            display_width(&row) <= width,
+            "row width {} exceeds terminal width {width}",
+            display_width(&row)
+        );
+    }
+    assert!(app.list_item_text(0, 16).ends_with("node_modules"));
 }
 
 #[test]

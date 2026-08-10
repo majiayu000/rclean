@@ -19,14 +19,19 @@ the change is output/cancellation-only and does not alter the trust model.
 - [x] Bound compact summary/control lines at 80 columns.
 - [x] Assert critical controls, column labels, and textual safety remain visible.
 - [x] Assert quit differs from confirmed-empty selection.
-- Covers: B-001 through B-005.
+- [x] Assert cancellation does not create or overwrite `--write-plan`.
+- [x] Assert CJK/emoji rows fit by terminal display width.
+- [x] Assert standalone `tui` describes ActionPlan writing rather than cleanup confirmation.
+- Covers: B-001 through B-005, B-008, B-009.
 
 ### SP381-T2 - Make the selector responsive
 
 - [x] Split summary and controls into two content rows.
 - [x] Add a candidate column title and safety text.
 - [x] Keep review/confirmation semantics visible.
-- Covers: B-001, B-002, B-003.
+- [x] Fit candidate labels and paths by terminal display width.
+- [x] Render caller-specific cleanup/ActionPlan continuation cues.
+- Covers: B-001, B-002, B-003, B-008, B-009.
 
 ### SP381-T3 - Preserve cancellation through callers
 
@@ -44,6 +49,6 @@ the change is output/cancellation-only and does not alter the trust model.
 
 ## Invariant Coverage Audit
 
-- Product invariant set: `{B-001, B-002, B-003, B-004, B-005, B-006, B-007}`
-- Task coverage union: `{B-001, B-002, B-003, B-004, B-005, B-006, B-007}`
+- Product invariant set: `{B-001, B-002, B-003, B-004, B-005, B-006, B-007, B-008, B-009}`
+- Task coverage union: `{B-001, B-002, B-003, B-004, B-005, B-006, B-007, B-008, B-009}`
 - Missing invariants: `none`

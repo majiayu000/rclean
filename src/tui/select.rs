@@ -13,6 +13,8 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use unicode_truncate::UnicodeTruncateStr;
+use unicode_width::UnicodeWidthStr;
 
 use crate::clean::{SelectedCandidate, SelectionOutcome};
 use crate::error::CleanError;
@@ -117,14 +119,25 @@ impl CategoryFilter {
 }
 
 const CANDIDATE_COLUMNS: &str = "Sel Safety      Kind        Size Stale Candidate        Path";
+const MIN_PATH_TAIL_WIDTH: usize = 16;
 
-pub fn run(report: &ScanReport) -> Result<SelectionOutcome, CleanError> {
-    run_with_preselected(report, &BTreeSet::new())
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SelectionNextStep {
+    ConfirmCleanup,
+    WriteActionPlan,
+}
+
+pub fn run(
+    report: &ScanReport,
+    next_step: SelectionNextStep,
+) -> Result<SelectionOutcome, CleanError> {
+    run_with_preselected(report, &BTreeSet::new(), next_step)
 }
 
 pub fn run_with_preselected(
     report: &ScanReport,
     preselected_paths: &BTreeSet<PathBuf>,
+    next_step: SelectionNextStep,
 ) -> Result<SelectionOutcome, CleanError> {
     let mut stdout = io::stdout();
     enable_raw_mode().map_err(clean_error)?;
@@ -133,7 +146,7 @@ pub fn run_with_preselected(
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend).map_err(clean_error)?;
-    let mut app = SelectorApp::new_with_preselected(report, preselected_paths);
+    let mut app = SelectorApp::new_with_preselected(report, preselected_paths, next_step);
 
     loop {
         terminal
@@ -166,15 +179,20 @@ struct SelectorApp {
     explain_open: bool,
     done: bool,
     cancelled: bool,
+    next_step: SelectionNextStep,
 }
 
 impl SelectorApp {
     #[cfg(test)]
     fn new(report: &ScanReport) -> Self {
-        Self::new_with_preselected(report, &BTreeSet::new())
+        Self::new_with_preselected(report, &BTreeSet::new(), SelectionNextStep::ConfirmCleanup)
     }
 
-    fn new_with_preselected(report: &ScanReport, preselected_paths: &BTreeSet<PathBuf>) -> Self {
+    fn new_with_preselected(
+        report: &ScanReport,
+        preselected_paths: &BTreeSet<PathBuf>,
+        next_step: SelectionNextStep,
+    ) -> Self {
         let rows = rows_from_report(report);
         let selected = rows
             .iter()
@@ -195,6 +213,7 @@ impl SelectorApp {
             explain_open: false,
             done: false,
             cancelled: false,
+            next_step,
         };
         app.apply_filter();
         app
@@ -277,8 +296,13 @@ impl SelectorApp {
         if self.search_mode {
             format!("Search: /{}\n[enter] apply  [esc] leave search", self.query)
         } else {
-            "[space] toggle | [a] all-safe | [?] explain | [enter] review | [q] quit\n[/] search | [s] sort | [c] filter | [j/k] move | review only; confirm follows"
-                .to_string()
+            let (enter_action, continuation) = match self.next_step {
+                SelectionNextStep::ConfirmCleanup => ("review", "review only; confirm follows"),
+                SelectionNextStep::WriteActionPlan => ("plan", "save ActionPlan; no cleanup"),
+            };
+            format!(
+                "[space] toggle | [a] all-safe | [?] explain | [enter] {enter_action} | [q] quit\n[/] search | [s] sort | [c] filter | [j/k] move | {continuation}"
+            )
         }
     }
 
@@ -295,16 +319,20 @@ impl SelectorApp {
     fn list_item_text(&self, index: usize, width: usize) -> String {
         let row = &self.rows[index];
         let selected = self.selected.contains(&row.identity());
+        let label = pad_right(&row.label, 16);
         let prefix = format!(
-            "{} {:<11} {:<6} {:>9} {:>5} {:<16} ",
+            "{} {:<11} {:<6} {:>9} {:>5} {label} ",
             glyph(row.safety, selected),
             row.safety,
             row.category,
             format_bytes(row.bytes),
             crate::output::format_staleness(row.staleness_days),
-            truncate(&row.label, 16),
         );
-        let path_width = width.saturating_sub(prefix.chars().count());
+        let prefix_width = display_width(&prefix);
+        if width < prefix_width.saturating_add(MIN_PATH_TAIL_WIDTH) {
+            return truncate_left(&row.path, width);
+        }
+        let path_width = width - prefix_width;
         format!("{prefix}{}", truncate_left(&row.path, path_width))
     }
 
@@ -616,33 +644,35 @@ fn block(title: &'static str) -> Block<'static> {
 }
 
 fn truncate(value: &str, width: usize) -> String {
-    let chars = value.chars().collect::<Vec<_>>();
-    if chars.len() <= width {
-        return value.to_string();
-    }
-    chars
-        .into_iter()
-        .take(width.saturating_sub(1))
-        .chain(std::iter::once('~'))
-        .collect()
-}
-
-fn truncate_left(value: &str, width: usize) -> String {
-    let chars = value.chars().collect::<Vec<_>>();
-    if chars.len() <= width {
+    if display_width(value) <= width {
         return value.to_string();
     }
     if width == 0 {
         return String::new();
     }
-    let skip = chars.len().saturating_sub(width.saturating_sub(1));
-    chars
-        .into_iter()
-        .skip(skip)
-        .fold(String::from("~"), |mut output, ch| {
-            output.push(ch);
-            output
-        })
+    let (truncated, _) = value.unicode_truncate(width - 1);
+    format!("{truncated}~")
+}
+
+fn truncate_left(value: &str, width: usize) -> String {
+    if display_width(value) <= width {
+        return value.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let (truncated, _) = value.unicode_truncate_start(width - 1);
+    format!("~{truncated}")
+}
+
+fn pad_right(value: &str, width: usize) -> String {
+    let value = truncate(value, width);
+    let padding = width.saturating_sub(display_width(&value));
+    format!("{value}{}", " ".repeat(padding))
+}
+
+fn display_width(value: &str) -> usize {
+    UnicodeWidthStr::width(value)
 }
 
 fn clean_error(error: impl std::fmt::Display) -> CleanError {
