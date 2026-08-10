@@ -245,9 +245,54 @@ fn standalone_tui_controls_describe_action_plan_without_cleanup() {
 }
 
 #[test]
+fn cleanup_controls_describe_dry_run_and_nonprompting_modes() {
+    let report = selector_report();
+    assert_eq!(
+        SelectionNextStep::for_clean(false, false),
+        SelectionNextStep::ConfirmCleanup
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(true, false),
+        SelectionNextStep::PreviewDryRun
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(false, true),
+        SelectionNextStep::ExecuteWithoutPrompt
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(true, true),
+        SelectionNextStep::PreviewDryRun
+    );
+    let dry_run = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::PreviewDryRun,
+    );
+    let dry_run_controls = dry_run.controls();
+    assert!(dry_run_controls.contains("[enter] preview"));
+    assert!(dry_run_controls.contains("dry run only; no cleanup"));
+    assert!(!dry_run_controls.contains("confirm follows"));
+
+    let no_prompt = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::ExecuteWithoutPrompt,
+    );
+    let no_prompt_controls = no_prompt.controls();
+    assert!(no_prompt_controls.contains("[enter] clean"));
+    assert!(no_prompt_controls.contains("cleanup follows; no prompt"));
+    assert!(!no_prompt_controls.contains("confirm follows"));
+
+    for controls in [dry_run_controls, no_prompt_controls] {
+        assert!(controls.lines().all(|line| display_width(line) <= 78));
+    }
+}
+
+#[test]
 fn candidate_row_is_labeled_and_keeps_the_distinguishing_path_tail() {
     let report = fixture_report();
     let app = SelectorApp::new(&report);
+    assert!(CANDIDATE_COLUMNS.starts_with("   Sel"));
     assert!(CANDIDATE_COLUMNS.contains("Safety"));
     assert!(CANDIDATE_COLUMNS.contains("Stale"));
     assert!(display_width(CANDIDATE_COLUMNS) <= 78);
@@ -280,6 +325,23 @@ fn candidate_row_truncates_wide_unicode_by_terminal_columns() {
         );
     }
     assert!(app.list_item_text(0, 16).ends_with("node_modules"));
+}
+
+#[test]
+fn ctrl_c_cancels_while_search_is_active() {
+    let report = fixture_report();
+    let mut app = SelectorApp::new(&report);
+    app.handle_key(key(KeyCode::Char('/')));
+    assert!(app.search_mode);
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+    assert!(app.cancelled);
+    assert!(app.query.is_empty());
+    assert!(matches!(
+        app.selection_outcome(),
+        SelectionOutcome::Cancelled
+    ));
 }
 
 #[test]

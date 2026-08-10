@@ -22,21 +22,26 @@ the change is output/cancellation-only and does not alter the trust model.
 - [x] Assert cancellation does not create or overwrite `--write-plan`.
 - [x] Assert CJK/emoji rows fit by terminal display width.
 - [x] Assert standalone `tui` describes ActionPlan writing rather than cleanup confirmation.
+- [x] Assert dry-run and prompt-free cleanup cues describe their real continuation.
+- [x] Assert Ctrl-C cancels while search is active.
+- [x] Assert column headings use the same inset as list rows.
 - Covers: B-001 through B-005, B-008, B-009.
 
 ### SP381-T2 - Make the selector responsive
 
 - [x] Split summary and controls into two content rows.
 - [x] Add a candidate column title and safety text.
+- [x] Align the candidate column title with bordered/highlighted list rows.
 - [x] Keep review/confirmation semantics visible.
 - [x] Fit candidate labels and paths by terminal display width.
-- [x] Render caller-specific cleanup/ActionPlan continuation cues.
+- [x] Render caller-specific confirm/dry-run/no-prompt/ActionPlan continuation cues.
 - Covers: B-001, B-002, B-003, B-008, B-009.
 
 ### SP381-T3 - Preserve cancellation through callers
 
 - [x] Return an explicit selection outcome from the TUI.
 - [x] Exit clean, standalone TUI, and interactive free before post-selection output.
+- [x] Handle Ctrl-C before normal/search-mode dispatch.
 - [x] Leave the text fallback and confirmed-selection pipeline unchanged.
 - Covers: B-004 through B-007.
 

@@ -15,7 +15,12 @@ pub fn select_candidates(
     if args.tui {
         #[cfg(feature = "tui")]
         {
-            return crate::tui::select_candidates(report, args.common.include_caution);
+            return crate::tui::select_candidates(
+                report,
+                args.common.include_caution,
+                args.dry_run,
+                args.yes,
+            );
         }
         #[cfg(not(feature = "tui"))]
         {

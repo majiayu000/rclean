@@ -118,13 +118,27 @@ impl CategoryFilter {
     }
 }
 
-const CANDIDATE_COLUMNS: &str = "Sel Safety      Kind        Size Stale Candidate        Path";
+const CANDIDATE_COLUMNS: &str = "   Sel Safety      Kind        Size Stale Candidate        Path";
 const MIN_PATH_TAIL_WIDTH: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SelectionNextStep {
     ConfirmCleanup,
+    PreviewDryRun,
+    ExecuteWithoutPrompt,
     WriteActionPlan,
+}
+
+impl SelectionNextStep {
+    pub(super) fn for_clean(dry_run: bool, skip_confirmation: bool) -> Self {
+        if dry_run {
+            Self::PreviewDryRun
+        } else if skip_confirmation {
+            Self::ExecuteWithoutPrompt
+        } else {
+            Self::ConfirmCleanup
+        }
+    }
 }
 
 pub fn run(
@@ -298,6 +312,8 @@ impl SelectorApp {
         } else {
             let (enter_action, continuation) = match self.next_step {
                 SelectionNextStep::ConfirmCleanup => ("review", "review only; confirm follows"),
+                SelectionNextStep::PreviewDryRun => ("preview", "dry run only; no cleanup"),
+                SelectionNextStep::ExecuteWithoutPrompt => ("clean", "cleanup follows; no prompt"),
                 SelectionNextStep::WriteActionPlan => ("plan", "save ActionPlan; no cleanup"),
             };
             format!(
@@ -413,15 +429,16 @@ impl SelectorApp {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.cancelled = true;
+            return;
+        }
         if self.search_mode {
             self.handle_search_key(key);
             return;
         }
 
         match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cancelled = true;
-            }
             KeyCode::Char('?') => self.explain_open = !self.explain_open,
             KeyCode::Esc if self.explain_open => self.explain_open = false,
             KeyCode::Char('q') | KeyCode::Esc => self.cancelled = true,

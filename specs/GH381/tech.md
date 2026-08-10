@@ -58,15 +58,16 @@ Use two content rows for the summary and controls:
 - controls row 2: search, sort, filter, movement, and a short review/confirm cue.
 
 Add an explicit candidate column title and include the textual safety value in
-every row. Color and glyphs remain supplementary signals. Use Unicode display
-width and grapheme-aware truncation so CJK and emoji paths fit the same terminal
-column budget as ASCII paths. When a narrow viewport cannot fit the fixed
-metadata columns plus a useful path tail, collapse the row to the truncated path
-tail instead of overflowing the viewport.
+every row. Inset the title by the list border plus highlight-symbol width so its
+labels align with row fields. Color and glyphs remain supplementary signals.
+Use Unicode display width and grapheme-aware truncation so CJK and emoji paths
+fit the same terminal column budget as ASCII paths. When a narrow viewport
+cannot fit the fixed metadata columns plus a useful path tail, collapse the row
+to the truncated path tail instead of overflowing the viewport.
 
-Pass a typed continuation value into the selector. Cleanup callers describe the
-existing confirmation step, while standalone `tui` describes ActionPlan writing
-and states that it does not clean.
+Pass a typed continuation value into the selector. Cleanup callers distinguish
+normal confirmation, dry-run preview, and `--yes` prompt-free cleanup, while
+standalone `tui` describes ActionPlan writing and states that it does not clean.
 
 ### Cancellation contract
 
@@ -83,19 +84,21 @@ The three TUI callers handle `Cancelled` immediately with exit code 3:
 No cancellation path reaches selection, confirmation, or deletion logic.
 For clean with `--write-plan`, plan writing happens only after the selection
 outcome is confirmed, so cancellation neither creates nor overwrites the path.
+Handle Ctrl-C before search-mode key dispatch so search cannot reinterpret it
+as query text.
 
 ## Product-to-Test Mapping
 
 | Invariant | Implementation | Verification |
 | --- | --- | --- |
 | B-001/B-002 | two-row compact strings and taller blocks | 80-column line-length/label unit tests |
-| B-003 | candidate title plus textual safety column | list title/item assertions |
-| B-004 | `SelectionOutcome` from TUI loop | key/outcome unit tests |
+| B-003 | aligned candidate title plus textual safety column | list title/item assertions |
+| B-004 | global Ctrl-C handling plus `SelectionOutcome` | normal/search key outcome tests |
 | B-005 | early returns in three callers | match branches plus existing output tests |
 | B-006 | confirmed vector unchanged | existing selector/clean/free suites |
 | B-007 | text path wraps `Confirmed` | feature-combination tests |
 | B-008 | display-width-aware row fitting | CJK/emoji row-width unit test |
-| B-009 | typed selector continuation | clean/standalone controls unit tests |
+| B-009 | typed selector continuation | confirm/dry-run/no-prompt/standalone controls tests |
 
 ## Verification
 

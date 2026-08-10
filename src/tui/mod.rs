@@ -17,12 +17,17 @@ use select::SelectionNextStep;
 pub fn select_candidates(
     report: &ScanReport,
     include_caution: bool,
+    dry_run: bool,
+    skip_confirmation: bool,
 ) -> Result<SelectionOutcome, crate::error::CleanError> {
     if !theme::supports_alternate_screen() {
         eprintln!("alternate screen unavailable; falling back to text selection");
         return select_interactively_text(report, include_caution).map(SelectionOutcome::Confirmed);
     }
-    select::run(report, SelectionNextStep::ConfirmCleanup)
+    select::run(
+        report,
+        SelectionNextStep::for_clean(dry_run, skip_confirmation),
+    )
 }
 
 pub fn select_candidates_with_preselected(
