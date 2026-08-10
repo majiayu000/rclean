@@ -98,10 +98,14 @@ Escalate to maintainer review before implementing or publishing details for:
 - Link PRs to their GitHub issue and, for substantial work, to
   `specs/GH<number>/product.md`, `tech.md`, and `tasks.md`.
 - Agents may draft specs, code, review notes, and release notes.
-- Agents may merge only when a maintainer explicitly authorizes that specific
-  PR or unambiguously refers to the current PR. Before merging, agents must
-  freshly verify the current head SHA, required CI, unresolved review-thread
-  state, and GitHub merge state.
+- Agents may merge only after a maintainer explicitly authorizes merging the
+  specific PR at its current head SHA. The authorization must identify the PR
+  by number or URL, or unambiguously designate it as the current PR. Any head
+  change invalidates the authorization and requires renewed maintainer
+  authorization.
+- Immediately before merging, agents must verify that the authorized head SHA
+  is unchanged, every required CI check passed, every review thread is
+  resolved, and GitHub reports both `MERGEABLE` and a `CLEAN` merge state.
 - Merge execution is not final approval. Agents must not force push, provide
   final approval, change repository permissions, or publish private security
   details.
