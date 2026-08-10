@@ -7,7 +7,7 @@ use std::process::ExitCode;
 
 use chrono::Utc;
 
-use crate::clean::{SelectedCandidate, select_interactively_text};
+use crate::clean::{SelectedCandidate, SelectionOutcome, select_interactively_text};
 use crate::cli::CommonScanArgs;
 use crate::error::RcleanError;
 use crate::model::ScanReport;
@@ -16,10 +16,10 @@ use crate::{plan, scan};
 pub fn select_candidates(
     report: &ScanReport,
     include_caution: bool,
-) -> Result<Vec<SelectedCandidate>, crate::error::CleanError> {
+) -> Result<SelectionOutcome, crate::error::CleanError> {
     if !theme::supports_alternate_screen() {
         eprintln!("alternate screen unavailable; falling back to text selection");
-        return select_interactively_text(report, include_caution);
+        return select_interactively_text(report, include_caution).map(SelectionOutcome::Confirmed);
     }
     select::run(report)
 }
@@ -28,14 +28,15 @@ pub fn select_candidates_with_preselected(
     report: &ScanReport,
     include_caution: bool,
     preselected_paths: &std::collections::BTreeSet<std::path::PathBuf>,
-) -> Result<Vec<SelectedCandidate>, crate::error::CleanError> {
+) -> Result<SelectionOutcome, crate::error::CleanError> {
     if !theme::supports_alternate_screen() {
         eprintln!("alternate screen unavailable; falling back to text selection");
         return crate::clean::select_interactively_text_with_preselected(
             report,
             include_caution,
             preselected_paths,
-        );
+        )
+        .map(SelectionOutcome::Confirmed);
     }
     select::run_with_preselected(report, preselected_paths)
 }
@@ -43,7 +44,10 @@ pub fn select_candidates_with_preselected(
 pub fn run_command(args: CommonScanArgs) -> Result<ExitCode, RcleanError> {
     let options = args.to_scan_options()?;
     let report = scan::scan(&args.paths_or_current_dir(), &options)?;
-    let selected = select_candidates(&report, args.include_caution)?;
+    let selected = match select_candidates(&report, args.include_caution)? {
+        SelectionOutcome::Confirmed(selected) => selected,
+        SelectionOutcome::Cancelled => return Ok(ExitCode::from(3)),
+    };
     if selected.is_empty() {
         eprintln!("no candidates selected");
         return Ok(ExitCode::from(3));

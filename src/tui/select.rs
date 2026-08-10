@@ -14,7 +14,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
-use crate::clean::SelectedCandidate;
+use crate::clean::{SelectedCandidate, SelectionOutcome};
 use crate::error::CleanError;
 use crate::model::{Candidate, Category, ProjectReport, Safety, ScanReport, format_bytes};
 
@@ -116,14 +116,16 @@ impl CategoryFilter {
     }
 }
 
-pub fn run(report: &ScanReport) -> Result<Vec<SelectedCandidate>, CleanError> {
+const CANDIDATE_COLUMNS: &str = "Sel Safety      Kind        Size Stale Candidate        Path";
+
+pub fn run(report: &ScanReport) -> Result<SelectionOutcome, CleanError> {
     run_with_preselected(report, &BTreeSet::new())
 }
 
 pub fn run_with_preselected(
     report: &ScanReport,
     preselected_paths: &BTreeSet<PathBuf>,
-) -> Result<Vec<SelectedCandidate>, CleanError> {
+) -> Result<SelectionOutcome, CleanError> {
     let mut stdout = io::stdout();
     enable_raw_mode().map_err(clean_error)?;
     execute!(stdout, EnterAlternateScreen).map_err(clean_error)?;
@@ -138,10 +140,10 @@ pub fn run_with_preselected(
             .draw(|frame| app.render(frame))
             .map_err(clean_error)?;
         if app.done {
-            return Ok(app.selected_candidates());
+            return Ok(app.selection_outcome());
         }
         if app.cancelled {
-            return Ok(Vec::new());
+            return Ok(app.selection_outcome());
         }
         if event::poll(Duration::from_millis(200)).map_err(clean_error)?
             && let Event::Key(key) = event::read().map_err(clean_error)?
@@ -202,15 +204,16 @@ impl SelectorApp {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),
-                Constraint::Length(3),
+                Constraint::Length(4),
+                Constraint::Length(4),
+                Constraint::Length(1),
                 Constraint::Min(5),
                 Constraint::Length(3),
             ])
             .split(frame.area());
 
         frame.render_widget(
-            Paragraph::new(self.header()).block(block("rclean tui")),
+            Paragraph::new(self.header()).block(block("rclean - review candidates")),
             chunks[0],
         );
         frame.render_widget(
@@ -223,19 +226,24 @@ impl SelectorApp {
                 Paragraph::new(self.explain_detail())
                     .block(block("explain (esc or ? to close)"))
                     .wrap(ratatui::widgets::Wrap { trim: false }),
-                chunks[2],
+                chunks[3],
             );
             frame.render_widget(
                 Paragraph::new(self.explain()).block(block("explain")),
-                chunks[3],
+                chunks[4],
             );
             return;
         }
 
+        frame.render_widget(
+            Paragraph::new(CANDIDATE_COLUMNS).style(Style::default().add_modifier(Modifier::BOLD)),
+            chunks[2],
+        );
+
         let items = self
             .filtered
             .iter()
-            .map(|idx| self.list_item(*idx))
+            .map(|idx| self.list_item(*idx, chunks[3].width.saturating_sub(4) as usize))
             .collect::<Vec<_>>();
         let mut state = ListState::default();
         if !self.filtered.is_empty() {
@@ -245,51 +253,59 @@ impl SelectorApp {
             .block(block("candidates"))
             .highlight_symbol("> ")
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-        frame.render_stateful_widget(list, chunks[2], &mut state);
+        frame.render_stateful_widget(list, chunks[3], &mut state);
 
         frame.render_widget(
             Paragraph::new(self.explain()).block(block("explain")),
-            chunks[3],
+            chunks[4],
         );
     }
 
     fn header(&self) -> String {
         format!(
-            "Roots: {}  Sort: {}  Filter: {}  Reclaimable: {}  Selected: {} ({})",
+            "Roots: {}\nReclaim {} | Selected {} / {} | Sort: {} | Filter: {}",
             self.roots,
-            self.sort_mode.label(),
-            self.category_filter.label(),
             format_bytes(self.reclaimable_bytes()),
             self.selected.len(),
-            format_bytes(self.selected_bytes())
+            format_bytes(self.selected_bytes()),
+            self.sort_mode.label(),
+            self.category_filter.label()
         )
     }
 
     fn controls(&self) -> String {
         if self.search_mode {
-            format!("/{}  enter/esc to leave search", self.query)
+            format!("Search: /{}\n[enter] apply  [esc] leave search", self.query)
         } else {
-            "[/]search  [s]sort  [c]category  [space]toggle  [a]all-safe  [?]explain  [enter]plan  [q]quit".to_string()
+            "[space] toggle | [a] all-safe | [?] explain | [enter] review | [q] quit\n[/] search | [s] sort | [c] filter | [j/k] move | review only; confirm follows"
+                .to_string()
         }
     }
 
-    fn list_item(&self, index: usize) -> ListItem<'_> {
+    fn list_item(&self, index: usize, width: usize) -> ListItem<'_> {
         let row = &self.rows[index];
         let selected = self.selected.contains(&row.identity());
-        let glyph = glyph(row.safety, selected);
-        let text = format!(
-            "{} {:<8} {:>10} {:>6} {:<24} {}",
-            glyph,
-            row.category,
-            format_bytes(row.bytes),
-            crate::output::format_staleness(row.staleness_days),
-            truncate(&row.label, 24),
-            row.path
-        );
+        let text = self.list_item_text(index, width);
         ListItem::new(Line::from(vec![Span::styled(
             text,
             theme::candidate_style(row.safety, row.risk_score, selected),
         )]))
+    }
+
+    fn list_item_text(&self, index: usize, width: usize) -> String {
+        let row = &self.rows[index];
+        let selected = self.selected.contains(&row.identity());
+        let prefix = format!(
+            "{} {:<11} {:<6} {:>9} {:>5} {:<16} ",
+            glyph(row.safety, selected),
+            row.safety,
+            row.category,
+            format_bytes(row.bytes),
+            crate::output::format_staleness(row.staleness_days),
+            truncate(&row.label, 16),
+        );
+        let path_width = width.saturating_sub(prefix.chars().count());
+        format!("{prefix}{}", truncate_left(&row.path, path_width))
     }
 
     fn explain(&self) -> String {
@@ -483,6 +499,14 @@ impl SelectorApp {
             .collect()
     }
 
+    fn selection_outcome(&self) -> SelectionOutcome {
+        if self.cancelled {
+            SelectionOutcome::Cancelled
+        } else {
+            SelectionOutcome::Confirmed(self.selected_candidates())
+        }
+    }
+
     fn selected_bytes(&self) -> u64 {
         self.rows
             .iter()
@@ -601,6 +625,24 @@ fn truncate(value: &str, width: usize) -> String {
         .take(width.saturating_sub(1))
         .chain(std::iter::once('~'))
         .collect()
+}
+
+fn truncate_left(value: &str, width: usize) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.len() <= width {
+        return value.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let skip = chars.len().saturating_sub(width.saturating_sub(1));
+    chars
+        .into_iter()
+        .skip(skip)
+        .fold(String::from("~"), |mut output, ch| {
+            output.push(ch);
+            output
+        })
 }
 
 fn clean_error(error: impl std::fmt::Display) -> CleanError {

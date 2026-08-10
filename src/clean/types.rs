@@ -21,6 +21,12 @@ pub struct SelectedCandidate {
     pub risk_score: f32,
 }
 
+#[derive(Debug, Clone)]
+pub enum SelectionOutcome {
+    Confirmed(Vec<SelectedCandidate>),
+    Cancelled,
+}
+
 #[derive(Debug, Default)]
 pub struct CleanResult {
     pub cleaned: Vec<SelectedCandidate>,

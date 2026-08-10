@@ -6,12 +6,12 @@ use crate::cli::CleanArgs;
 use crate::error::CleanError;
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
 
-use super::types::{SelectableCandidate, SelectedCandidate};
+use super::types::{SelectableCandidate, SelectedCandidate, SelectionOutcome};
 
 pub fn select_candidates(
     report: &ScanReport,
     args: &CleanArgs,
-) -> Result<Vec<SelectedCandidate>, CleanError> {
+) -> Result<SelectionOutcome, CleanError> {
     if args.tui {
         #[cfg(feature = "tui")]
         {
@@ -31,11 +31,12 @@ pub fn select_candidates(
 fn select_candidates_text(
     report: &ScanReport,
     args: &CleanArgs,
-) -> Result<Vec<SelectedCandidate>, CleanError> {
+) -> Result<SelectionOutcome, CleanError> {
     let candidates = selectable_candidates(report);
 
     if !args.all {
-        return select_interactively(&candidates, args.common.include_caution, &BTreeSet::new());
+        return select_interactively(&candidates, args.common.include_caution, &BTreeSet::new())
+            .map(SelectionOutcome::Confirmed);
     }
 
     let mut selected = Vec::new();
@@ -46,7 +47,7 @@ fn select_candidates_text(
             selected.push(to_selected(item.candidate));
         }
     }
-    Ok(selected)
+    Ok(SelectionOutcome::Confirmed(selected))
 }
 
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]

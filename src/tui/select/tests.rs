@@ -203,6 +203,64 @@ fn selector_header_shows_sort_and_filter() {
 }
 
 #[test]
+fn compact_summary_and_controls_keep_critical_actions_within_80_columns() {
+    let report = selector_report();
+    let app = SelectorApp::new(&report);
+    let summary = app.header();
+    let summary_lines = summary.lines().collect::<Vec<_>>();
+    assert_eq!(summary_lines.len(), 2);
+    assert!(summary_lines[1].contains("Reclaim"));
+    assert!(summary_lines[1].contains("Selected"));
+    assert!(summary_lines[1].chars().count() <= 78);
+
+    let controls = app.controls();
+    let control_lines = controls.lines().collect::<Vec<_>>();
+    assert_eq!(control_lines.len(), 2);
+    for label in [
+        "[space] toggle",
+        "[?] explain",
+        "[enter] review",
+        "[q] quit",
+    ] {
+        assert!(control_lines[0].contains(label));
+    }
+    assert!(control_lines.iter().all(|line| line.chars().count() <= 78));
+}
+
+#[test]
+fn candidate_row_is_labeled_and_keeps_the_distinguishing_path_tail() {
+    let report = fixture_report();
+    let app = SelectorApp::new(&report);
+    assert!(CANDIDATE_COLUMNS.contains("Safety"));
+    assert!(CANDIDATE_COLUMNS.contains("Stale"));
+    assert!(CANDIDATE_COLUMNS.chars().count() <= 78);
+
+    let row = app.list_item_text(0, 76);
+    assert!(row.contains("safe"));
+    assert!(row.contains("node_modules"));
+    assert!(row.ends_with("node_modules"));
+    assert!(row.chars().count() <= 76);
+}
+
+#[test]
+fn quit_and_confirmed_empty_selection_are_distinct_outcomes() {
+    let report = fixture_report();
+    let mut cancelled = SelectorApp::new(&report);
+    cancelled.handle_key(key(KeyCode::Char('q')));
+    assert!(matches!(
+        cancelled.selection_outcome(),
+        SelectionOutcome::Cancelled
+    ));
+
+    let mut confirmed = SelectorApp::new(&report);
+    confirmed.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        confirmed.selection_outcome(),
+        SelectionOutcome::Confirmed(selected) if selected.is_empty()
+    ));
+}
+
+#[test]
 fn selector_selection_stability_across_sort_and_filter() {
     let report = selector_report();
     let mut app = SelectorApp::new(&report);

@@ -330,7 +330,10 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
             // stays visible without --verbose, matching v0.1.0.
             write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
         }
-        let selected = clean::select_candidates(&report, &args)?;
+        let selected = match clean::select_candidates(&report, &args)? {
+            clean::SelectionOutcome::Confirmed(selected) => selected,
+            clean::SelectionOutcome::Cancelled => return Ok(ExitCode::from(3)),
+        };
         (selected, Some(report))
     };
     let pre_delete_status = if selected.is_empty() {

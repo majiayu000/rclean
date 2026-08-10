@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use chrono::Utc;
 use serde::Serialize;
 
-use crate::clean::{CleanResult, SelectedCandidate};
+use crate::clean::{CleanResult, SelectedCandidate, SelectionOutcome};
 use crate::cli::FreeArgs;
 use crate::error::{CleanError, RcleanError};
 use crate::model::{Candidate, Safety, ScanReport, format_bytes};
@@ -205,7 +205,11 @@ fn run_interactive(
         .iter()
         .map(|entry| PathBuf::from(&entry.candidate.path))
         .collect();
-    let selected = select_interactively(report, args.common.include_caution, &preselected_paths)?;
+    let selected =
+        match select_interactively(report, args.common.include_caution, &preselected_paths)? {
+            SelectionOutcome::Confirmed(selected) => selected,
+            SelectionOutcome::Cancelled => return Ok(ExitCode::from(3)),
+        };
     let delete_mode = default_interactive_delete_mode();
     let clean_args = interactive_clean_args(args);
 
@@ -237,7 +241,7 @@ fn select_interactively(
     report: &ScanReport,
     include_caution: bool,
     preselected_paths: &BTreeSet<PathBuf>,
-) -> Result<Vec<SelectedCandidate>, RcleanError> {
+) -> Result<SelectionOutcome, RcleanError> {
     #[cfg(feature = "tui")]
     {
         crate::tui::select_candidates_with_preselected(report, include_caution, preselected_paths)
@@ -250,6 +254,7 @@ fn select_interactively(
             include_caution,
             preselected_paths,
         )
+        .map(SelectionOutcome::Confirmed)
         .map_err(Into::into)
     }
 }

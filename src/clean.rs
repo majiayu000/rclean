@@ -23,4 +23,4 @@ pub(crate) use selection::parse_selection;
 #[cfg(feature = "tui")]
 pub use selection::select_interactively_text;
 pub use selection::{select_candidates, select_interactively_text_with_preselected};
-pub use types::{CleanResult, SelectedCandidate};
+pub use types::{CleanResult, SelectedCandidate, SelectionOutcome};
