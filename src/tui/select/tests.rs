@@ -145,7 +145,8 @@ fn preselects_matching_safe_candidate_by_path() {
     let mut preselected = BTreeSet::new();
     preselected.insert(PathBuf::from("/tmp/root/app/node_modules"));
 
-    let app = SelectorApp::new_with_preselected(&report, &preselected);
+    let app =
+        SelectorApp::new_with_preselected(&report, &preselected, SelectionNextStep::ConfirmCleanup);
 
     assert_eq!(app.selected.len(), 1);
     let selected = app.selected_candidates();
@@ -200,6 +201,165 @@ fn selector_header_shows_sort_and_filter() {
     app.handle_key(key(KeyCode::Char('c')));
     assert!(app.header().contains("Sort: stale desc"));
     assert!(app.header().contains("Filter: deps"));
+}
+
+#[test]
+fn compact_summary_and_controls_keep_critical_actions_within_80_columns() {
+    let report = selector_report();
+    let app = SelectorApp::new(&report);
+    let summary = app.header();
+    let summary_lines = summary.lines().collect::<Vec<_>>();
+    assert_eq!(summary_lines.len(), 2);
+    assert!(summary_lines[1].contains("Reclaim"));
+    assert!(summary_lines[1].contains("Selected"));
+    assert!(display_width(summary_lines[1]) <= 78);
+
+    let controls = app.controls();
+    let control_lines = controls.lines().collect::<Vec<_>>();
+    assert_eq!(control_lines.len(), 2);
+    for label in [
+        "[space] toggle",
+        "[?] explain",
+        "[enter] review",
+        "[q] quit",
+    ] {
+        assert!(control_lines[0].contains(label));
+    }
+    assert!(control_lines.iter().all(|line| display_width(line) <= 78));
+}
+
+#[test]
+fn standalone_tui_controls_describe_action_plan_without_cleanup() {
+    let report = selector_report();
+    let app = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::WriteActionPlan,
+    );
+
+    let controls = app.controls();
+    assert!(controls.contains("[enter] plan"));
+    assert!(controls.contains("save ActionPlan; no cleanup"));
+    assert!(!controls.contains("confirm follows"));
+    assert!(controls.lines().all(|line| display_width(line) <= 78));
+}
+
+#[test]
+fn cleanup_controls_describe_dry_run_and_nonprompting_modes() {
+    let report = selector_report();
+    assert_eq!(
+        SelectionNextStep::for_clean(false, false),
+        SelectionNextStep::ConfirmCleanup
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(true, false),
+        SelectionNextStep::PreviewDryRun
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(false, true),
+        SelectionNextStep::ExecuteWithoutPrompt
+    );
+    assert_eq!(
+        SelectionNextStep::for_clean(true, true),
+        SelectionNextStep::PreviewDryRun
+    );
+    let dry_run = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::PreviewDryRun,
+    );
+    let dry_run_controls = dry_run.controls();
+    assert!(dry_run_controls.contains("[enter] preview"));
+    assert!(dry_run_controls.contains("dry run only; no cleanup"));
+    assert!(!dry_run_controls.contains("confirm follows"));
+
+    let no_prompt = SelectorApp::new_with_preselected(
+        &report,
+        &BTreeSet::new(),
+        SelectionNextStep::ExecuteWithoutPrompt,
+    );
+    let no_prompt_controls = no_prompt.controls();
+    assert!(no_prompt_controls.contains("[enter] clean"));
+    assert!(no_prompt_controls.contains("cleanup follows; no prompt"));
+    assert!(!no_prompt_controls.contains("confirm follows"));
+
+    for controls in [dry_run_controls, no_prompt_controls] {
+        assert!(controls.lines().all(|line| display_width(line) <= 78));
+    }
+}
+
+#[test]
+fn candidate_row_is_labeled_and_keeps_the_distinguishing_path_tail() {
+    let report = fixture_report();
+    let app = SelectorApp::new(&report);
+    assert!(CANDIDATE_COLUMNS.starts_with("   Sel"));
+    assert!(CANDIDATE_COLUMNS.contains("Safety"));
+    assert!(CANDIDATE_COLUMNS.contains("Stale"));
+    assert!(display_width(CANDIDATE_COLUMNS) <= 78);
+
+    let row = app.list_item_text(0, 76);
+    assert!(row.contains("safe"));
+    assert!(row.contains("node_modules"));
+    assert!(row.ends_with("node_modules"));
+    assert!(display_width(&row) <= 76);
+}
+
+#[test]
+fn candidate_row_truncates_wide_unicode_by_terminal_columns() {
+    let mut report = fixture_report();
+    report.projects[0].candidates[0].name = "缓存缓存缓存缓存缓存缓存缓存缓存缓存".to_string();
+    report.projects[0].candidates[0].path = "/tmp/root/项目/缓存/🧰工具/node_modules".to_string();
+    let app = SelectorApp::new(&report);
+
+    let row = app.list_item_text(0, 76);
+
+    assert!(row.ends_with("node_modules"));
+    assert!(display_width(&row) <= 76);
+
+    for width in 0..=56 {
+        let row = app.list_item_text(0, width);
+        assert!(
+            display_width(&row) <= width,
+            "row width {} exceeds terminal width {width}",
+            display_width(&row)
+        );
+    }
+    assert!(app.list_item_text(0, 16).ends_with("node_modules"));
+}
+
+#[test]
+fn ctrl_c_cancels_while_search_is_active() {
+    let report = fixture_report();
+    let mut app = SelectorApp::new(&report);
+    app.handle_key(key(KeyCode::Char('/')));
+    assert!(app.search_mode);
+
+    app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+    assert!(app.cancelled);
+    assert!(app.query.is_empty());
+    assert!(matches!(
+        app.selection_outcome(),
+        SelectionOutcome::Cancelled
+    ));
+}
+
+#[test]
+fn quit_and_confirmed_empty_selection_are_distinct_outcomes() {
+    let report = fixture_report();
+    let mut cancelled = SelectorApp::new(&report);
+    cancelled.handle_key(key(KeyCode::Char('q')));
+    assert!(matches!(
+        cancelled.selection_outcome(),
+        SelectionOutcome::Cancelled
+    ));
+
+    let mut confirmed = SelectorApp::new(&report);
+    confirmed.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        confirmed.selection_outcome(),
+        SelectionOutcome::Confirmed(selected) if selected.is_empty()
+    ));
 }
 
 #[test]

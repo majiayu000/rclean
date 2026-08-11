@@ -10,6 +10,10 @@ include breaking changes per semver 0.x; each break is noted explicitly.
 
 ### Added
 
+- The interactive TUI now uses a compact two-row summary and controls layout,
+  labels candidate columns and safety states explicitly, and keeps review,
+  explain, and quit actions visible in a standard 80x24 terminal. (#381)
+
 - Add newest-first interactive `restore` selection with numbered/range/all
   choices, confirmation, existing per-item restore safety checks, and explicit
   restored/skipped/failed summaries.
@@ -25,6 +29,11 @@ include breaking changes per semver 0.x; each break is noted explicitly.
   as contradictory. Human output only; `--json` is unchanged. (#356)
 
 ### Fixed
+
+- Quitting the TUI now remains an explicit cancellation through no-argument
+  clean, standalone `tui`, and `free --interactive`; it no longer falls through
+  to a full scan table, ActionPlan, or misleading `Nothing selected.` output.
+  (#381)
 
 - `watch --every 5m` now polls every five minutes instead of interpreting `m`
   as the scan-age parser's 30-day month and waiting 150 days. Watch intervals

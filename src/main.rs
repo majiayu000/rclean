@@ -317,20 +317,11 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
     } else {
         let options = args.common.to_scan_options()?;
         let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
-        if let Some(plan_path) = &args.common.write_plan {
-            plan::write_action_plan(
-                &report,
-                plan_path,
-                args.common.include_caution,
-                args.permanent,
-                &delete_mode,
-            )?;
-            // User-facing success confirmation. Bypass the tracing
-            // filter (default `warn` would hide info!) so the message
-            // stays visible without --verbose, matching v0.1.0.
-            write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
-        }
-        let selected = clean::select_candidates(&report, &args)?;
+        let selection = clean::select_candidates(&report, &args)?;
+        let Some(selected) = complete_scanned_selection(&report, &args, &delete_mode, selection)?
+        else {
+            return Ok(ExitCode::from(3));
+        };
         (selected, Some(report))
     };
     let pre_delete_status = if selected.is_empty() {
@@ -395,6 +386,32 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
         }
     });
     stdio::finish_output(status, output_result)
+}
+
+fn complete_scanned_selection(
+    report: &model::ScanReport,
+    args: &cli::CleanArgs,
+    delete_mode: &str,
+    selection: clean::SelectionOutcome,
+) -> Result<Option<Vec<clean::SelectedCandidate>>, RcleanError> {
+    let selected = match selection {
+        clean::SelectionOutcome::Confirmed(selected) => selected,
+        clean::SelectionOutcome::Cancelled => return Ok(None),
+    };
+    if let Some(plan_path) = &args.common.write_plan {
+        plan::write_action_plan(
+            report,
+            plan_path,
+            args.common.include_caution,
+            args.permanent,
+            delete_mode,
+        )?;
+        // User-facing success confirmation. Bypass the tracing filter
+        // (default `warn` would hide info!) so the message stays visible
+        // without --verbose, matching v0.1.0.
+        write_stderr_line(format_args!("wrote action plan: {}", plan_path.display()))?;
+    }
+    Ok(Some(selected))
 }
 
 fn clean_roots_for_broad_check(args: &cli::CleanArgs) -> Result<Vec<PathBuf>, RcleanError> {
@@ -527,6 +544,7 @@ fn write_stderr_line(args: std::fmt::Arguments<'_>) -> Result<(), RcleanError> {
 mod default_flow_tests {
     use super::*;
     use clap::CommandFactory;
+    use tempfile::TempDir;
 
     #[test]
     fn cli_graph_is_valid_for_active_features() {
@@ -585,5 +603,42 @@ mod default_flow_tests {
         assert_eq!(args.tui, cfg!(feature = "tui"));
         #[cfg(feature = "graveyard")]
         assert!(args.graveyard);
+    }
+
+    #[test]
+    fn cancelled_clean_does_not_create_or_overwrite_requested_plan()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp = TempDir::new()?;
+        let plan_path = temp.path().join("cancelled-plan.json");
+        let cli = Cli::try_parse_from([
+            "rclean",
+            "clean",
+            "--write-plan",
+            plan_path.to_str().ok_or("plan path must be UTF-8")?,
+        ])?;
+        let Some(Commands::Clean(args)) = cli.command else {
+            return Err("clean command must parse".into());
+        };
+        let report = crate::test_support::ranking_report(Vec::new());
+
+        let selected = complete_scanned_selection(
+            &report,
+            &args,
+            "trash",
+            clean::SelectionOutcome::Cancelled,
+        )?;
+        assert!(selected.is_none());
+        assert!(!plan_path.exists());
+
+        std::fs::write(&plan_path, "keep me")?;
+        let selected = complete_scanned_selection(
+            &report,
+            &args,
+            "trash",
+            clean::SelectionOutcome::Cancelled,
+        )?;
+        assert!(selected.is_none());
+        assert_eq!(std::fs::read_to_string(plan_path)?, "keep me");
+        Ok(())
     }
 }
