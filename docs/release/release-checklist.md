@@ -19,8 +19,8 @@ Binary name: `rclean`
 
 - [ ] Verify crates.io package name `rclean-cli` is available.
 - [ ] Verify binary installs as `rclean`.
-- [ ] Run `cargo package --list`.
-- [ ] Run `cargo publish --dry-run`.
+- [ ] Run `cargo package --locked --list`.
+- [ ] Run `cargo publish --dry-run --locked`.
 
 ## Release ordering (tag -> workflow -> crates.io)
 
@@ -35,17 +35,27 @@ policy); feature and fix PRs never touch the version.
    `SHA256SUMS`, and creates a **draft** GitHub Release.
 4. Review the draft: artifact count (5 archives + checksums), spot-check
    one checksum, paste the changelog section as release notes, publish.
-5. Only after the GitHub Release is published, run `cargo publish`.
-   This ordering keeps `cargo binstall rclean-cli` working the moment
-   the crates.io version appears, because binstall resolves the
-   archives from the already-published GitHub Release.
+5. Only after the GitHub Release is published, an explicitly authorized
+   maintainer or agent may publish the crate:
+   - Work from a detached checkout of the immutable `vX.Y.Z` release tag; do
+     not move or recreate a published release tag.
+   - Re-run `cargo publish --dry-run --locked`.
+   - Using a crates.io credential with the narrowest available scope, run
+     `cargo publish --locked`. Never print, commit, or broaden the credential.
+   Authorization applies only to the exact package and version named by the
+   maintainer and does not carry forward to later releases. This ordering
+   keeps `cargo binstall rclean-cli` working the moment the crates.io version
+   appears, because binstall resolves the archives from the already-published
+   GitHub Release.
 6. Verify from a clean environment:
    - `cargo install rclean-cli` (builds from crates.io)
    - `cargo binstall rclean-cli` (downloads the release artifacts)
    - `rclean --version` matches the tag.
 
-`cargo publish` is irreversible (a version can be yanked but never
-replaced) — it stays a human-run step.
+`cargo publish` is irreversible: a version can be yanked but never replaced.
+Explicit authorization changes who may execute this step; it does not waive
+the immutable-tag, dry-run, credential-scope, release-ordering, or
+post-publication verification requirements.
 
 ## GitHub Repository Metadata
 
