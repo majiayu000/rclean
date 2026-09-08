@@ -37,16 +37,24 @@ policy); feature and fix PRs never touch the version.
    one checksum, paste the changelog section as release notes, publish.
 5. Only after the GitHub Release is published, an explicitly authorized
    maintainer or agent may publish the crate:
-   - Work from a detached checkout of the immutable `vX.Y.Z` release tag; do
-     not move or recreate a published release tag.
+   - Authorization must name the exact package, version, release tag, and
+     the tag's commit SHA. Do not treat package/version alone as sufficient.
+   - Work from a detached checkout of that `vX.Y.Z` tag; do not move or
+     recreate a published release tag.
+   - Immediately before dry-run and publish, verify
+     `git rev-parse HEAD` equals the authorized commit SHA and still matches
+     `git rev-list -n 1 vX.Y.Z`. Abort if either check fails.
    - Re-run `cargo publish --dry-run --locked`.
    - Using a crates.io credential with the narrowest available scope, run
      `cargo publish --locked`. Never print, commit, or broaden the credential.
-   Authorization applies only to the exact package and version named by the
-   maintainer and does not carry forward to later releases. This ordering
-   keeps `cargo binstall rclean-cli` working the moment the crates.io version
-   appears, because binstall resolves the archives from the already-published
-   GitHub Release.
+   - For agent publishes, use an agent-specific short-lived credential and
+     revoke or expire it immediately after the authorized publish completes
+     (success or abort). Package-scoped tokens are not version-limited.
+   Authorization applies only to the exact package, version, tag, and commit
+   SHA named by the maintainer and does not carry forward to later releases.
+   This ordering keeps `cargo binstall rclean-cli` working the moment the
+   crates.io version appears, because binstall resolves the archives from the
+   already-published GitHub Release.
 6. Verify from a clean environment:
    - `cargo install rclean-cli` (builds from crates.io)
    - `cargo binstall rclean-cli` (downloads the release artifacts)
@@ -54,8 +62,8 @@ policy); feature and fix PRs never touch the version.
 
 `cargo publish` is irreversible: a version can be yanked but never replaced.
 Explicit authorization changes who may execute this step; it does not waive
-the immutable-tag, dry-run, credential-scope, release-ordering, or
-post-publication verification requirements.
+the immutable-tag, commit-SHA binding, dry-run, credential-scope, credential
+revocation, release-ordering, or post-publication verification requirements.
 
 ## GitHub Repository Metadata
 

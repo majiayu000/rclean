@@ -22,8 +22,8 @@ Crate docs will publish to `https://docs.rs/rclean-cli`.
 Before publishing:
 
 ```bash
-cargo package --list
-cargo publish --dry-run
+cargo package --locked --list
+cargo publish --dry-run --locked
 ```
 
 ## GitHub Releases
