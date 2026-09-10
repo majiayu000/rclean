@@ -58,13 +58,14 @@ fn run_explicit_restore(
     }
 
     let record = yard.restore_by_id(id, override_target)?;
+    let destination = override_target.unwrap_or(&record.original_path);
     let stderr = io::stderr();
     let mut stderr = stderr.lock();
     writeln!(
         stderr,
         "restored {} -> {}",
         record.id,
-        record.original_path.display()
+        destination.display()
     )?;
     Ok(ExitCode::SUCCESS)
 }

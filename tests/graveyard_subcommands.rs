@@ -161,7 +161,10 @@ fn restore_to_alternate_path_preserves_explicit_id_compatibility() {
         .args(["restore", "--id", &id, "--to", alternate.to_str().unwrap()])
         .assert()
         .success()
-        .stderr(predicate::str::contains("restored"));
+        .stderr(
+            predicate::str::contains(format!("restored {id} -> {}", alternate.display()))
+                .and(predicate::str::contains(format!("-> {}", original.display())).not()),
+        );
 
     assert!(!original.exists());
     assert!(alternate.join("blob").is_file());
