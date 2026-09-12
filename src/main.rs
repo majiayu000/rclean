@@ -399,13 +399,9 @@ fn complete_scanned_selection(
         clean::SelectionOutcome::Cancelled => return Ok(None),
     };
     if let Some(plan_path) = &args.common.write_plan {
-        plan::write_action_plan(
-            report,
-            plan_path,
-            args.common.include_caution,
-            args.permanent,
-            delete_mode,
-        )?;
+        // Serialize the confirmed selection only — same path as tui/free/stamp.
+        // write_action_plan would re-collect all safe/caution from the report.
+        plan::write_selected_action_plan(report, plan_path, &selected, delete_mode)?;
         // User-facing success confirmation. Bypass the tracing filter
         // (default `warn` would hide info!) so the message stays visible
         // without --verbose, matching v0.1.0.
@@ -639,6 +635,52 @@ mod default_flow_tests {
         )?;
         assert!(selected.is_none());
         assert_eq!(std::fs::read_to_string(plan_path)?, "keep me");
+        Ok(())
+    }
+
+    #[test]
+    fn confirmed_subset_write_plan_serializes_only_selected_candidates()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp = TempDir::new()?;
+        let plan_path = temp.path().join("subset-plan.json");
+        let cli = Cli::try_parse_from([
+            "rclean",
+            "clean",
+            "--write-plan",
+            plan_path.to_str().ok_or("plan path must be UTF-8")?,
+        ])?;
+        let Some(Commands::Clean(args)) = cli.command else {
+            return Err("clean command must parse".into());
+        };
+        let report = crate::test_support::ranking_report(vec![
+            crate::test_support::ranking_candidate("target-a", 100, Safety::Safe, None),
+            crate::test_support::ranking_candidate("target-b", 200, Safety::Safe, None),
+        ]);
+        let subset = vec![clean::SelectedCandidate {
+            id: None,
+            path: PathBuf::from("/tmp/proj/target-a"),
+            bytes: 100,
+            rule_id: "rust.target".to_string(),
+            category: model::Category::Build,
+            safety: Safety::Safe,
+            requires_sudo: false,
+            risk_score: 0.1,
+        }];
+
+        let selected = complete_scanned_selection(
+            &report,
+            &args,
+            "trash",
+            clean::SelectionOutcome::Confirmed(subset),
+        )?;
+        assert!(selected.is_some());
+        assert!(plan_path.exists());
+
+        let plan = plan::read_action_plan(&plan_path)?;
+        assert_eq!(plan.selected.len(), 1);
+        assert_eq!(plan.selected[0].path, "/tmp/proj/target-a");
+        assert_eq!(plan.summary.candidates, 1);
+        assert_eq!(plan.summary.total_bytes, 100);
         Ok(())
     }
 }
