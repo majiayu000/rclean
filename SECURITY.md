@@ -79,6 +79,8 @@ Things the trust model promises and that we treat as security issues:
 - **ActionPlan tampering** — a JSON plan that promotes a blocked path
   to `safe`, or names a path outside the original scan roots, being
   executed without revalidation.
+- **Graveyard manifest tampering** — persisted `grave_path` metadata that
+  resolves outside the graveyard root being used for restore or gc.
 - **TOCTOU window** — the scanned candidate being swapped (e.g. to a
   symlink to a system path) between scan and delete.
 - **`.rcleanignore` / `.rclean.toml` injection** — a project-local
