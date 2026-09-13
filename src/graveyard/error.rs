@@ -26,6 +26,9 @@ pub enum GraveyardError {
     #[error("graveyard restore target parent {path} is a symlink; refuse to traverse")]
     RestoreTargetParentIsSymlink { path: PathBuf },
 
+    #[error("graveyard grave_path {path} resolves outside the graveyard root")]
+    GravePathEscapesRoot { path: PathBuf },
+
     #[error("graveyard record id {0} not found")]
     GraveNotFound(String),
 

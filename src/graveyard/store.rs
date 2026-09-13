@@ -1,5 +1,6 @@
+use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -162,6 +163,8 @@ impl Graveyard {
             .cloned()
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
+        let grave_dir = contained_grave_dir(&self.root, &record.grave_path)?;
+
         let target = override_target
             .map(Path::to_path_buf)
             .unwrap_or_else(|| record.original_path.clone());
@@ -189,14 +192,13 @@ impl Graveyard {
             })?;
         }
 
-        let payload = self.root.join(&record.grave_path).join("payload");
+        let payload = grave_dir.join("payload");
         move_into(&payload, &target)?;
 
         // The grave directory still holds meta.json; drop it now that
         // the payload is gone. We deliberately don't fail the whole
         // restore if cleanup hiccups — the user already got their
         // data back; manifest GC will sweep the empty dir later.
-        let grave_dir = self.root.join(&record.grave_path);
         if let Err(err) = fs::remove_dir_all(&grave_dir) {
             tracing::warn!(
                 path = %grave_dir.display(),
@@ -218,12 +220,16 @@ impl Graveyard {
         let (expired, alive): (Vec<_>, Vec<_>) =
             records.iter().cloned().partition(|r| r.expires_at < now);
 
+        let expired_dirs = expired
+            .iter()
+            .map(|record| contained_grave_dir(&self.root, &record.grave_path))
+            .collect::<Result<Vec<_>, _>>()?;
+
         if dry_run {
             return Ok(expired);
         }
 
-        for record in &expired {
-            let grave_dir = self.root.join(&record.grave_path);
+        for grave_dir in expired_dirs {
             if let Err(err) = fs::remove_dir_all(&grave_dir) {
                 tracing::warn!(
                     path = %grave_dir.display(),
@@ -235,6 +241,71 @@ impl Graveyard {
 
         rewrite_manifest_atomic(&self.root, &alive)?;
         Ok(expired)
+    }
+}
+
+/// Resolve `root.join(grave_path)` and require the result to stay
+/// strictly inside the canonical graveyard root. Manifest `grave_path`
+/// values are untrusted persisted metadata (same class as ActionPlan
+/// path revalidation).
+fn contained_grave_dir(root: &Path, grave_path: &Path) -> Result<PathBuf, GraveyardError> {
+    let escapes = || GraveyardError::GravePathEscapesRoot {
+        path: grave_path.to_path_buf(),
+    };
+
+    if grave_path.as_os_str().is_empty() || grave_path.is_absolute() {
+        return Err(escapes());
+    }
+    if !grave_path
+        .components()
+        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+    {
+        return Err(escapes());
+    }
+
+    let joined = root.join(grave_path);
+    let canonical_root = root.canonicalize().map_err(|source| GraveyardError::Io {
+        path: root.to_path_buf(),
+        source,
+    })?;
+    let resolved = resolve_existing_prefix(&joined)?;
+    if !resolved.starts_with(&canonical_root) || resolved == canonical_root {
+        return Err(escapes());
+    }
+    Ok(resolved)
+}
+
+fn resolve_existing_prefix(path: &Path) -> Result<PathBuf, GraveyardError> {
+    let mut current = path.to_path_buf();
+    let mut suffix = Vec::<OsString>::new();
+    loop {
+        match current.canonicalize() {
+            Ok(mut resolved) => {
+                for part in suffix.iter().rev() {
+                    resolved.push(part);
+                }
+                return Ok(resolved);
+            }
+            Err(source) => {
+                let Some(name) = current.file_name() else {
+                    return Err(GraveyardError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    });
+                };
+                let Some(parent) = current
+                    .parent()
+                    .filter(|parent| *parent != current.as_path())
+                else {
+                    return Err(GraveyardError::Io {
+                        path: path.to_path_buf(),
+                        source,
+                    });
+                };
+                suffix.push(name.to_os_string());
+                current = parent.to_path_buf();
+            }
+        }
     }
 }
 
@@ -446,23 +517,24 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), GraveyardError> {
 }
 
 #[cfg(test)]
+fn make_input(path: &Path) -> GraveInput<'_> {
+    GraveInput {
+        original_path: path,
+        size_bytes: 3,
+        plan_id: None,
+        rule_id: "test.rule",
+        category: "build",
+        safety_at_delete: "safe",
+        risk_score_at_delete: 0.0,
+        tool_version: "0.0.0-test",
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
-
-    fn make_input<'a>(path: &'a Path) -> GraveInput<'a> {
-        GraveInput {
-            original_path: path,
-            size_bytes: 3,
-            plan_id: None,
-            rule_id: "test.rule",
-            category: "build",
-            safety_at_delete: "safe",
-            risk_score_at_delete: 0.0,
-            tool_version: "0.0.0-test",
-        }
-    }
 
     #[test]
     fn bury_moves_payload_and_writes_manifest() {
@@ -602,3 +674,6 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod containment_tests;
