@@ -121,6 +121,34 @@ jobs:
           tar czf "$docs.tar.gz" "$docs"
           shasum -a 256 "$docs.tar.gz" > "$docs.tar.gz.sha256"
 
+      - name: Sign macOS binary
+        if: runner.os == 'macOS' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required Apple signing secret: $name"
+              exit 1
+            fi
+          done
+          cert="$RUNNER_TEMP/rclean-developer-id.p12"
+          keychain="$RUNNER_TEMP/rclean-signing.keychain-db"
+          password="$(openssl rand -base64 32)"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$cert"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$cert" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          bin="target/${{ matrix.target }}/release/${BIN_NAME}"
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --timestamp "$bin"
+          codesign --verify --strict "$bin"
+
       - name: Package (unix)
         if: runner.os != 'Windows'
         shell: bash
