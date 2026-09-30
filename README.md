@@ -13,6 +13,18 @@ and similar directories.
 The trust model is the product: scan first, explain every candidate, write an
 ActionPlan when you want a reviewable cleanup, and never select blocked paths.
 
+## Quick start
+
+```bash
+cargo install rclean-cli
+rclean scan .
+```
+
+`scan` only reports candidates; it does not delete files. Review the safety
+classification and use `rclean explain <path>` before choosing a cleanup.
+See [installation options](#install), [usage](#usage), and the
+[safety model](docs/safety-model.md).
+
 Real local benchmark:
 
 ```text
@@ -107,7 +119,7 @@ for the detailed scope rules.
 
 ## Install
 
-From crates.io (primary path once `rclean-cli` is published there):
+From [crates.io](https://crates.io/crates/rclean-cli):
 
 ```bash
 cargo install rclean-cli
