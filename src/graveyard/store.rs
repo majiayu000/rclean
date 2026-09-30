@@ -163,7 +163,7 @@ impl Graveyard {
             .cloned()
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
-        let grave_dir = contained_grave_dir(&self.root, &record.grave_path)?;
+        let grave_dir = owned_grave_dir(&self.root, &record)?;
 
         let target = override_target
             .map(Path::to_path_buf)
@@ -222,7 +222,7 @@ impl Graveyard {
 
         let expired_dirs = expired
             .iter()
-            .map(|record| contained_grave_dir(&self.root, &record.grave_path))
+            .map(|record| owned_grave_dir(&self.root, record))
             .collect::<Result<Vec<_>, _>>()?;
 
         if dry_run {
@@ -242,6 +242,45 @@ impl Graveyard {
         rewrite_manifest_atomic(&self.root, &alive)?;
         Ok(expired)
     }
+}
+
+/// Pin mutations to the leaf that `bury` creates for this record. Root
+/// containment alone also admits shared date directories and other graves.
+fn owned_grave_dir(root: &Path, record: &ManifestRecord) -> Result<PathBuf, GraveyardError> {
+    let resolved = contained_grave_dir(root, &record.grave_path)?;
+    let not_owned = || GraveyardError::GravePathNotOwned {
+        path: record.grave_path.clone(),
+        id: record.id.clone(),
+    };
+    let expected = PathBuf::from(record.deleted_at.format("%Y/%m/%d").to_string()).join(format!(
+        "{}-{}",
+        record.deleted_at.format("%H%M%S"),
+        record.id
+    ));
+    if record.grave_path != expected {
+        return Err(not_owned());
+    }
+
+    // Inspect every component without following links, including Windows
+    // junctions. A link inside the root can still select a different grave.
+    let mut current = root.to_path_buf();
+    for component in record.grave_path.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if crate::scan::dangerous_link_kind(&metadata).is_some() => {
+                return Err(not_owned());
+            }
+            Ok(_) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => break,
+            Err(source) => {
+                return Err(GraveyardError::Io {
+                    path: current,
+                    source,
+                });
+            }
+        }
+    }
+    Ok(resolved)
 }
 
 /// Resolve `root.join(grave_path)` and require the result to stay
