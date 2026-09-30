@@ -118,7 +118,7 @@ fn gc_retries_after_manifest_rewrite_failure() {
 fn gc_retries_payload_free_directory_after_metadata_cleanup() {
     let temp = TempDir::new().unwrap();
     let yard = Graveyard::open(temp.path().join("graveyard"));
-    let original = temp.path().join("node_modules");
+    let original = temp.path().canonicalize().unwrap().join("node_modules");
     fs::create_dir(&original).unwrap();
     let grave = yard.bury(make_input(&original)).unwrap();
     let mut record = grave.record;
