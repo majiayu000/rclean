@@ -5,10 +5,11 @@ use super::{GraveyardError, ManifestRecord, contained_grave_dir};
 
 /// Pin mutations to the leaf that `bury` creates for this record. Root
 /// containment alone also admits shared date directories and other graves.
+/// The flag reports whether independent metadata corroborated this directory.
 pub(super) fn owned_grave_dir(
     root: &Path,
     record: &ManifestRecord,
-) -> Result<PathBuf, GraveyardError> {
+) -> Result<(PathBuf, bool), GraveyardError> {
     let resolved = contained_grave_dir(root, &record.grave_path)?;
     let not_owned = || GraveyardError::GravePathNotOwned {
         path: record.grave_path.clone(),
@@ -35,10 +36,14 @@ pub(super) fn owned_grave_dir(
             }
             // Let GC retain non-directory graves and report the original
             // remove_dir_all error rather than an incidental metadata error.
-            Ok(metadata) if current == joined && !metadata.is_dir() => return Ok(resolved),
+            Ok(metadata) if current == joined && !metadata.is_dir() => {
+                return Ok((resolved, false));
+            }
             Ok(_) => {}
             // GC can retry after deletion succeeded but manifest rewrite failed.
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(resolved),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((resolved, false));
+            }
             Err(source) => {
                 return Err(GraveyardError::Io {
                     path: current,
@@ -61,7 +66,7 @@ pub(super) fn owned_grave_dir(
                 && fs::symlink_metadata(resolved.join("payload"))
                     .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound) =>
         {
-            return Ok(resolved);
+            return Ok((resolved, false));
         }
         Err(source) => {
             return Err(GraveyardError::Io {
@@ -81,5 +86,5 @@ pub(super) fn owned_grave_dir(
     if stored != *record {
         return Err(not_owned());
     }
-    Ok(resolved)
+    Ok((resolved, true))
 }

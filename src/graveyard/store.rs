@@ -169,7 +169,7 @@ impl Graveyard {
             .cloned()
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
-        let grave_dir = owned_grave_dir(&self.root, &record)?;
+        let (grave_dir, _) = owned_grave_dir(&self.root, &record)?;
 
         let target = override_target
             .map(Path::to_path_buf)
@@ -233,18 +233,23 @@ impl Graveyard {
         }
 
         let mut first_failure = None;
-        for (record, grave_dir) in expired.iter().zip(expired_dirs) {
+        for (record, (grave_dir, has_metadata)) in expired.iter().zip(expired_dirs) {
             // Keep ownership metadata until payload removal succeeds so a
             // partially failed deletion can still be corroborated on retry.
-            let removal = fs::remove_dir_all(grave_dir.join("payload"))
-                .or_else(|source| {
-                    if source.kind() == std::io::ErrorKind::NotFound {
-                        Ok(())
-                    } else {
-                        Err(source)
-                    }
-                })
-                .and_then(|()| fs::remove_dir_all(&grave_dir));
+            let removal = if !has_metadata {
+                // Uncorroborated retry paths may only remove an empty directory.
+                fs::remove_dir(&grave_dir)
+            } else {
+                fs::remove_dir_all(grave_dir.join("payload"))
+                    .or_else(|source| {
+                        if source.kind() == std::io::ErrorKind::NotFound {
+                            Ok(())
+                        } else {
+                            Err(source)
+                        }
+                    })
+                    .and_then(|()| fs::remove_dir_all(&grave_dir))
+            };
             // A prior collection may have deleted the directory before its
             // manifest rewrite failed; an absent grave is already collected.
             if let Err(source) = removal

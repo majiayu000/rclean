@@ -127,6 +127,24 @@ fn gc_retries_payload_free_directory_after_metadata_cleanup() {
     let grave_dir = grave.payload_path.parent().unwrap();
     fs::remove_dir_all(&grave.payload_path).unwrap();
     fs::remove_file(grave_dir.join("meta.json")).unwrap();
+    let extra = grave_dir.join("unverified");
+    fs::write(&extra, b"keep").unwrap();
+    let expected_kind = fs::remove_dir(grave_dir).unwrap_err().kind();
+    let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+
+    match yard.gc(false).unwrap_err() {
+        GraveyardError::Io { path, source } => {
+            assert_eq!(path, grave_dir.canonicalize().unwrap());
+            assert_eq!(source.kind(), expected_kind);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(fs::read(&extra).unwrap(), b"keep");
+    assert_eq!(
+        fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+        manifest_before
+    );
+    fs::remove_file(extra).unwrap();
 
     match yard.restore_by_id(&record.id, None).unwrap_err() {
         GraveyardError::Io { path, source } => {
