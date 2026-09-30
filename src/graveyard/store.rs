@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use chrono::Utc;
 
+use crate::scan::dangerous_link_kind;
+
 use super::GraveyardError;
 use super::id;
 use super::manifest::{
@@ -148,7 +150,7 @@ impl Graveyard {
     /// restored. Enforces SPEC §4.7.5 edge cases:
     ///
     ///   1. Target path already exists → `RestoreTargetExists`.
-    ///   2. Target parent or ancestor is a symlink → `RestoreTargetParentIsSymlink`.
+    ///   2. Target parent or ancestor is a symlink/junction → `RestoreTargetParentIsSymlink`.
     ///   3. Target parent missing → re-created with default perms.
     ///   4. Cross-FS rename → copy + remove fallback.
     pub fn restore_by_id(
@@ -240,30 +242,54 @@ fn prepare_restore_parent(parent: &Path) -> Result<(), GraveyardError> {
         path: parent.to_path_buf(),
         source,
     })?;
-    let ancestors: Vec<_> = parent.ancestors().collect();
+    let mut ancestor = PathBuf::new();
     let mut missing = Vec::new();
-    for ancestor in ancestors.into_iter().rev() {
-        match fs::symlink_metadata(ancestor) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(GraveyardError::RestoreTargetParentIsSymlink {
-                    path: ancestor.to_path_buf(),
-                });
+    for component in parent.components() {
+        if component == Component::ParentDir {
+            // PathBuf::push would normalize `..` in Windows verbatim paths
+            // before we could check the traversed prefix.
+            ancestor
+                .as_mut_os_string()
+                .push(std::path::MAIN_SEPARATOR_STR);
+            ancestor.as_mut_os_string().push(component.as_os_str());
+        } else {
+            ancestor.push(component);
+        }
+        // A Windows prefix is not a complete absolute path until its root.
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
+        match fs::symlink_metadata(&ancestor) {
+            Ok(metadata)
+                if metadata.file_type().is_symlink()
+                    || (metadata.is_dir() && dangerous_link_kind(&metadata).is_some()) =>
+            {
+                return Err(GraveyardError::RestoreTargetParentIsSymlink { path: ancestor });
             }
             Ok(_) => {}
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                missing.push(ancestor);
+                if component != Component::ParentDir && !missing.contains(&ancestor) {
+                    missing.push(ancestor.clone());
+                }
             }
             Err(source) => {
                 return Err(GraveyardError::Io {
-                    path: ancestor.to_path_buf(),
+                    path: ancestor,
                     source,
                 });
             }
         }
+        if component == Component::ParentDir {
+            // Check the traversed prefix before reducing `..`: a symlink or
+            // non-directory must not disappear from validation. A missing
+            // prefix still needs creating for the literal destination path.
+            ancestor.pop();
+            ancestor.pop();
+        }
     }
     for directory in missing {
-        fs::create_dir(directory).map_err(|source| GraveyardError::Io {
-            path: directory.to_path_buf(),
+        fs::create_dir(&directory).map_err(|source| GraveyardError::Io {
+            path: directory,
             source,
         })?;
     }

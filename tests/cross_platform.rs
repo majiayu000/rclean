@@ -39,7 +39,7 @@ fn scan_empty_workspace_emits_valid_json_on_all_platforms() {
 }
 
 #[cfg(all(feature = "graveyard", any(unix, windows)))]
-fn assert_restore_refuses_ancestor_symlinks() {
+fn assert_restore_refuses_ancestor_symlinks(link_dir: fn(&std::path::Path, &std::path::Path)) {
     for (parent_exists, override_target) in
         [(false, false), (true, false), (false, true), (true, true)]
     {
@@ -80,10 +80,7 @@ fn assert_restore_refuses_ancestor_symlinks() {
         if parent_exists {
             fs::create_dir(outside.join("nested")).unwrap();
         }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, &link).unwrap();
-        #[cfg(windows)]
-        std::os::windows::fs::symlink_dir(&outside, &link).unwrap();
+        link_dir(&outside, &link);
 
         let mut cmd = Command::cargo_bin("rclean").unwrap();
         cmd.env("XDG_DATA_HOME", data.path())
@@ -111,14 +108,11 @@ fn assert_restore_refuses_ancestor_symlinks() {
                 "--id",
                 record["id"].as_str().unwrap(),
                 "--to",
-                "safe/missing/restored",
+                "safe/missing/../restored",
             ])
             .assert()
             .success();
-        assert_eq!(
-            fs::read(root.join("safe/missing/restored/blob")).unwrap(),
-            b"abc"
-        );
+        assert_eq!(fs::read(root.join("safe/restored/blob")).unwrap(), b"abc");
         assert!(!payload.exists());
         assert!(fs::read(&manifest).unwrap().is_empty());
     }
@@ -131,7 +125,9 @@ mod unix {
     #[test]
     #[cfg(feature = "graveyard")]
     fn restore_refuses_ancestor_symlinks_on_unix() {
-        assert_restore_refuses_ancestor_symlinks();
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            std::os::unix::fs::symlink(target, link).unwrap();
+        });
     }
 
     /// `output::short_path` collapses `$HOME` to `~` in scan-table
@@ -195,7 +191,27 @@ mod windows {
     #[test]
     #[cfg(feature = "graveyard")]
     fn restore_refuses_ancestor_symlinks_on_windows() {
-        assert_restore_refuses_ancestor_symlinks();
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            std::os::windows::fs::symlink_dir(target, link).unwrap();
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "graveyard")]
+    fn restore_refuses_junction_ancestors_on_windows() {
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            let output = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "mklink failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        });
     }
 
     /// Windows uses `USERPROFILE` as its home directory env var.

@@ -16,7 +16,11 @@ fn symlink_dir(target: &Path, link: &Path) {
 }
 
 #[cfg(any(unix, windows))]
-fn assert_ancestor_symlink_refused(parent_exists: bool, override_target: bool) {
+fn assert_ancestor_symlink_refused(
+    parent_exists: bool,
+    override_target: bool,
+    link_dir: fn(&Path, &Path),
+) {
     let temp = TempDir::new().unwrap();
     // Keep system aliases such as macOS /var out of this fixture so the
     // refusal must identify the symlink we introduce below.
@@ -40,7 +44,7 @@ fn assert_ancestor_symlink_refused(parent_exists: bool, override_target: bool) {
     if parent_exists {
         fs::create_dir(outside.join("nested")).unwrap();
     }
-    symlink_dir(&outside, &link);
+    link_dir(&outside, &link);
     let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
 
     let err = yard
@@ -67,25 +71,25 @@ fn assert_ancestor_symlink_refused(parent_exists: bool, override_target: bool) {
 #[test]
 #[cfg(any(unix, windows))]
 fn restore_original_refuses_ancestor_symlink_with_missing_parent() {
-    assert_ancestor_symlink_refused(false, false);
+    assert_ancestor_symlink_refused(false, false, symlink_dir);
 }
 
 #[test]
 #[cfg(any(unix, windows))]
 fn restore_original_refuses_ancestor_symlink_with_existing_parent() {
-    assert_ancestor_symlink_refused(true, false);
+    assert_ancestor_symlink_refused(true, false, symlink_dir);
 }
 
 #[test]
 #[cfg(any(unix, windows))]
 fn restore_override_refuses_ancestor_symlink_with_missing_parent() {
-    assert_ancestor_symlink_refused(false, true);
+    assert_ancestor_symlink_refused(false, true, symlink_dir);
 }
 
 #[test]
 #[cfg(any(unix, windows))]
 fn restore_override_refuses_ancestor_symlink_with_existing_parent() {
-    assert_ancestor_symlink_refused(true, true);
+    assert_ancestor_symlink_refused(true, true, symlink_dir);
 }
 
 #[test]
@@ -162,4 +166,101 @@ fn restore_reports_parent_metadata_errors_without_moving_payload() {
         fs::read(yard.root().join("manifest.jsonl")).unwrap(),
         manifest_before
     );
+}
+
+#[test]
+#[cfg(windows)]
+fn restore_refuses_junction_ancestors() {
+    fn junction_dir(target: &Path, link: &Path) {
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mklink failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    for (parent_exists, override_target) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        assert_ancestor_symlink_refused(parent_exists, override_target, junction_dir);
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn restore_accepts_missing_prefix_followed_by_parent_components() {
+    for (relative, resolved) in [
+        ("missing/../restored", "restored"),
+        (
+            "missing/../existing/nested/restored",
+            "existing/nested/restored",
+        ),
+        ("missing/../missing/../restored", "restored"),
+    ] {
+        for override_target in [false, true] {
+            let temp = TempDir::new().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let yard = Graveyard::open(root.join("graveyard"));
+            fs::create_dir(root.join("existing")).unwrap();
+            fs::create_dir(root.join("missing")).unwrap();
+            let target = root.join(relative);
+            let original = if override_target {
+                root.join("original")
+            } else {
+                target.clone()
+            };
+            let grave = bury_payload(&yard, &original);
+            fs::remove_dir_all(root.join("missing")).unwrap();
+
+            yard.restore_by_id(
+                &grave.record.id,
+                override_target.then_some(target.as_path()),
+            )
+            .unwrap();
+
+            assert_eq!(fs::read(root.join(resolved).join("blob")).unwrap(), b"abc");
+            assert!(!grave.payload_path.exists());
+            assert!(yard.list().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+#[cfg(any(unix, windows))]
+fn restore_refuses_symlink_before_parent_component() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let yard = Graveyard::open(root.join("graveyard"));
+    let grave = bury_payload(&yard, &root.join("original"));
+    let outside = root.join("outside");
+    fs::create_dir(&outside).unwrap();
+    let link = root.join("link");
+    symlink_dir(&outside, &link);
+    let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+    for relative in ["link/../restored", "missing/../link/../restored"] {
+        // Build the literal path without PathBuf::join normalizing `..` on Windows.
+        let mut target = root.clone().into_os_string();
+        target.push(std::path::MAIN_SEPARATOR_STR);
+        target.push(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+        let err = yard
+            .restore_by_id(&grave.record.id, Some(Path::new(&target)))
+            .expect_err("a parent component must not erase a link from validation");
+        assert!(matches!(
+            err,
+            GraveyardError::RestoreTargetParentIsSymlink { path } if path == link
+        ));
+        assert!(!root.join("restored").exists());
+        assert!(!root.join("missing").exists());
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        assert_eq!(fs::read(grave.payload_path.join("blob")).unwrap(), b"abc");
+        assert_eq!(
+            fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+            manifest_before
+        );
+    }
 }
