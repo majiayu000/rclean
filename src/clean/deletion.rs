@@ -21,6 +21,7 @@ enum NativeToolCleanup {
 
 pub fn delete_selected(
     selected: &[SelectedCandidate],
+    roots: &[String],
     permanent: bool,
     mut audit_logger: Option<&mut DeleteAuditLogger>,
 ) -> Result<CleanResult, CleanError> {
@@ -28,7 +29,7 @@ pub fn delete_selected(
 
     for candidate in selected {
         let mode = delete_mode_for_candidate(candidate, permanent);
-        if let Err(err) = validate_candidate_for_deletion(candidate) {
+        if let Err(err) = validate_candidate_for_deletion(candidate, roots) {
             log_audit(
                 &mut audit_logger,
                 candidate,
@@ -89,6 +90,7 @@ pub fn delete_selected(
 #[cfg(feature = "graveyard")]
 pub fn delete_selected_into_graveyard(
     selected: &[SelectedCandidate],
+    roots: &[String],
     graveyard: &crate::graveyard::Graveyard,
     mut audit_logger: Option<&mut DeleteAuditLogger>,
 ) -> Result<CleanResult, CleanError> {
@@ -98,7 +100,7 @@ pub fn delete_selected_into_graveyard(
     let mut result = CleanResult::default();
 
     for candidate in selected {
-        if let Err(err) = validate_candidate_for_deletion(candidate) {
+        if let Err(err) = validate_candidate_for_deletion(candidate, roots) {
             log_audit(
                 &mut audit_logger,
                 candidate,
