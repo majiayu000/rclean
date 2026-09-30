@@ -216,3 +216,44 @@ fn malformed_metadata_refuses_mutations_of_existing_graves() {
         );
     }
 }
+
+#[test]
+fn restore_absent_grave_refuses_forged_destination_before_creating_parents() {
+    let temp = TempDir::new().unwrap();
+    let (root, mut records) = bury_pair(&temp);
+    let grave = root.join(records[0]["grave_path"].as_str().unwrap());
+    fs::remove_dir_all(&grave).unwrap();
+    let target = temp
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("forged/nested/restored");
+    records[0]["original_path"] = json!(target);
+    write_manifest(&root, &records);
+    let manifest_before = fs::read(root.join("manifest.jsonl")).unwrap();
+
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", temp.path().join("data"))
+        .args(["restore", "--id", records[0]["id"].as_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("graveyard io at"));
+
+    assert!(
+        !target.parent().unwrap().exists(),
+        "an uncorroborated manifest must not create target parents"
+    );
+    assert_eq!(
+        fs::read(root.join("manifest.jsonl")).unwrap(),
+        manifest_before
+    );
+    assert_eq!(
+        fs::read(
+            root.join(records[1]["grave_path"].as_str().unwrap())
+                .join("payload/blob")
+        )
+        .unwrap(),
+        b"second"
+    );
+}

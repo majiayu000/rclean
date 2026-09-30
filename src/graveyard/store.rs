@@ -170,6 +170,13 @@ impl Graveyard {
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
         let (grave_dir, _) = owned_grave_dir(&self.root, &record)?;
+        let payload = grave_dir.join("payload");
+        // GC permits absent or incomplete graves for retries. Restore needs a
+        // payload before it can create any directories at the destination.
+        fs::symlink_metadata(&payload).map_err(|source| GraveyardError::Io {
+            path: payload.clone(),
+            source,
+        })?;
 
         let target = override_target
             .map(Path::to_path_buf)
@@ -194,7 +201,6 @@ impl Graveyard {
             }
         }
 
-        let payload = grave_dir.join("payload");
         move_into(&payload, &target)?;
 
         // The grave directory still holds meta.json; drop it now that
