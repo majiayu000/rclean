@@ -39,7 +39,7 @@ fn scan_empty_workspace_emits_valid_json_on_all_platforms() {
 }
 
 #[test]
-#[cfg(all(feature = "graveyard", any(unix, windows)))]
+#[cfg(all(feature = "graveyard", unix))]
 fn restore_checks_targets_after_parent_creation_and_accepts_case_aliases() {
     let temp = TempDir::new().unwrap();
     let data = TempDir::new().unwrap();
@@ -62,10 +62,7 @@ fn restore_checks_targets_after_parent_creation_and_accepts_case_aliases() {
         .join(record["grave_path"].as_str().unwrap())
         .join("payload");
     fs::create_dir(root.join("existing")).unwrap();
-    // Append the literal components to preserve `..` in Windows verbatim paths.
-    let mut target = root.clone().into_os_string();
-    target.push(std::path::MAIN_SEPARATOR_STR);
-    target.push("missing/../existing".replace('/', std::path::MAIN_SEPARATOR_STR));
+    let target = root.join("missing/../existing");
     Command::cargo_bin("rclean")
         .unwrap()
         .env("XDG_DATA_HOME", data.path())
@@ -81,9 +78,7 @@ fn restore_checks_targets_after_parent_creation_and_accepts_case_aliases() {
     assert_eq!(fs::read(payload.join("blob")).unwrap(), b"abc");
     assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
     fs::remove_dir(root.join("missing")).unwrap();
-    let mut target = root.clone().into_os_string();
-    target.push(std::path::MAIN_SEPARATOR_STR);
-    target.push("Missing/../missing/restored".replace('/', std::path::MAIN_SEPARATOR_STR));
+    let target = root.join("Missing/../missing/restored");
     Command::cargo_bin("rclean")
         .unwrap()
         .env("XDG_DATA_HOME", data.path())

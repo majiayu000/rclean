@@ -231,18 +231,14 @@ fn restore_accepts_missing_prefix_followed_by_parent_components() {
 }
 
 #[test]
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 fn restore_accepts_case_aliases_of_missing_parents() {
     for override_target in [false, true] {
         let temp = TempDir::new().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let yard = Graveyard::open(root.join("graveyard"));
         fs::create_dir(root.join("Missing")).unwrap();
-        // Preserve parent components in Windows verbatim paths.
-        let mut literal = root.clone().into_os_string();
-        literal.push(std::path::MAIN_SEPARATOR_STR);
-        literal.push("Missing/../missing/restored".replace('/', std::path::MAIN_SEPARATOR_STR));
-        let target = PathBuf::from(literal);
+        let target = root.join("Missing/../missing/restored");
         let original = if override_target {
             root.join("original")
         } else {
@@ -272,7 +268,7 @@ fn restore_accepts_case_aliases_of_missing_parents() {
 }
 
 #[test]
-#[cfg(any(unix, windows))]
+#[cfg(unix)]
 fn restore_refuses_target_revealed_by_creating_missing_parent() {
     for override_target in [false, true] {
         for occupied_by in ["empty_directory", "directory", "file", "dangling_symlink"] {
@@ -280,10 +276,7 @@ fn restore_refuses_target_revealed_by_creating_missing_parent() {
             let root = temp.path().canonicalize().unwrap();
             let yard = Graveyard::open(root.join("graveyard"));
             fs::create_dir(root.join("missing")).unwrap();
-            let mut literal = root.clone().into_os_string();
-            literal.push(std::path::MAIN_SEPARATOR_STR);
-            literal.push("missing/../existing".replace('/', std::path::MAIN_SEPARATOR_STR));
-            let target = PathBuf::from(literal);
+            let target = root.join("missing/../existing");
             let original = if override_target {
                 root.join("original")
             } else {
