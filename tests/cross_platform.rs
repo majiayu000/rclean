@@ -38,6 +38,68 @@ fn scan_empty_workspace_emits_valid_json_on_all_platforms() {
         .stdout(predicate::str::contains("\"candidates\": 0"));
 }
 
+#[test]
+#[cfg(all(feature = "graveyard", any(unix, windows)))]
+fn restore_checks_targets_after_parent_creation_and_accepts_case_aliases() {
+    let temp = TempDir::new().unwrap();
+    let data = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    make_node_project(&temp);
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .arg("clean")
+        .arg(&root)
+        .args(["--all", "--graveyard", "--yes", "--min-size", "0"])
+        .assert()
+        .success();
+
+    let graveyard = data.path().join("rclean/graveyard");
+    let manifest = graveyard.join("manifest.jsonl");
+    let manifest_before = fs::read(&manifest).unwrap();
+    let record: serde_json::Value = serde_json::from_slice(&manifest_before).unwrap();
+    let payload = graveyard
+        .join(record["grave_path"].as_str().unwrap())
+        .join("payload");
+    fs::create_dir(root.join("existing")).unwrap();
+    // Append the literal components to preserve `..` in Windows verbatim paths.
+    let mut target = root.clone().into_os_string();
+    target.push(std::path::MAIN_SEPARATOR_STR);
+    target.push("missing/../existing".replace('/', std::path::MAIN_SEPARATOR_STR));
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .args(["restore", "--id", record["id"].as_str().unwrap(), "--to"])
+        .arg(&target)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "already exists; refuse to overwrite",
+        ));
+
+    assert_eq!(fs::read_dir(root.join("existing")).unwrap().count(), 0);
+    assert_eq!(fs::read(payload.join("blob")).unwrap(), b"abc");
+    assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
+    fs::remove_dir(root.join("missing")).unwrap();
+    let mut target = root.clone().into_os_string();
+    target.push(std::path::MAIN_SEPARATOR_STR);
+    target.push("Missing/../missing/restored".replace('/', std::path::MAIN_SEPARATOR_STR));
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .args(["restore", "--id", record["id"].as_str().unwrap(), "--to"])
+        .arg(&target)
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read(root.join("missing/restored/blob")).unwrap(),
+        b"abc"
+    );
+    assert!(!payload.exists());
+    assert!(fs::read(&manifest).unwrap().is_empty());
+}
+
 #[cfg(all(feature = "graveyard", any(unix, windows)))]
 fn assert_restore_refuses_ancestor_symlinks(link_dir: fn(&std::path::Path, &std::path::Path)) {
     for (parent_exists, override_target) in

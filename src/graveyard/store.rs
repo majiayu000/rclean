@@ -177,6 +177,18 @@ impl Graveyard {
         if let Some(parent) = target.parent() {
             prepare_restore_parent(parent)?;
         }
+        // Creating a missing prefix can make an occupied target reachable.
+        // Link metadata also detects dangling links that `exists` misses.
+        match fs::symlink_metadata(&target) {
+            Ok(_) => return Err(GraveyardError::RestoreTargetExists { path: target }),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(GraveyardError::Io {
+                    path: target,
+                    source,
+                });
+            }
+        }
 
         let payload = grave_dir.join("payload");
         move_into(&payload, &target)?;
@@ -288,10 +300,28 @@ fn prepare_restore_parent(parent: &Path) -> Result<(), GraveyardError> {
         }
     }
     for directory in missing {
-        fs::create_dir(&directory).map_err(|source| GraveyardError::Io {
-            path: directory,
-            source,
-        })?;
+        if let Err(source) = fs::create_dir(&directory) {
+            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                // Case aliases can refer to a prefix created earlier in this loop.
+                let metadata =
+                    fs::symlink_metadata(&directory).map_err(|source| GraveyardError::Io {
+                        path: directory.clone(),
+                        source,
+                    })?;
+                if metadata.file_type().is_symlink()
+                    || (metadata.is_dir() && dangerous_link_kind(&metadata).is_some())
+                {
+                    return Err(GraveyardError::RestoreTargetParentIsSymlink { path: directory });
+                }
+                if metadata.is_dir() {
+                    continue;
+                }
+            }
+            return Err(GraveyardError::Io {
+                path: directory,
+                source,
+            });
+        }
     }
     Ok(())
 }

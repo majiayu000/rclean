@@ -232,6 +232,111 @@ fn restore_accepts_missing_prefix_followed_by_parent_components() {
 
 #[test]
 #[cfg(any(unix, windows))]
+fn restore_accepts_case_aliases_of_missing_parents() {
+    for override_target in [false, true] {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let yard = Graveyard::open(root.join("graveyard"));
+        fs::create_dir(root.join("Missing")).unwrap();
+        // Preserve parent components in Windows verbatim paths.
+        let mut literal = root.clone().into_os_string();
+        literal.push(std::path::MAIN_SEPARATOR_STR);
+        literal.push("Missing/../missing/restored".replace('/', std::path::MAIN_SEPARATOR_STR));
+        let target = PathBuf::from(literal);
+        let original = if override_target {
+            root.join("original")
+        } else {
+            target.clone()
+        };
+        let grave = bury_payload(&yard, &original);
+        for name in ["Missing", "missing"] {
+            let directory = root.join(name);
+            if directory.exists() {
+                fs::remove_dir_all(directory).unwrap();
+            }
+        }
+
+        yard.restore_by_id(
+            &grave.record.id,
+            override_target.then_some(target.as_path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(root.join("missing/restored/blob")).unwrap(),
+            b"abc"
+        );
+        assert!(!grave.payload_path.exists());
+        assert!(yard.list().unwrap().is_empty());
+    }
+}
+
+#[test]
+#[cfg(any(unix, windows))]
+fn restore_refuses_target_revealed_by_creating_missing_parent() {
+    for override_target in [false, true] {
+        for occupied_by in ["empty_directory", "directory", "file", "dangling_symlink"] {
+            let temp = TempDir::new().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let yard = Graveyard::open(root.join("graveyard"));
+            fs::create_dir(root.join("missing")).unwrap();
+            let mut literal = root.clone().into_os_string();
+            literal.push(std::path::MAIN_SEPARATOR_STR);
+            literal.push("missing/../existing".replace('/', std::path::MAIN_SEPARATOR_STR));
+            let target = PathBuf::from(literal);
+            let original = if override_target {
+                root.join("original")
+            } else {
+                target.clone()
+            };
+            let grave = bury_payload(&yard, &original);
+            fs::remove_dir(root.join("missing")).unwrap();
+            let existing = root.join("existing");
+            match occupied_by {
+                "empty_directory" => fs::create_dir(&existing).unwrap(),
+                "directory" => {
+                    fs::create_dir(&existing).unwrap();
+                    fs::write(existing.join("blob"), b"keep").unwrap();
+                }
+                "file" => fs::write(&existing, b"keep").unwrap(),
+                "dangling_symlink" => symlink_dir(&root.join("absent"), &existing),
+                _ => unreachable!(),
+            }
+            let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+            assert!(!target.exists());
+
+            let err = yard
+                .restore_by_id(
+                    &grave.record.id,
+                    override_target.then_some(target.as_path()),
+                )
+                .expect_err("restore must not overwrite a newly reachable target");
+
+            assert!(matches!(
+                err,
+                GraveyardError::RestoreTargetExists { path } if path == target
+            ));
+            match occupied_by {
+                "empty_directory" => assert_eq!(fs::read_dir(&existing).unwrap().count(), 0),
+                "directory" => assert_eq!(fs::read(existing.join("blob")).unwrap(), b"keep"),
+                "file" => assert_eq!(fs::read(&existing).unwrap(), b"keep"),
+                "dangling_symlink" => {
+                    assert_eq!(fs::read_link(&existing).unwrap(), root.join("absent"));
+                    assert!(!root.join("absent").exists());
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(fs::read(grave.payload_path.join("blob")).unwrap(), b"abc");
+            assert_eq!(
+                fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+                manifest_before
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(any(unix, windows))]
 fn restore_refuses_symlink_before_parent_component() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().canonicalize().unwrap();
