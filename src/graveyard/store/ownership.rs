@@ -52,10 +52,24 @@ pub(super) fn owned_grave_dir(
     // complete record also binds restore destinations and GC expiry decisions;
     // self-consistent manifest fields alone cannot establish ownership.
     let meta_path = resolved.join("meta.json");
-    let metadata = fs::symlink_metadata(&meta_path).map_err(|source| GraveyardError::Io {
-        path: meta_path.clone(),
-        source,
-    })?;
+    let metadata = match fs::symlink_metadata(&meta_path) {
+        Ok(metadata) => metadata,
+        // Final directory cleanup may fail after payload and metadata removal.
+        // Only a grave with no remaining payload can retry without metadata.
+        Err(source)
+            if source.kind() == std::io::ErrorKind::NotFound
+                && fs::symlink_metadata(resolved.join("payload"))
+                    .is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(resolved);
+        }
+        Err(source) => {
+            return Err(GraveyardError::Io {
+                path: meta_path,
+                source,
+            });
+        }
+    };
     if crate::scan::dangerous_link_kind(&metadata).is_some() {
         return Err(not_owned());
     }

@@ -122,6 +122,13 @@ fn graveyard_gc_delete_failure_keeps_payload_and_manifest() {
     assert!(!stderr.contains("removed 1 expired grave(s)"), "{stderr}");
     assert_eq!(fs::read(payload.join("blob")).unwrap(), b"abc");
     assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &fs::read(payload.parent().unwrap().join("meta.json")).unwrap(),
+        )
+        .unwrap(),
+        record,
+    );
+    assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&fs::read(&manifest).unwrap()).unwrap(),
         record
     );

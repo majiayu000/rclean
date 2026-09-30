@@ -113,3 +113,29 @@ fn gc_retries_after_manifest_rewrite_failure() {
     assert_eq!(collected[0].id, record.id);
     assert!(yard.list().unwrap().is_empty());
 }
+
+#[test]
+fn gc_retries_payload_free_directory_after_metadata_cleanup() {
+    let temp = TempDir::new().unwrap();
+    let yard = Graveyard::open(temp.path().join("graveyard"));
+    let original = temp.path().join("node_modules");
+    fs::create_dir(&original).unwrap();
+    let grave = yard.bury(make_input(&original)).unwrap();
+    let mut record = grave.record;
+    record.expires_at = Utc::now() - chrono::Duration::days(1);
+    rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
+    let grave_dir = grave.payload_path.parent().unwrap();
+    fs::remove_dir_all(&grave.payload_path).unwrap();
+    fs::remove_file(grave_dir.join("meta.json")).unwrap();
+
+    match yard.restore_by_id(&record.id, None).unwrap_err() {
+        GraveyardError::Io { path, source } => {
+            assert_eq!(path, grave_dir.canonicalize().unwrap().join("payload"));
+            assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(yard.gc(false).unwrap()[0].id, record.id);
+    assert!(!grave_dir.exists());
+    assert!(yard.list().unwrap().is_empty());
+}
