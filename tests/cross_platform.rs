@@ -38,9 +38,154 @@ fn scan_empty_workspace_emits_valid_json_on_all_platforms() {
         .stdout(predicate::str::contains("\"candidates\": 0"));
 }
 
+#[test]
+#[cfg(all(feature = "graveyard", unix))]
+fn restore_checks_targets_after_parent_creation_and_accepts_case_aliases() {
+    let temp = TempDir::new().unwrap();
+    let data = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    make_node_project(&temp);
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .arg("clean")
+        .arg(&root)
+        .args(["--all", "--graveyard", "--yes", "--min-size", "0"])
+        .assert()
+        .success();
+
+    let graveyard = data.path().join("rclean/graveyard");
+    let manifest = graveyard.join("manifest.jsonl");
+    let manifest_before = fs::read(&manifest).unwrap();
+    let record: serde_json::Value = serde_json::from_slice(&manifest_before).unwrap();
+    let payload = graveyard
+        .join(record["grave_path"].as_str().unwrap())
+        .join("payload");
+    fs::create_dir(root.join("existing")).unwrap();
+    let target = root.join("missing/../existing");
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .args(["restore", "--id", record["id"].as_str().unwrap(), "--to"])
+        .arg(&target)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "already exists; refuse to overwrite",
+        ));
+
+    assert_eq!(fs::read_dir(root.join("existing")).unwrap().count(), 0);
+    assert_eq!(fs::read(payload.join("blob")).unwrap(), b"abc");
+    assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
+    fs::remove_dir(root.join("missing")).unwrap();
+    let target = root.join("Missing/../missing/restored");
+    Command::cargo_bin("rclean")
+        .unwrap()
+        .env("XDG_DATA_HOME", data.path())
+        .args(["restore", "--id", record["id"].as_str().unwrap(), "--to"])
+        .arg(&target)
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read(root.join("missing/restored/blob")).unwrap(),
+        b"abc"
+    );
+    assert!(!payload.exists());
+    assert!(fs::read(&manifest).unwrap().is_empty());
+}
+
+#[cfg(all(feature = "graveyard", any(unix, windows)))]
+fn assert_restore_refuses_ancestor_symlinks(link_dir: fn(&std::path::Path, &std::path::Path)) {
+    for (parent_exists, override_target) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let temp = TempDir::new().unwrap();
+        let data = TempDir::new().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let link = root.join("link");
+        let project = if override_target {
+            root.join("source")
+        } else {
+            link.join("nested")
+        };
+        fs::create_dir_all(project.join("node_modules")).unwrap();
+        fs::write(project.join("package.json"), "{}").unwrap();
+        fs::write(project.join("node_modules").join("blob"), b"abc").unwrap();
+        Command::cargo_bin("rclean")
+            .unwrap()
+            .env("XDG_DATA_HOME", data.path())
+            .arg("clean")
+            .arg(&project)
+            .args(["--all", "--graveyard", "--yes", "--min-size", "0"])
+            .assert()
+            .success();
+
+        let graveyard = data.path().join("rclean").join("graveyard");
+        let manifest = graveyard.join("manifest.jsonl");
+        let manifest_before = fs::read(&manifest).unwrap();
+        let record: serde_json::Value = serde_json::from_slice(&manifest_before).unwrap();
+        let payload = graveyard
+            .join(record["grave_path"].as_str().unwrap())
+            .join("payload");
+        if !override_target {
+            fs::remove_dir_all(&link).unwrap();
+        }
+        let outside = root.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("keep"), b"unchanged").unwrap();
+        if parent_exists {
+            fs::create_dir(outside.join("nested")).unwrap();
+        }
+        link_dir(&outside, &link);
+
+        let mut cmd = Command::cargo_bin("rclean").unwrap();
+        cmd.env("XDG_DATA_HOME", data.path())
+            .current_dir(&root)
+            .args(["restore", "--id", record["id"].as_str().unwrap()]);
+        if override_target {
+            cmd.args(["--to", "link/nested/node_modules"]);
+        }
+        cmd.assert()
+            .failure()
+            .stderr(predicate::str::contains("is a symlink; refuse to traverse"));
+
+        assert_eq!(fs::read(outside.join("keep")).unwrap(), b"unchanged");
+        assert_eq!(outside.join("nested").exists(), parent_exists);
+        assert!(!outside.join("nested").join("node_modules").exists());
+        assert_eq!(fs::read(payload.join("blob")).unwrap(), b"abc");
+        assert_eq!(fs::read(&manifest).unwrap(), manifest_before);
+
+        Command::cargo_bin("rclean")
+            .unwrap()
+            .env("XDG_DATA_HOME", data.path())
+            .current_dir(&root)
+            .args([
+                "restore",
+                "--id",
+                record["id"].as_str().unwrap(),
+                "--to",
+                "safe/missing/../restored",
+            ])
+            .assert()
+            .success();
+        assert_eq!(fs::read(root.join("safe/restored/blob")).unwrap(), b"abc");
+        assert!(!payload.exists());
+        assert!(fs::read(&manifest).unwrap().is_empty());
+    }
+}
+
 #[cfg(unix)]
 mod unix {
     use super::*;
+
+    #[test]
+    #[cfg(feature = "graveyard")]
+    fn restore_refuses_ancestor_symlinks_on_unix() {
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            std::os::unix::fs::symlink(target, link).unwrap();
+        });
+    }
 
     /// `output::short_path` collapses `$HOME` to `~` in scan-table
     /// output. The function reads `HOME`, which is well-defined on
@@ -99,6 +244,32 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use super::*;
+
+    #[test]
+    #[cfg(feature = "graveyard")]
+    fn restore_refuses_ancestor_symlinks_on_windows() {
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            std::os::windows::fs::symlink_dir(target, link).unwrap();
+        });
+    }
+
+    #[test]
+    #[cfg(feature = "graveyard")]
+    fn restore_refuses_junction_ancestors_on_windows() {
+        assert_restore_refuses_ancestor_symlinks(|target, link| {
+            let output = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "mklink failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        });
+    }
 
     /// Windows uses `USERPROFILE` as its home directory env var.
     /// `scan()` canonicalizes roots into extended paths, so the test
