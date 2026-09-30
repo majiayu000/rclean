@@ -148,7 +148,7 @@ impl Graveyard {
     /// restored. Enforces SPEC §4.7.5 edge cases:
     ///
     ///   1. Target path already exists → `RestoreTargetExists`.
-    ///   2. Target parent is a symlink → `RestoreTargetParentIsSymlink`.
+    ///   2. Target parent or ancestor is a symlink → `RestoreTargetParentIsSymlink`.
     ///   3. Target parent missing → re-created with default perms.
     ///   4. Cross-FS rename → copy + remove fallback.
     pub fn restore_by_id(
@@ -172,24 +172,8 @@ impl Graveyard {
         if target.exists() {
             return Err(GraveyardError::RestoreTargetExists { path: target });
         }
-        if let Some(parent) = target.parent()
-            && parent.exists()
-            && parent
-                .symlink_metadata()
-                .map(|m| m.file_type().is_symlink())
-                .unwrap_or(false)
-        {
-            return Err(GraveyardError::RestoreTargetParentIsSymlink {
-                path: parent.to_path_buf(),
-            });
-        }
-        if let Some(parent) = target.parent()
-            && !parent.exists()
-        {
-            fs::create_dir_all(parent).map_err(|source| GraveyardError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+        if let Some(parent) = target.parent() {
+            prepare_restore_parent(parent)?;
         }
 
         let payload = grave_dir.join("payload");
@@ -242,6 +226,48 @@ impl Graveyard {
         rewrite_manifest_atomic(&self.root, &alive)?;
         Ok(expired)
     }
+}
+
+/// Check every existing prefix before creating any missing directories.
+/// `absolute` anchors relative destinations without resolving their symlinks.
+fn prepare_restore_parent(parent: &Path) -> Result<(), GraveyardError> {
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    let parent = std::path::absolute(parent).map_err(|source| GraveyardError::Io {
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    let ancestors: Vec<_> = parent.ancestors().collect();
+    let mut missing = Vec::new();
+    for ancestor in ancestors.into_iter().rev() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(GraveyardError::RestoreTargetParentIsSymlink {
+                    path: ancestor.to_path_buf(),
+                });
+            }
+            Ok(_) => {}
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(ancestor);
+            }
+            Err(source) => {
+                return Err(GraveyardError::Io {
+                    path: ancestor.to_path_buf(),
+                    source,
+                });
+            }
+        }
+    }
+    for directory in missing {
+        fs::create_dir(directory).map_err(|source| GraveyardError::Io {
+            path: directory.to_path_buf(),
+            source,
+        })?;
+    }
+    Ok(())
 }
 
 /// Resolve `root.join(grave_path)` and require the result to stay
@@ -677,3 +703,6 @@ mod tests {
 
 #[cfg(test)]
 mod containment_tests;
+
+#[cfg(test)]
+mod restore_tests;
