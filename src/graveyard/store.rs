@@ -232,7 +232,11 @@ impl Graveyard {
 
         let mut first_failure = None;
         for (record, grave_dir) in expired.iter().zip(expired_dirs) {
-            if let Err(source) = fs::remove_dir_all(&grave_dir) {
+            // A prior collection may have deleted the directory before its
+            // manifest rewrite failed; an absent grave is already collected.
+            if let Err(source) = fs::remove_dir_all(&grave_dir)
+                && source.kind() != std::io::ErrorKind::NotFound
+            {
                 alive.push(record.clone());
                 first_failure.get_or_insert(GraveyardError::Io {
                     path: grave_dir,

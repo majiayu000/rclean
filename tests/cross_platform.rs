@@ -59,6 +59,21 @@ fn graveyard_gc_delete_failure_keeps_payload_and_manifest() {
         use std::os::unix::fs::PermissionsExt;
         let original = fs::metadata(&payload).unwrap().permissions();
         fs::set_permissions(&payload, fs::Permissions::from_mode(0o500)).unwrap();
+        let probe_path = payload.join("permission_probe");
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe_path)
+        {
+            Ok(probe) => {
+                drop(probe);
+                fs::remove_file(probe_path).unwrap();
+                fs::set_permissions(&payload, original).unwrap();
+                eprintln!("skipping: current privileges bypass directory write permissions");
+                return;
+            }
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied),
+        }
         original
     };
     #[cfg(windows)]
