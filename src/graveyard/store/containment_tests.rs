@@ -185,6 +185,11 @@ fn gc_still_collects_contained_expired_graves() {
         grave.record.grave_path.clone(),
         true,
     );
+    fs::write(
+        grave.payload_path.parent().unwrap().join("meta.json"),
+        serde_json::to_vec(&yard.list().unwrap()[0]).unwrap(),
+    )
+    .unwrap();
 
     let collected = yard.gc(false).unwrap();
     assert_eq!(collected.len(), 1);
@@ -283,6 +288,11 @@ fn gc_validates_all_expired_paths_before_any_delete() {
         grave.record.grave_path.clone(),
         true,
     );
+    fs::write(
+        grave.payload_path.parent().unwrap().join("meta.json"),
+        serde_json::to_vec(&yard.list().unwrap()[0]).unwrap(),
+    )
+    .unwrap();
     set_record_paths(&yard, &other.record.id, PathBuf::from("shared"), true);
     fs::create_dir(yard.root().join("shared")).unwrap();
     let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();

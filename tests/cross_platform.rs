@@ -48,6 +48,12 @@ fn graveyard_gc_delete_failure_keeps_payload_and_manifest() {
     let mut record: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
     record["expires_at"] = serde_json::json!("2000-01-01T00:00:00Z");
+    fs::write(
+        root.join(record["grave_path"].as_str().unwrap())
+            .join("meta.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
     let before = format!("{}\n", serde_json::to_string(&record).unwrap());
     fs::write(&manifest, &before).unwrap();
     let payload = root
@@ -485,6 +491,12 @@ mod graveyard_record_paths {
             .collect();
         fs::write(&payloads[1], b"other").unwrap();
         records[0]["expires_at"] = Value::from("2000-01-01T00:00:00Z");
+        fs::write(
+            root.join(records[0]["grave_path"].as_str().unwrap())
+                .join("meta.json"),
+            serde_json::to_vec(&records[0]).unwrap(),
+        )
+        .unwrap();
         edit(&root, &mut records);
         let body: String = records
             .iter()
@@ -536,6 +548,19 @@ mod graveyard_record_paths {
     #[test]
     fn another_leaf_is_refused() {
         assert_refused(|_, records| records[0]["grave_path"] = records[1]["grave_path"].clone());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linked_metadata_is_refused() {
+        assert_refused(|root, records| {
+            let meta = root
+                .join(records[0]["grave_path"].as_str().unwrap())
+                .join("meta.json");
+            let saved = meta.with_extension("saved");
+            fs::rename(&meta, &saved).unwrap();
+            std::os::unix::fs::symlink(saved, meta).unwrap();
+        });
     }
 
     #[cfg(unix)]

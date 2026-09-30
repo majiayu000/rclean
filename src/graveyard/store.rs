@@ -11,8 +11,10 @@ use super::manifest::{
     GraveId, MANIFEST_SCHEMA_VERSION, ManifestReader, ManifestRecord, RecordWriter,
 };
 
+mod ownership;
 mod restore;
 
+use ownership::owned_grave_dir;
 use restore::prepare_restore_parent;
 
 /// Default TTL for a grave before it becomes garbage-collectable.
@@ -251,45 +253,6 @@ impl Graveyard {
             None => Ok(expired),
         }
     }
-}
-
-/// Pin mutations to the leaf that `bury` creates for this record. Root
-/// containment alone also admits shared date directories and other graves.
-fn owned_grave_dir(root: &Path, record: &ManifestRecord) -> Result<PathBuf, GraveyardError> {
-    let resolved = contained_grave_dir(root, &record.grave_path)?;
-    let not_owned = || GraveyardError::GravePathNotOwned {
-        path: record.grave_path.clone(),
-        id: record.id.clone(),
-    };
-    let expected = PathBuf::from(record.deleted_at.format("%Y/%m/%d").to_string()).join(format!(
-        "{}-{}",
-        record.deleted_at.format("%H%M%S"),
-        record.id
-    ));
-    if record.grave_path != expected {
-        return Err(not_owned());
-    }
-
-    // Inspect every component without following links, including Windows
-    // junctions. A link inside the root can still select a different grave.
-    let mut current = root.to_path_buf();
-    for component in record.grave_path.components() {
-        current.push(component);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if crate::scan::dangerous_link_kind(&metadata).is_some() => {
-                return Err(not_owned());
-            }
-            Ok(_) => {}
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => break,
-            Err(source) => {
-                return Err(GraveyardError::Io {
-                    path: current,
-                    source,
-                });
-            }
-        }
-    }
-    Ok(resolved)
 }
 
 /// Resolve `root.join(grave_path)` and require the result to stay

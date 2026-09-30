@@ -14,6 +14,11 @@ fn gc_delete_failure_keeps_failed_records_and_collects_successes() {
         let mut record = grave.record;
         if name != "alive" {
             record.expires_at = Utc::now() - chrono::Duration::days(1);
+            fs::write(
+                yard.root().join(&record.grave_path).join("meta.json"),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
         }
         records.push(record);
     }
@@ -64,6 +69,13 @@ fn gc_delete_failure_keeps_failed_records_and_collects_successes() {
     fs::create_dir(&failed_dir).unwrap();
     fs::remove_file(&failed_second_dir).unwrap();
     fs::create_dir(&failed_second_dir).unwrap();
+    for record in [&records[0], &records[3]] {
+        fs::write(
+            yard.root().join(&record.grave_path).join("meta.json"),
+            serde_json::to_vec(record).unwrap(),
+        )
+        .unwrap();
+    }
     assert_eq!(yard.gc(false).unwrap().len(), 2);
     assert_eq!(yard.list().unwrap()[0].id, records[4].id);
 }
@@ -77,6 +89,11 @@ fn gc_retries_after_manifest_rewrite_failure() {
     fs::write(original.join("blob"), b"abc").unwrap();
     let mut record = yard.bury(make_input(&original)).unwrap().record;
     record.expires_at = Utc::now() - chrono::Duration::days(1);
+    fs::write(
+        yard.root().join(&record.grave_path).join("meta.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
     rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
     let manifest = yard.root().join("manifest.jsonl");
     let before = fs::read(&manifest).unwrap();
