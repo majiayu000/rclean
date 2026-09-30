@@ -182,7 +182,7 @@ mod graveyard_record_paths {
                 .assert()
                 .success();
         }
-        let root = data.path().join("rclean/graveyard");
+        let root = data.path().join("rclean").join("graveyard");
         let manifest = root.join("manifest.jsonl");
         let mut records: Vec<Value> = fs::read_to_string(&manifest)
             .unwrap()
