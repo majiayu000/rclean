@@ -153,7 +153,11 @@ fn restore_to_alternate_path_preserves_explicit_id_compatibility() {
         .as_str()
         .unwrap()
         .to_string();
-    let alternate = alternate_root.path().join("restored");
+    let alternate = alternate_root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("restored");
 
     Command::cargo_bin("rclean")
         .unwrap()
