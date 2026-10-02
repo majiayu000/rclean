@@ -7,6 +7,10 @@ use chrono::Utc;
 
 use crate::scan::dangerous_link_kind;
 
+mod copy;
+
+use copy::copy_dir_all;
+
 use super::GraveyardError;
 use super::id;
 use super::manifest::{
@@ -589,34 +593,6 @@ fn cross_fs(err: &std::io::Error) -> bool {
     }
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), GraveyardError> {
-    fs::create_dir_all(dst).map_err(|source| GraveyardError::Io {
-        path: dst.to_path_buf(),
-        source,
-    })?;
-    for entry in fs::read_dir(src).map_err(|source| GraveyardError::Io {
-        path: src.to_path_buf(),
-        source,
-    })? {
-        let entry = entry.map_err(|source| GraveyardError::Io {
-            path: src.to_path_buf(),
-            source,
-        })?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let ft = entry.file_type().map_err(|source| GraveyardError::Io {
-            path: from.clone(),
-            source,
-        })?;
-        if ft.is_dir() {
-            copy_dir_all(&from, &to)?;
-        } else {
-            fs::copy(&from, &to).map_err(|source| GraveyardError::Io { path: from, source })?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 fn make_input(path: &Path) -> GraveInput<'_> {
     GraveInput {
@@ -778,6 +754,9 @@ mod tests {
 
 #[cfg(test)]
 mod containment_tests;
+
+#[cfg(test)]
+mod copy_tests;
 
 #[cfg(test)]
 mod gc_tests;
