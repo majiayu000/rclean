@@ -11,6 +11,7 @@ on:
     tags: ["v*"]
   pull_request:
     paths:
+      - ".github/homebrew/rclean.rb.tmpl"
       - ".github/workflows/release.yml"
       - ".github/scripts/**"
       - "Cargo.toml"
@@ -252,6 +253,10 @@ jobs:
             exit 0
           fi
           version="${GITHUB_REF_NAME#v}"
+          curl --fail --location --retry 3 \
+            "https://github.com/majiayu000/rclean/archive/refs/tags/v${version}.tar.gz" \
+            --output source.tar.gz
+          source_sha=$(shasum -a 256 source.tar.gz | cut -d' ' -f1)
           sha_for() {
             cut -d' ' -f1 "dist/rclean-cli-v${version}-$1.tar.gz.sha256"
           }
@@ -259,8 +264,7 @@ jobs:
             -e "s/{{VERSION}}/${version}/" \
             -e "s/{{SHA_AARCH64_APPLE_DARWIN}}/$(sha_for aarch64-apple-darwin)/" \
             -e "s/{{SHA_X86_64_APPLE_DARWIN}}/$(sha_for x86_64-apple-darwin)/" \
-            -e "s/{{SHA_AARCH64_UNKNOWN_LINUX_GNU}}/$(sha_for aarch64-unknown-linux-gnu)/" \
-            -e "s/{{SHA_X86_64_UNKNOWN_LINUX_GNU}}/$(sha_for x86_64-unknown-linux-gnu)/" \
+            -e "s/{{SHA_SOURCE}}/${source_sha}/" \
             .github/homebrew/rclean.rb.tmpl > rclean.rb
           git clone "https://x-access-token:${TAP_PUSH_TOKEN}@github.com/majiayu000/homebrew-rclean.git" tap
           mv rclean.rb tap/Formula/rclean.rb

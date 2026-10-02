@@ -54,7 +54,8 @@ cleanup() {
     "$temporary_dir/current.md" \
     "$temporary_dir/missing.md" \
     "$temporary_dir/empty.md" \
-    "$temporary_dir/empty-output.md"
+    "$temporary_dir/empty-output.md" \
+    "$temporary_dir/rclean.rb"
   rmdir "$temporary_dir"
 }
 trap cleanup EXIT
@@ -82,6 +83,24 @@ expect_failure \
 
 if [[ -e "$temporary_dir/missing.md" || -e "$temporary_dir/empty-output.md" ]]; then
   echo "contract failure: failed extraction left an output file" >&2
+  exit 1
+fi
+
+# Render the tap's source and prebuilt resources together. A release must not
+# reintroduce Linux binaries that require the build runner's system glibc.
+source_sha=$(printf 'source archive' | shasum -a 256 | cut -d' ' -f1)
+sed \
+  -e "s/{{VERSION}}/${package_version}/" \
+  -e "s/{{SHA_SOURCE}}/${source_sha}/" \
+  -e "s/{{SHA_AARCH64_APPLE_DARWIN}}/${source_sha}/" \
+  -e "s/{{SHA_X86_64_APPLE_DARWIN}}/${source_sha}/" \
+  .github/homebrew/rclean.rb.tmpl >"$temporary_dir/rclean.rb"
+if grep -q '{{\|unknown-linux-gnu' "$temporary_dir/rclean.rb"; then
+  echo "contract failure: formula retains unresolved resources or prebuilt Linux binaries" >&2
+  exit 1
+fi
+if ! grep -Fq 'archive/refs/tags/v#{version}.tar.gz' "$temporary_dir/rclean.rb"; then
+  echo "contract failure: formula is missing the pinned Linux source archive" >&2
   exit 1
 fi
 
