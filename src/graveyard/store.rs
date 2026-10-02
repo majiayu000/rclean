@@ -214,6 +214,14 @@ impl Graveyard {
     /// summary). Failed deletions retain their manifest records and
     /// return the first deletion error after successful deletions are recorded.
     pub fn gc(&self, dry_run: bool) -> Result<Vec<ManifestRecord>, GraveyardError> {
+        self.gc_with_remover(dry_run, |path| fs::remove_dir_all(path))
+    }
+
+    fn gc_with_remover(
+        &self,
+        dry_run: bool,
+        mut remove_grave: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<Vec<ManifestRecord>, GraveyardError> {
         let records = self.list()?;
         let now = Utc::now();
         let (expired, mut alive): (Vec<_>, Vec<_>) =
@@ -230,10 +238,12 @@ impl Graveyard {
 
         let mut first_failure = None;
         for (record, grave_dir) in expired.iter().zip(expired_dirs) {
-            // A prior collection may have deleted the directory before its
-            // manifest rewrite failed; an absent grave is already collected.
-            if let Err(source) = fs::remove_dir_all(&grave_dir)
-                && source.kind() != std::io::ErrorKind::NotFound
+            // NotFound can refer to a vanished descendant. Only a missing
+            // grave root confirms collection (including manifest-write retries).
+            if let Err(source) = remove_grave(&grave_dir)
+                && !(source.kind() == std::io::ErrorKind::NotFound
+                    && matches!(fs::symlink_metadata(&grave_dir), Err(err)
+                        if err.kind() == std::io::ErrorKind::NotFound))
             {
                 alive.push(record.clone());
                 first_failure.get_or_insert(GraveyardError::Io {
