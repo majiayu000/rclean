@@ -11,6 +11,7 @@ on:
     tags: ["v*"]
   pull_request:
     paths:
+      - ".github/homebrew/rclean.rb.tmpl"
       - ".github/workflows/release.yml"
       - ".github/scripts/**"
       - "Cargo.toml"
