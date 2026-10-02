@@ -221,7 +221,7 @@ fn run_interactive(
     }
 
     crate::clean::confirm_if_needed(&selected, &clean_args)?;
-    let result = delete_interactive_selected(&selected, &clean_args)?;
+    let result = delete_interactive_selected(&selected, &report.roots, &clean_args)?;
     let status = if result.failed.is_empty() {
         ExitCode::SUCCESS
     } else {
@@ -288,20 +288,21 @@ fn default_interactive_delete_mode() -> &'static str {
 
 fn delete_interactive_selected(
     selected: &[SelectedCandidate],
+    roots: &[String],
     args: &crate::cli::CleanArgs,
 ) -> Result<CleanResult, RcleanError> {
     #[cfg(feature = "graveyard")]
     {
         if args.graveyard {
             let yard = crate::graveyard::Graveyard::open(crate::graveyard::default_root());
-            return crate::clean::delete_selected_into_graveyard(selected, &yard, None)
+            return crate::clean::delete_selected_into_graveyard(selected, roots, &yard, None)
                 .map_err(Into::into);
         }
-        crate::clean::delete_selected(selected, args.permanent, None).map_err(Into::into)
+        crate::clean::delete_selected(selected, roots, args.permanent, None).map_err(Into::into)
     }
     #[cfg(not(feature = "graveyard"))]
     {
-        crate::clean::delete_selected(selected, args.permanent, None).map_err(Into::into)
+        crate::clean::delete_selected(selected, roots, args.permanent, None).map_err(Into::into)
     }
 }
 
