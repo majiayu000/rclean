@@ -211,11 +211,20 @@ impl Graveyard {
 
     /// Remove every grave whose `expires_at` is before `now`. Returns
     /// the records that were collected (so callers can print a
-    /// summary).
+    /// summary). Failed deletions retain their manifest records and
+    /// return the first deletion error after successful deletions are recorded.
     pub fn gc(&self, dry_run: bool) -> Result<Vec<ManifestRecord>, GraveyardError> {
+        self.gc_with_remover(dry_run, |path| fs::remove_dir_all(path))
+    }
+
+    fn gc_with_remover(
+        &self,
+        dry_run: bool,
+        mut remove_grave: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<Vec<ManifestRecord>, GraveyardError> {
         let records = self.list()?;
         let now = Utc::now();
-        let (expired, alive): (Vec<_>, Vec<_>) =
+        let (expired, mut alive): (Vec<_>, Vec<_>) =
             records.iter().cloned().partition(|r| r.expires_at < now);
 
         let expired_dirs = expired
@@ -227,18 +236,28 @@ impl Graveyard {
             return Ok(expired);
         }
 
-        for grave_dir in expired_dirs {
-            if let Err(err) = fs::remove_dir_all(&grave_dir) {
-                tracing::warn!(
-                    path = %grave_dir.display(),
-                    error = %err,
-                    "graveyard: gc failed to remove expired grave dir"
-                );
+        let mut first_failure = None;
+        for (record, grave_dir) in expired.iter().zip(expired_dirs) {
+            // NotFound can refer to a vanished descendant. Only a missing
+            // grave root confirms collection (including manifest-write retries).
+            if let Err(source) = remove_grave(&grave_dir)
+                && !(source.kind() == std::io::ErrorKind::NotFound
+                    && matches!(fs::symlink_metadata(&grave_dir), Err(err)
+                        if err.kind() == std::io::ErrorKind::NotFound))
+            {
+                alive.push(record.clone());
+                first_failure.get_or_insert(GraveyardError::Io {
+                    path: grave_dir,
+                    source,
+                });
             }
         }
 
         rewrite_manifest_atomic(&self.root, &alive)?;
-        Ok(expired)
+        match first_failure {
+            Some(err) => Err(err),
+            None => Ok(expired),
+        }
     }
 }
 
@@ -759,6 +778,9 @@ mod tests {
 
 #[cfg(test)]
 mod containment_tests;
+
+#[cfg(test)]
+mod gc_tests;
 
 #[cfg(test)]
 mod restore_tests;
