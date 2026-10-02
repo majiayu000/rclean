@@ -185,10 +185,170 @@ fn gc_still_collects_contained_expired_graves() {
         grave.record.grave_path.clone(),
         true,
     );
+    fs::write(
+        grave.payload_path.parent().unwrap().join("meta.json"),
+        serde_json::to_vec(&yard.list().unwrap()[0]).unwrap(),
+    )
+    .unwrap();
 
     let collected = yard.gc(false).unwrap();
     assert_eq!(collected.len(), 1);
     assert_eq!(collected[0].id, grave.record.id);
     assert!(!grave_dir.exists());
     assert!(yard.list().unwrap().is_empty());
+}
+
+fn assert_mutations_refused(yard: &Graveyard, grave: &Grave, other: &Grave, path: PathBuf) {
+    set_record_paths(yard, &grave.record.id, path.clone(), true);
+    let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+    let target = grave
+        .record
+        .original_path
+        .with_file_name("missing")
+        .join("restored");
+    for operation in ["restore", "gc dry-run", "gc"] {
+        let result = match operation {
+            "restore" => yard
+                .restore_by_id(&grave.record.id, Some(&target))
+                .map(|_| ()),
+            "gc dry-run" => yard.gc(true).map(|_| ()),
+            "gc" => yard.gc(false).map(|_| ()),
+            _ => unreachable!(),
+        };
+        match result.expect_err(&format!("{operation} must refuse another grave's tree")) {
+            GraveyardError::GravePathNotOwned { path: rejected, id } => {
+                assert_eq!(rejected, path);
+                assert_eq!(id, grave.record.id);
+            }
+            other => panic!("{operation} returned the wrong error: {other}"),
+        }
+        assert!(
+            !target.parent().unwrap().exists(),
+            "{operation} created target parents"
+        );
+        assert_eq!(fs::read(grave.payload_path.join("blob")).unwrap(), b"abc");
+        assert_eq!(fs::read(other.payload_path.join("blob")).unwrap(), b"other");
+        assert_eq!(
+            fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+            manifest_before
+        );
+        assert_eq!(yard.list().unwrap().len(), 2);
+    }
+}
+
+fn bury_pair(temp: &TempDir) -> (Graveyard, Grave, Grave) {
+    let yard = Graveyard::open(temp.path().join("graveyard"));
+    let grave = bury_sample(&yard, &temp.path().join("first/node_modules"));
+    let other = bury_sample(&yard, &temp.path().join("second/node_modules"));
+    fs::write(other.payload_path.join("blob"), b"other").unwrap();
+    (yard, grave, other)
+}
+
+#[test]
+fn shared_grave_parents_are_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, grave, other) = bury_pair(&temp);
+    for path in grave
+        .record
+        .grave_path
+        .ancestors()
+        .skip(1)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        assert_mutations_refused(&yard, &grave, &other, path.to_path_buf());
+    }
+}
+
+#[test]
+fn another_grave_leaf_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, grave, other) = bury_pair(&temp);
+    assert_mutations_refused(&yard, &grave, &other, other.record.grave_path.clone());
+}
+
+#[test]
+fn own_grave_subdirectory_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, grave, other) = bury_pair(&temp);
+    assert_mutations_refused(
+        &yard,
+        &grave,
+        &other,
+        grave.record.grave_path.join("payload"),
+    );
+}
+
+#[test]
+fn gc_validates_all_expired_paths_before_any_delete() {
+    let temp = TempDir::new().unwrap();
+    let (yard, grave, other) = bury_pair(&temp);
+    set_record_paths(
+        &yard,
+        &grave.record.id,
+        grave.record.grave_path.clone(),
+        true,
+    );
+    fs::write(
+        grave.payload_path.parent().unwrap().join("meta.json"),
+        serde_json::to_vec(&yard.list().unwrap()[0]).unwrap(),
+    )
+    .unwrap();
+    set_record_paths(&yard, &other.record.id, PathBuf::from("shared"), true);
+    fs::create_dir(yard.root().join("shared")).unwrap();
+    let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+
+    for dry_run in [true, false] {
+        assert!(matches!(
+            yard.gc(dry_run),
+            Err(GraveyardError::GravePathNotOwned { .. })
+        ));
+        assert_eq!(fs::read(grave.payload_path.join("blob")).unwrap(), b"abc");
+        assert_eq!(fs::read(other.payload_path.join("blob")).unwrap(), b"other");
+        assert_eq!(
+            fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+            manifest_before
+        );
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn in_root_grave_symlink_alias_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, grave, other) = bury_pair(&temp);
+    std::os::unix::fs::symlink(
+        yard.root().join(&other.record.grave_path),
+        yard.root().join("alias"),
+    )
+    .unwrap();
+    assert_mutations_refused(&yard, &grave, &other, PathBuf::from("alias"));
+}
+
+#[test]
+#[cfg(unix)]
+fn own_grave_leaf_symlink_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, mut grave, other) = bury_pair(&temp);
+    let leaf = yard.root().join(&grave.record.grave_path);
+    let saved = yard.root().join("saved");
+    fs::rename(&leaf, &saved).unwrap();
+    grave.payload_path = saved.join("payload");
+    std::os::unix::fs::symlink(yard.root().join(&other.record.grave_path), &leaf).unwrap();
+    assert_mutations_refused(&yard, &grave, &other, grave.record.grave_path.clone());
+}
+
+#[test]
+#[cfg(unix)]
+fn own_grave_ancestor_symlink_is_refused() {
+    let temp = TempDir::new().unwrap();
+    let (yard, mut grave, mut other) = bury_pair(&temp);
+    let year = grave.record.grave_path.components().next().unwrap();
+    let saved = yard.root().join("saved");
+    fs::rename(yard.root().join(year), &saved).unwrap();
+    let tail =
+        |record: &ManifestRecord| record.grave_path.components().skip(1).collect::<PathBuf>();
+    grave.payload_path = saved.join(tail(&grave.record)).join("payload");
+    other.payload_path = saved.join(tail(&other.record)).join("payload");
+    std::os::unix::fs::symlink(&saved, yard.root().join(year)).unwrap();
+    assert_mutations_refused(&yard, &grave, &other, grave.record.grave_path.clone());
 }

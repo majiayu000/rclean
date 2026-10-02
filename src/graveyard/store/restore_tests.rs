@@ -7,6 +7,68 @@ fn bury_payload(yard: &Graveyard, path: &Path) -> Grave {
     yard.bury(make_input(path)).unwrap()
 }
 
+#[test]
+fn restore_missing_payload_preserves_io_error_without_creating_parents() {
+    let mut created_parents = Vec::new();
+    for state in ["absent", "file", "empty", "metadata"] {
+        for override_target in [false, true] {
+            let temp = TempDir::new().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let yard = Graveyard::open(root.join("graveyard"));
+            let grave = bury_payload(&yard, &root.join("original"));
+            let grave_dir = grave.payload_path.parent().unwrap();
+            if state == "metadata" {
+                fs::remove_dir_all(&grave.payload_path).unwrap();
+            } else {
+                fs::remove_dir_all(grave_dir).unwrap();
+                match state {
+                    "file" => fs::write(grave_dir, b"keep").unwrap(),
+                    "empty" => fs::create_dir(grave_dir).unwrap(),
+                    _ => {}
+                }
+            }
+            let target = root.join("missing/nested/restored");
+            let mut record = grave.record;
+            if !override_target {
+                record.original_path = target.clone();
+                if state == "metadata" {
+                    fs::write(
+                        grave_dir.join("meta.json"),
+                        serde_json::to_vec(&record).unwrap(),
+                    )
+                    .unwrap();
+                }
+                rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
+            }
+            let before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+            let expected = fs::rename(&grave.payload_path, root.join("probe")).unwrap_err();
+            match yard
+                .restore_by_id(&record.id, override_target.then_some(target.as_path()))
+                .unwrap_err()
+            {
+                GraveyardError::Io { path, source } => {
+                    assert_eq!(path, grave.payload_path);
+                    assert_eq!(source.kind(), expected.kind());
+                    assert_eq!(source.raw_os_error(), expected.raw_os_error());
+                }
+                other => panic!("unexpected restore error: {other}"),
+            }
+            assert_eq!(
+                fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+                before
+            );
+            if state == "file" {
+                assert_eq!(fs::read(grave_dir).unwrap(), b"keep");
+            }
+            created_parents.push((state, override_target, target.parent().unwrap().exists()));
+        }
+    }
+    assert!(
+        created_parents.iter().all(|(_, _, created)| !created),
+        "restore must fail before target mutation: {created_parents:?}"
+    );
+}
+
 #[cfg(any(unix, windows))]
 fn symlink_dir(target: &Path, link: &Path) {
     #[cfg(unix)]

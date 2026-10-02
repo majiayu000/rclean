@@ -23,7 +23,7 @@ pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 /// On-disk record (one per line in `manifest.jsonl`). See
 /// `docs/specs/v0.1.x-roadmap.md` §4.7.2 for the full field
 /// semantics and rationale.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestRecord {
     pub schema_version: u32,

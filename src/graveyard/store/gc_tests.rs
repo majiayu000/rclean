@@ -14,6 +14,11 @@ fn gc_delete_failure_keeps_failed_records_and_collects_successes() {
         let mut record = grave.record;
         if name != "alive" {
             record.expires_at = Utc::now() - chrono::Duration::days(1);
+            fs::write(
+                yard.root().join(&record.grave_path).join("meta.json"),
+                serde_json::to_vec(&record).unwrap(),
+            )
+            .unwrap();
         }
         records.push(record);
     }
@@ -64,6 +69,13 @@ fn gc_delete_failure_keeps_failed_records_and_collects_successes() {
     fs::create_dir(&failed_dir).unwrap();
     fs::remove_file(&failed_second_dir).unwrap();
     fs::create_dir(&failed_second_dir).unwrap();
+    for record in [&records[0], &records[3]] {
+        fs::write(
+            yard.root().join(&record.grave_path).join("meta.json"),
+            serde_json::to_vec(record).unwrap(),
+        )
+        .unwrap();
+    }
     assert_eq!(yard.gc(false).unwrap().len(), 2);
     assert_eq!(yard.list().unwrap()[0].id, records[4].id);
 }
@@ -77,6 +89,11 @@ fn gc_retries_after_manifest_rewrite_failure() {
     fs::write(original.join("blob"), b"abc").unwrap();
     let mut record = yard.bury(make_input(&original)).unwrap().record;
     record.expires_at = Utc::now() - chrono::Duration::days(1);
+    fs::write(
+        yard.root().join(&record.grave_path).join("meta.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
     rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
     let manifest = yard.root().join("manifest.jsonl");
     let before = fs::read(&manifest).unwrap();
@@ -98,6 +115,50 @@ fn gc_retries_after_manifest_rewrite_failure() {
 }
 
 #[test]
+fn gc_retries_payload_free_directory_after_metadata_cleanup() {
+    let temp = TempDir::new().unwrap();
+    let yard = Graveyard::open(temp.path().join("graveyard"));
+    let original = temp.path().canonicalize().unwrap().join("node_modules");
+    fs::create_dir(&original).unwrap();
+    let grave = yard.bury(make_input(&original)).unwrap();
+    let mut record = grave.record;
+    record.expires_at = Utc::now() - chrono::Duration::days(1);
+    rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
+    let grave_dir = grave.payload_path.parent().unwrap();
+    fs::remove_dir_all(&grave.payload_path).unwrap();
+    fs::remove_file(grave_dir.join("meta.json")).unwrap();
+    let extra = grave_dir.join("unverified");
+    fs::write(&extra, b"keep").unwrap();
+    let expected_kind = fs::remove_dir(grave_dir).unwrap_err().kind();
+    let manifest_before = fs::read(yard.root().join("manifest.jsonl")).unwrap();
+
+    match yard.gc(false).unwrap_err() {
+        GraveyardError::Io { path, source } => {
+            assert_eq!(path, grave_dir.canonicalize().unwrap());
+            assert_eq!(source.kind(), expected_kind);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(fs::read(&extra).unwrap(), b"keep");
+    assert_eq!(
+        fs::read(yard.root().join("manifest.jsonl")).unwrap(),
+        manifest_before
+    );
+    fs::remove_file(extra).unwrap();
+
+    match yard.restore_by_id(&record.id, None).unwrap_err() {
+        GraveyardError::Io { path, source } => {
+            assert_eq!(path, grave_dir.canonicalize().unwrap().join("payload"));
+            assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+        }
+        other => panic!("unexpected error: {other}"),
+    }
+    assert_eq!(yard.gc(false).unwrap()[0].id, record.id);
+    assert!(!grave_dir.exists());
+    assert!(yard.list().unwrap().is_empty());
+}
+
+#[test]
 fn gc_keeps_record_when_not_found_is_only_a_deleted_descendant() {
     let temp = TempDir::new().unwrap();
     let yard = Graveyard::open(temp.path().join("graveyard"));
@@ -107,13 +168,22 @@ fn gc_keeps_record_when_not_found_is_only_a_deleted_descendant() {
     fs::write(original.join("disappearing"), b"gone").unwrap();
     let mut record = yard.bury(make_input(&original)).unwrap().record;
     record.expires_at = Utc::now() - chrono::Duration::days(1);
+    fs::write(
+        yard.root().join(&record.grave_path).join("meta.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
     rewrite_manifest_atomic(yard.root(), &[record.clone()]).unwrap();
     let grave_dir = yard.root().join(&record.grave_path);
 
     let result = yard.gc_with_remover(false, |path| {
-        let descendant = path.join("payload/disappearing");
-        fs::remove_file(&descendant)?;
-        fs::remove_file(descendant)
+        if path.file_name().is_some_and(|name| name == "payload") {
+            let descendant = path.join("disappearing");
+            fs::remove_file(&descendant)?;
+            fs::remove_file(descendant)
+        } else {
+            fs::remove_dir_all(path)
+        }
     });
 
     match result.expect_err("a missing descendant must not orphan surviving data") {
@@ -125,6 +195,11 @@ fn gc_keeps_record_when_not_found_is_only_a_deleted_descendant() {
     }
     assert_eq!(fs::read(grave_dir.join("payload/blob")).unwrap(), b"keep");
     assert!(!grave_dir.join("payload/disappearing").exists());
+    assert_eq!(
+        serde_json::from_slice::<ManifestRecord>(&fs::read(grave_dir.join("meta.json")).unwrap())
+            .unwrap(),
+        record
+    );
     assert_eq!(
         serde_json::to_value(&yard.list().unwrap()[0]).unwrap(),
         serde_json::to_value(&record).unwrap()

@@ -5,17 +5,19 @@ use std::time::Duration;
 
 use chrono::Utc;
 
-use crate::scan::dangerous_link_kind;
-
-mod copy;
-
-use copy::copy_dir_all;
-
 use super::GraveyardError;
 use super::id;
 use super::manifest::{
     GraveId, MANIFEST_SCHEMA_VERSION, ManifestReader, ManifestRecord, RecordWriter,
 };
+
+mod copy;
+mod ownership;
+mod restore;
+
+use copy::copy_dir_all;
+use ownership::owned_grave_dir;
+use restore::prepare_restore_parent;
 
 /// Default TTL for a grave before it becomes garbage-collectable.
 /// SPEC §4.7.6: configurable via `RCLEAN_GRAVEYARD_TTL` once user
@@ -169,7 +171,14 @@ impl Graveyard {
             .cloned()
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
-        let grave_dir = contained_grave_dir(&self.root, &record.grave_path)?;
+        let (grave_dir, _) = owned_grave_dir(&self.root, &record)?;
+        let payload = grave_dir.join("payload");
+        // GC permits absent or incomplete graves for retries. Restore needs a
+        // payload before it can create any directories at the destination.
+        fs::symlink_metadata(&payload).map_err(|source| GraveyardError::Io {
+            path: payload.clone(),
+            source,
+        })?;
 
         let target = override_target
             .map(Path::to_path_buf)
@@ -194,7 +203,6 @@ impl Graveyard {
             }
         }
 
-        let payload = grave_dir.join("payload");
         move_into(&payload, &target)?;
 
         // The grave directory still holds meta.json; drop it now that
@@ -233,7 +241,7 @@ impl Graveyard {
 
         let expired_dirs = expired
             .iter()
-            .map(|record| contained_grave_dir(&self.root, &record.grave_path))
+            .map(|record| owned_grave_dir(&self.root, record))
             .collect::<Result<Vec<_>, _>>()?;
 
         if dry_run {
@@ -241,10 +249,30 @@ impl Graveyard {
         }
 
         let mut first_failure = None;
-        for (record, grave_dir) in expired.iter().zip(expired_dirs) {
+        for (record, (grave_dir, has_metadata)) in expired.iter().zip(expired_dirs) {
+            // Keep ownership metadata until payload removal succeeds so a
+            // partially failed deletion can still be corroborated on retry.
+            let removal = if !has_metadata {
+                // Uncorroborated retry paths may only remove an empty directory.
+                fs::remove_dir(&grave_dir)
+            } else {
+                let payload = grave_dir.join("payload");
+                remove_grave(&payload)
+                    .or_else(|source| {
+                        if source.kind() == std::io::ErrorKind::NotFound
+                            && matches!(fs::symlink_metadata(&payload), Err(err)
+                                if err.kind() == std::io::ErrorKind::NotFound)
+                        {
+                            Ok(())
+                        } else {
+                            Err(source)
+                        }
+                    })
+                    .and_then(|()| remove_grave(&grave_dir))
+            };
             // NotFound can refer to a vanished descendant. Only a missing
             // grave root confirms collection (including manifest-write retries).
-            if let Err(source) = remove_grave(&grave_dir)
+            if let Err(source) = removal
                 && !(source.kind() == std::io::ErrorKind::NotFound
                     && matches!(fs::symlink_metadata(&grave_dir), Err(err)
                         if err.kind() == std::io::ErrorKind::NotFound))
@@ -263,90 +291,6 @@ impl Graveyard {
             None => Ok(expired),
         }
     }
-}
-
-/// Check every existing prefix before creating any missing directories.
-/// `absolute` anchors relative destinations without resolving their symlinks.
-fn prepare_restore_parent(parent: &Path) -> Result<(), GraveyardError> {
-    let parent = if parent.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        parent
-    };
-    let parent = std::path::absolute(parent).map_err(|source| GraveyardError::Io {
-        path: parent.to_path_buf(),
-        source,
-    })?;
-    let mut ancestor = PathBuf::new();
-    let mut missing = Vec::new();
-    for component in parent.components() {
-        if component == Component::ParentDir {
-            // PathBuf::push would normalize `..` in Windows verbatim paths
-            // before we could check the traversed prefix.
-            ancestor
-                .as_mut_os_string()
-                .push(std::path::MAIN_SEPARATOR_STR);
-            ancestor.as_mut_os_string().push(component.as_os_str());
-        } else {
-            ancestor.push(component);
-        }
-        // A Windows prefix is not a complete absolute path until its root.
-        if matches!(component, Component::Prefix(_)) {
-            continue;
-        }
-        match fs::symlink_metadata(&ancestor) {
-            Ok(metadata)
-                if metadata.file_type().is_symlink()
-                    || (metadata.is_dir() && dangerous_link_kind(&metadata).is_some()) =>
-            {
-                return Err(GraveyardError::RestoreTargetParentIsSymlink { path: ancestor });
-            }
-            Ok(_) => {}
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
-                if component != Component::ParentDir && !missing.contains(&ancestor) {
-                    missing.push(ancestor.clone());
-                }
-            }
-            Err(source) => {
-                return Err(GraveyardError::Io {
-                    path: ancestor,
-                    source,
-                });
-            }
-        }
-        if component == Component::ParentDir {
-            // Check the traversed prefix before reducing `..`: a symlink or
-            // non-directory must not disappear from validation. A missing
-            // prefix still needs creating for the literal destination path.
-            ancestor.pop();
-            ancestor.pop();
-        }
-    }
-    for directory in missing {
-        if let Err(source) = fs::create_dir(&directory) {
-            if source.kind() == std::io::ErrorKind::AlreadyExists {
-                // Case aliases can refer to a prefix created earlier in this loop.
-                let metadata =
-                    fs::symlink_metadata(&directory).map_err(|source| GraveyardError::Io {
-                        path: directory.clone(),
-                        source,
-                    })?;
-                if metadata.file_type().is_symlink()
-                    || (metadata.is_dir() && dangerous_link_kind(&metadata).is_some())
-                {
-                    return Err(GraveyardError::RestoreTargetParentIsSymlink { path: directory });
-                }
-                if metadata.is_dir() {
-                    continue;
-                }
-            }
-            return Err(GraveyardError::Io {
-                path: directory,
-                source,
-            });
-        }
-    }
-    Ok(())
 }
 
 /// Resolve `root.join(grave_path)` and require the result to stay
@@ -756,10 +700,10 @@ mod tests {
 mod containment_tests;
 
 #[cfg(test)]
-mod copy_tests;
+mod restore_tests;
 
 #[cfg(test)]
 mod gc_tests;
 
 #[cfg(test)]
-mod restore_tests;
+mod copy_tests;
