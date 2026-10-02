@@ -310,10 +310,16 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
             clean::check_broad_roots(&clean_roots_for_broad_check(&args)?)?;
         }
     }
-    let (selected, report) = if let Some(action_plan) = &action_plan {
+    let (selected, roots, report) = if let Some(action_plan) = &action_plan {
         let selected = plan::selected_from_action_plan(action_plan)?;
         let selected = plan::revalidate_selected(action_plan, selected)?;
-        (selected, None)
+        let roots = action_plan
+            .roots
+            .iter()
+            .filter_map(|root| std::path::Path::new(root).canonicalize().ok())
+            .map(|root| root.display().to_string())
+            .collect();
+        (selected, roots, None)
     } else {
         let options = args.common.to_scan_options()?;
         let report = scan::scan(&args.common.paths_or_current_dir(), &options)?;
@@ -322,7 +328,7 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
         else {
             return Ok(ExitCode::from(3));
         };
-        (selected, Some(report))
+        (selected, report.roots.clone(), Some(report))
     };
     let pre_delete_status = if selected.is_empty() {
         ExitCode::from(3)
@@ -367,12 +373,12 @@ fn run_clean(mut args: cli::CleanArgs) -> Result<ExitCode, RcleanError> {
     let result = if args.graveyard {
         // SPEC §4.7.1: lazy create on first bury.
         let yard = graveyard::Graveyard::open(graveyard::default_root());
-        clean::delete_selected_into_graveyard(&selected, &yard, audit_logger.as_mut())?
+        clean::delete_selected_into_graveyard(&selected, &roots, &yard, audit_logger.as_mut())?
     } else {
-        clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?
+        clean::delete_selected(&selected, &roots, args.permanent, audit_logger.as_mut())?
     };
     #[cfg(not(feature = "graveyard"))]
-    let result = clean::delete_selected(&selected, args.permanent, audit_logger.as_mut())?;
+    let result = clean::delete_selected(&selected, &roots, args.permanent, audit_logger.as_mut())?;
     let status = if result.failed.is_empty() {
         ExitCode::SUCCESS
     } else {
