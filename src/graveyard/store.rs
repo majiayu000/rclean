@@ -11,9 +11,11 @@ use super::manifest::{
     GraveId, MANIFEST_SCHEMA_VERSION, ManifestReader, ManifestRecord, RecordWriter,
 };
 
+mod copy;
 mod ownership;
 mod restore;
 
+use copy::copy_dir_all;
 use ownership::owned_grave_dir;
 use restore::prepare_restore_parent;
 
@@ -224,6 +226,14 @@ impl Graveyard {
     /// summary). Failed deletions retain their manifest records and
     /// return the first deletion error after successful deletions are recorded.
     pub fn gc(&self, dry_run: bool) -> Result<Vec<ManifestRecord>, GraveyardError> {
+        self.gc_with_remover(dry_run, |path| fs::remove_dir_all(path))
+    }
+
+    fn gc_with_remover(
+        &self,
+        dry_run: bool,
+        mut remove_grave: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<Vec<ManifestRecord>, GraveyardError> {
         let records = self.list()?;
         let now = Utc::now();
         let (expired, mut alive): (Vec<_>, Vec<_>) =
@@ -246,20 +256,26 @@ impl Graveyard {
                 // Uncorroborated retry paths may only remove an empty directory.
                 fs::remove_dir(&grave_dir)
             } else {
-                fs::remove_dir_all(grave_dir.join("payload"))
+                let payload = grave_dir.join("payload");
+                remove_grave(&payload)
                     .or_else(|source| {
-                        if source.kind() == std::io::ErrorKind::NotFound {
+                        if source.kind() == std::io::ErrorKind::NotFound
+                            && matches!(fs::symlink_metadata(&payload), Err(err)
+                                if err.kind() == std::io::ErrorKind::NotFound)
+                        {
                             Ok(())
                         } else {
                             Err(source)
                         }
                     })
-                    .and_then(|()| fs::remove_dir_all(&grave_dir))
+                    .and_then(|()| remove_grave(&grave_dir))
             };
-            // A prior collection may have deleted the directory before its
-            // manifest rewrite failed; an absent grave is already collected.
+            // NotFound can refer to a vanished descendant. Only a missing
+            // grave root confirms collection (including manifest-write retries).
             if let Err(source) = removal
-                && source.kind() != std::io::ErrorKind::NotFound
+                && !(source.kind() == std::io::ErrorKind::NotFound
+                    && matches!(fs::symlink_metadata(&grave_dir), Err(err)
+                        if err.kind() == std::io::ErrorKind::NotFound))
             {
                 alive.push(record.clone());
                 first_failure.get_or_insert(GraveyardError::Io {
@@ -519,70 +535,6 @@ fn cross_fs(err: &std::io::Error) -> bool {
         // the test surface narrow.
         err.raw_os_error() == Some(17)
     }
-}
-
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), GraveyardError> {
-    // Only clean a destination that this copy created, never an existing tree.
-    fs::create_dir(dst).map_err(|source| GraveyardError::Io {
-        path: dst.to_path_buf(),
-        source,
-    })?;
-    if let Err(err) = copy_dir_contents(src, dst) {
-        if let Err(cleanup_error) = fs::remove_dir_all(dst) {
-            tracing::error!(
-                path = %dst.display(),
-                error = %cleanup_error,
-                "graveyard: failed to remove partial cross-filesystem copy"
-            );
-        }
-        return Err(err);
-    }
-    Ok(())
-}
-
-fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), GraveyardError> {
-    for entry in fs::read_dir(src).map_err(|source| GraveyardError::Io {
-        path: src.to_path_buf(),
-        source,
-    })? {
-        let entry = entry.map_err(|source| GraveyardError::Io {
-            path: src.to_path_buf(),
-            source,
-        })?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let ft = entry.file_type().map_err(|source| GraveyardError::Io {
-            path: from.clone(),
-            source,
-        })?;
-        if ft.is_symlink() {
-            let target = fs::read_link(&from).map_err(|source| GraveyardError::Io {
-                path: from.clone(),
-                source,
-            })?;
-            #[cfg(unix)]
-            let result = std::os::unix::fs::symlink(&target, &to);
-            #[cfg(windows)]
-            let result = {
-                use std::os::windows::fs::FileTypeExt;
-                if ft.is_symlink_dir() {
-                    std::os::windows::fs::symlink_dir(&target, &to)
-                } else {
-                    std::os::windows::fs::symlink_file(&target, &to)
-                }
-            };
-            result.map_err(|source| GraveyardError::Io { path: to, source })?;
-        } else if ft.is_dir() {
-            fs::create_dir(&to).map_err(|source| GraveyardError::Io {
-                path: to.clone(),
-                source,
-            })?;
-            copy_dir_contents(&from, &to)?;
-        } else {
-            fs::copy(&from, &to).map_err(|source| GraveyardError::Io { path: from, source })?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

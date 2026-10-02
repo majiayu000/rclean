@@ -13,6 +13,42 @@ and similar directories.
 The trust model is the product: scan first, explain every candidate, write an
 ActionPlan when you want a reviewable cleanup, and never select blocked paths.
 
+## Quick start
+
+```bash
+cargo install rclean-cli
+rclean scan .
+```
+
+`scan` only reports candidates; it does not delete files. Review the safety
+classification and use `rclean explain <path>` before choosing a cleanup.
+See [installation options](#install), [usage](#usage), and the
+[safety model](docs/safety-model.md).
+
+### Find large Node and Rust artifacts without deleting anything
+
+Start from a workspace path that contains your projects:
+
+```bash
+rclean scan ~/code --category deps,build --min-size 100mb
+rclean explain ~/code/app/target
+rclean scan ~/code --category deps,build --json > rclean-report.json
+```
+
+Use the actual candidate path from the first report instead of `~/code/app/target`.
+`scan` and `explain` inspect and report; these commands do not clean directories.
+Read the candidate's rule, reason, and safety state before choosing any cleanup.
+A directory named `target`, `build`, or `dist` still needs the project-marker
+evidence described in the [safety model](docs/safety-model.md).
+
+The Cargo package is **[rclean-cli](https://crates.io/crates/rclean-cli)** and the
+installed command is `rclean`. For broader inspection, see
+[whole-machine scopes](#whole-machine-cleanup), [filtering](#filtering), and
+[reports and plans](#reports-and-plans). Model stores can be report-only, and
+dirty worktrees can be caution candidates; their size alone does not authorize
+deletion. Installation and scan problems have separate routes in
+[Support and Intake](#support-and-intake).
+
 Real local benchmark:
 
 ```text
@@ -107,7 +143,7 @@ for the detailed scope rules.
 
 ## Install
 
-From crates.io (primary path once `rclean-cli` is published there):
+From [crates.io](https://crates.io/crates/rclean-cli):
 
 ```bash
 cargo install rclean-cli

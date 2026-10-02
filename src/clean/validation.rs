@@ -13,12 +13,13 @@ use crate::scan::{
 use super::types::SelectedCandidate;
 
 #[cfg(test)]
-pub(super) fn validate_for_deletion(path: &Path) -> Result<(), CleanError> {
-    validate_for_deletion_with_rule(path, None)
+pub(super) fn validate_for_deletion(path: &Path, roots: &[String]) -> Result<(), CleanError> {
+    validate_for_deletion_with_rule(path, None, roots)
 }
 
 pub(super) fn validate_candidate_for_deletion(
     candidate: &SelectedCandidate,
+    roots: &[String],
 ) -> Result<(), CleanError> {
     if candidate.requires_sudo {
         return Err(CleanError::Generic(format!(
@@ -27,12 +28,13 @@ pub(super) fn validate_candidate_for_deletion(
             candidate.rule_id
         )));
     }
-    validate_for_deletion_with_rule(&candidate.path, Some(&candidate.rule_id))
+    validate_for_deletion_with_rule(&candidate.path, Some(&candidate.rule_id), roots)
 }
 
 pub(super) fn validate_for_deletion_with_rule(
     path: &Path,
     rule_id: Option<&str>,
+    roots: &[String],
 ) -> Result<(), CleanError> {
     let metadata = fs::symlink_metadata(path).map_err(|err| {
         CleanError::Generic(format!(
@@ -57,6 +59,12 @@ pub(super) fn validate_for_deletion_with_rule(
     let canonical = path.canonicalize().map_err(|err| {
         CleanError::Generic(format!("failed to canonicalize {}: {err}", path.display()))
     })?;
+    if !roots.iter().any(|root| canonical.starts_with(root)) {
+        return Err(CleanError::Generic(format!(
+            "refusing to delete {}: resolves outside the scan roots",
+            path.display()
+        )));
+    }
     if is_protected_user_data_path(&canonical)
         && !rule_id.is_some_and(rules::allows_protected_user_data_path)
     {
