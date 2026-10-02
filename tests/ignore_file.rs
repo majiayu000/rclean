@@ -1,6 +1,5 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-#[cfg(unix)]
 use serde_json::Value;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -357,4 +356,99 @@ fn candidate_size_scan_warning_preserves_partial_bytes_and_output_contract() {
         .success()
         .stdout(predicate::str::contains("Warnings during scan:"))
         .stdout(predicate::str::contains("Results may be incomplete."));
+}
+
+#[test]
+fn root_ignore_scope_survives_subproject_name_exchange() {
+    // Historical inspiration: BurntSushi/ripgrep#3376. rclean has one scan root;
+    // exercise its documented root ignore file, not ripgrep's multiple roots.
+    let temp = TempDir::new().unwrap();
+    for name in ["a", "b"] {
+        let project = temp.path().join(name);
+        std::fs::create_dir_all(project.join("node_modules")).unwrap();
+        std::fs::write(project.join("package.json"), "{}").unwrap();
+        std::fs::write(project.join("node_modules/blob"), "keep").unwrap();
+    }
+    for (excluded, included) in [("a", "b"), ("b", "a")] {
+        std::fs::write(
+            temp.path().join(".rcleanignore"),
+            format!("{excluded}/node_modules/\n"),
+        )
+        .unwrap();
+        let output = Command::cargo_bin("rclean")
+            .unwrap()
+            .args([
+                "scan",
+                temp.path().to_str().unwrap(),
+                "--json",
+                "--min-size",
+                "0",
+                "--ignore",
+                "not-present/**",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let paths: Vec<&str> = report["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|project| project["candidates"].as_array().unwrap())
+            .map(|candidate| candidate["path"].as_str().unwrap())
+            .collect();
+        assert_eq!(paths.len(), 1);
+        assert_eq!(
+            std::path::Path::new(paths[0])
+                .parent()
+                .unwrap()
+                .file_name()
+                .unwrap(),
+            included
+        );
+        for name in ["a", "b"] {
+            assert_eq!(
+                std::fs::read(temp.path().join(name).join("node_modules/blob")).unwrap(),
+                b"keep"
+            );
+        }
+        if excluded == "a" {
+            std::fs::rename(temp.path().join("a"), temp.path().join("exchange")).unwrap();
+            std::fs::rename(temp.path().join("b"), temp.path().join("a")).unwrap();
+            std::fs::rename(temp.path().join("exchange"), temp.path().join("b")).unwrap();
+        }
+    }
+}
+
+#[test]
+fn age_filter_keeps_invalid_ignore_warning_when_no_candidates_remain() {
+    // Historical inspiration: career-ops-hq/career-ops#2495. Filtering records
+    // must not discard the warning explaining an incomplete scan.
+    let temp = TempDir::new().unwrap();
+    build_node_project(&temp);
+    std::fs::write(temp.path().join(".rcleanignore"), "{invalid,glob\n").unwrap();
+    let run = |extra: &[&str]| {
+        Command::cargo_bin("rclean")
+            .unwrap()
+            .args([
+                "scan",
+                temp.path().to_str().unwrap(),
+                "--json",
+                "--min-size",
+                "0",
+            ])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let baseline = run(&[]);
+    assert!(baseline.status.success());
+    let original: Value = serde_json::from_slice(&baseline.stdout).unwrap();
+    assert_eq!(original["summary"]["candidates"], 1);
+    assert_eq!(original["warnings"][0]["kind"], "ignoreFileLoad");
+    let filtered = run(&["--older-than", "30d"]);
+    assert_eq!(filtered.status.code(), Some(3));
+    let actual: Value = serde_json::from_slice(&filtered.stdout).unwrap();
+    assert_eq!(actual["summary"]["candidates"], 0);
+    assert_eq!(actual["warnings"], original["warnings"]);
 }

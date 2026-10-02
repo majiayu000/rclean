@@ -73,3 +73,39 @@ fn clean_stops_before_delete_when_stdout_reader_is_closed() -> Result<(), Box<dy
     );
     Ok(())
 }
+
+#[test]
+fn free_shortfall_retains_exit_3_when_stdout_reader_is_closed()
+-> Result<(), Box<dyn std::error::Error>> {
+    // Historical inspiration: rtk-ai/rtk#1004 and google/zx#640. A broken
+    // output pipe must not turn an already determined shortfall into success.
+    let temp = TempDir::new()?;
+    std::fs::write(temp.path().join("package.json"), b"{}")?;
+    let candidate = temp.path().join("node_modules");
+    std::fs::create_dir(&candidate)?;
+    std::fs::write(candidate.join("artifact.bin"), b"rebuildable")?;
+    let plan = temp.path().join("shortfall.json");
+    let args = [
+        "free",
+        "1gb",
+        temp.path().to_str().unwrap(),
+        "--json",
+        "--min-size",
+        "0",
+        "--write-plan",
+        plan.to_str().unwrap(),
+    ];
+    let baseline = Command::cargo_bin("rclean")?.args(args).output()?;
+    assert_eq!(baseline.status.code(), Some(3));
+    let report: serde_json::Value = serde_json::from_slice(&baseline.stdout)?;
+    assert_eq!(report["targetMet"], false);
+    std::fs::remove_file(&plan)?;
+    let output = run_with_closed_stdout(&args)?;
+    assert_eq!(output.status.code(), Some(3));
+    assert_no_output_panic(&output);
+    assert_eq!(
+        std::fs::read(candidate.join("artifact.bin"))?,
+        b"rebuildable"
+    );
+    Ok(())
+}
