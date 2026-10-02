@@ -11,6 +11,14 @@ use super::manifest::{
     GraveId, MANIFEST_SCHEMA_VERSION, ManifestReader, ManifestRecord, RecordWriter,
 };
 
+mod copy;
+mod ownership;
+mod restore;
+
+use copy::copy_dir_all;
+use ownership::owned_grave_dir;
+use restore::prepare_restore_parent;
+
 /// Default TTL for a grave before it becomes garbage-collectable.
 /// SPEC §4.7.6: configurable via `RCLEAN_GRAVEYARD_TTL` once user
 /// demand exists; hardcoded for now.
@@ -148,7 +156,7 @@ impl Graveyard {
     /// restored. Enforces SPEC §4.7.5 edge cases:
     ///
     ///   1. Target path already exists → `RestoreTargetExists`.
-    ///   2. Target parent is a symlink → `RestoreTargetParentIsSymlink`.
+    ///   2. Target parent or ancestor is a symlink/junction → `RestoreTargetParentIsSymlink`.
     ///   3. Target parent missing → re-created with default perms.
     ///   4. Cross-FS rename → copy + remove fallback.
     pub fn restore_by_id(
@@ -163,7 +171,14 @@ impl Graveyard {
             .cloned()
             .ok_or_else(|| GraveyardError::GraveNotFound(id.to_string()))?;
 
-        let grave_dir = contained_grave_dir(&self.root, &record.grave_path)?;
+        let (grave_dir, _) = owned_grave_dir(&self.root, &record)?;
+        let payload = grave_dir.join("payload");
+        // GC permits absent or incomplete graves for retries. Restore needs a
+        // payload before it can create any directories at the destination.
+        fs::symlink_metadata(&payload).map_err(|source| GraveyardError::Io {
+            path: payload.clone(),
+            source,
+        })?;
 
         let target = override_target
             .map(Path::to_path_buf)
@@ -172,27 +187,22 @@ impl Graveyard {
         if target.exists() {
             return Err(GraveyardError::RestoreTargetExists { path: target });
         }
-        if let Some(parent) = target.parent()
-            && parent.exists()
-            && parent
-                .symlink_metadata()
-                .map(|m| m.file_type().is_symlink())
-                .unwrap_or(false)
-        {
-            return Err(GraveyardError::RestoreTargetParentIsSymlink {
-                path: parent.to_path_buf(),
-            });
+        if let Some(parent) = target.parent() {
+            prepare_restore_parent(parent)?;
         }
-        if let Some(parent) = target.parent()
-            && !parent.exists()
-        {
-            fs::create_dir_all(parent).map_err(|source| GraveyardError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+        // Creating a missing prefix can make an occupied target reachable.
+        // Link metadata also detects dangling links that `exists` misses.
+        match fs::symlink_metadata(&target) {
+            Ok(_) => return Err(GraveyardError::RestoreTargetExists { path: target }),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(GraveyardError::Io {
+                    path: target,
+                    source,
+                });
+            }
         }
 
-        let payload = grave_dir.join("payload");
         move_into(&payload, &target)?;
 
         // The grave directory still holds meta.json; drop it now that
@@ -213,34 +223,73 @@ impl Graveyard {
 
     /// Remove every grave whose `expires_at` is before `now`. Returns
     /// the records that were collected (so callers can print a
-    /// summary).
+    /// summary). Failed deletions retain their manifest records and
+    /// return the first deletion error after successful deletions are recorded.
     pub fn gc(&self, dry_run: bool) -> Result<Vec<ManifestRecord>, GraveyardError> {
+        self.gc_with_remover(dry_run, |path| fs::remove_dir_all(path))
+    }
+
+    fn gc_with_remover(
+        &self,
+        dry_run: bool,
+        mut remove_grave: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<Vec<ManifestRecord>, GraveyardError> {
         let records = self.list()?;
         let now = Utc::now();
-        let (expired, alive): (Vec<_>, Vec<_>) =
+        let (expired, mut alive): (Vec<_>, Vec<_>) =
             records.iter().cloned().partition(|r| r.expires_at < now);
 
         let expired_dirs = expired
             .iter()
-            .map(|record| contained_grave_dir(&self.root, &record.grave_path))
+            .map(|record| owned_grave_dir(&self.root, record))
             .collect::<Result<Vec<_>, _>>()?;
 
         if dry_run {
             return Ok(expired);
         }
 
-        for grave_dir in expired_dirs {
-            if let Err(err) = fs::remove_dir_all(&grave_dir) {
-                tracing::warn!(
-                    path = %grave_dir.display(),
-                    error = %err,
-                    "graveyard: gc failed to remove expired grave dir"
-                );
+        let mut first_failure = None;
+        for (record, (grave_dir, has_metadata)) in expired.iter().zip(expired_dirs) {
+            // Keep ownership metadata until payload removal succeeds so a
+            // partially failed deletion can still be corroborated on retry.
+            let removal = if !has_metadata {
+                // Uncorroborated retry paths may only remove an empty directory.
+                fs::remove_dir(&grave_dir)
+            } else {
+                let payload = grave_dir.join("payload");
+                remove_grave(&payload)
+                    .or_else(|source| {
+                        if source.kind() == std::io::ErrorKind::NotFound
+                            && matches!(fs::symlink_metadata(&payload), Err(err)
+                                if err.kind() == std::io::ErrorKind::NotFound)
+                        {
+                            Ok(())
+                        } else {
+                            Err(source)
+                        }
+                    })
+                    .and_then(|()| remove_grave(&grave_dir))
+            };
+            // NotFound can refer to a vanished descendant. Only a missing
+            // grave root confirms collection (including manifest-write retries).
+            if let Err(source) = removal
+                && !(source.kind() == std::io::ErrorKind::NotFound
+                    && matches!(fs::symlink_metadata(&grave_dir), Err(err)
+                        if err.kind() == std::io::ErrorKind::NotFound))
+            {
+                alive.push(record.clone());
+                first_failure.get_or_insert(GraveyardError::Io {
+                    path: grave_dir,
+                    source,
+                });
             }
         }
 
         rewrite_manifest_atomic(&self.root, &alive)?;
-        Ok(expired)
+        match first_failure {
+            Some(err) => Err(err),
+            None => Ok(expired),
+        }
     }
 }
 
@@ -488,34 +537,6 @@ fn cross_fs(err: &std::io::Error) -> bool {
     }
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), GraveyardError> {
-    fs::create_dir_all(dst).map_err(|source| GraveyardError::Io {
-        path: dst.to_path_buf(),
-        source,
-    })?;
-    for entry in fs::read_dir(src).map_err(|source| GraveyardError::Io {
-        path: src.to_path_buf(),
-        source,
-    })? {
-        let entry = entry.map_err(|source| GraveyardError::Io {
-            path: src.to_path_buf(),
-            source,
-        })?;
-        let from = entry.path();
-        let to = dst.join(entry.file_name());
-        let ft = entry.file_type().map_err(|source| GraveyardError::Io {
-            path: from.clone(),
-            source,
-        })?;
-        if ft.is_dir() {
-            copy_dir_all(&from, &to)?;
-        } else {
-            fs::copy(&from, &to).map_err(|source| GraveyardError::Io { path: from, source })?;
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 fn make_input(path: &Path) -> GraveInput<'_> {
     GraveInput {
@@ -677,3 +698,12 @@ mod tests {
 
 #[cfg(test)]
 mod containment_tests;
+
+#[cfg(test)]
+mod restore_tests;
+
+#[cfg(test)]
+mod gc_tests;
+
+#[cfg(test)]
+mod copy_tests;

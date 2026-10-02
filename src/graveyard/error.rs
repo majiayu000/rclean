@@ -29,6 +29,9 @@ pub enum GraveyardError {
     #[error("graveyard grave_path {path} resolves outside the graveyard root")]
     GravePathEscapesRoot { path: PathBuf },
 
+    #[error("graveyard grave_path {path} does not safely name record {id}'s own directory")]
+    GravePathNotOwned { path: PathBuf, id: String },
+
     #[error("graveyard record id {0} not found")]
     GraveNotFound(String),
 

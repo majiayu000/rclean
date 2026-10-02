@@ -306,8 +306,9 @@ mod tests {
     fn bury_fixture(yard: &Graveyard, path: &Path) -> ManifestRecord {
         fs::create_dir_all(path).unwrap();
         fs::write(path.join("blob"), b"abc").unwrap();
+        let path = path.canonicalize().unwrap();
         yard.bury(GraveInput {
-            original_path: path,
+            original_path: &path,
             size_bytes: 3,
             plan_id: None,
             rule_id: "node.node_modules",
