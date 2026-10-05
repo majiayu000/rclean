@@ -363,18 +363,22 @@ fn root_ignore_scope_survives_subproject_name_exchange() {
     // Historical inspiration: BurntSushi/ripgrep#3376. rclean has one scan root;
     // exercise its documented root ignore file, not ripgrep's multiple roots.
     let temp = TempDir::new().unwrap();
-    for name in ["a", "b"] {
+    let original_a = b"original project a".as_slice();
+    let original_b = b"original project b with larger content".as_slice();
+    for (name, contents) in [("a", original_a), ("b", original_b)] {
         let project = temp.path().join(name);
         std::fs::create_dir_all(project.join("node_modules")).unwrap();
         std::fs::write(project.join("package.json"), "{}").unwrap();
-        std::fs::write(project.join("node_modules/blob"), "keep").unwrap();
+        std::fs::write(project.join("node_modules/blob"), contents).unwrap();
     }
-    for (excluded, included) in [("a", "b"), ("b", "a")] {
-        std::fs::write(
-            temp.path().join(".rcleanignore"),
-            format!("{excluded}/node_modules/\n"),
-        )
-        .unwrap();
+    std::fs::write(temp.path().join(".rcleanignore"), "a/node_modules/\n").unwrap();
+    // The ignore follows the root-relative path, so exchanging names changes
+    // which physical project is selected at b/node_modules.
+    for (step, (selected_blob, excluded_blob)) in
+        [(original_b, original_a), (original_a, original_b)]
+            .into_iter()
+            .enumerate()
+    {
         let output = Command::cargo_bin("rclean")
             .unwrap()
             .args([
@@ -390,29 +394,25 @@ fn root_ignore_scope_survives_subproject_name_exchange() {
             .unwrap();
         assert!(output.status.success());
         let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-        let paths: Vec<&str> = report["projects"]
+        let candidates: Vec<&Value> = report["projects"]
             .as_array()
             .unwrap()
             .iter()
             .flat_map(|project| project["candidates"].as_array().unwrap())
-            .map(|candidate| candidate["path"].as_str().unwrap())
             .collect();
-        assert_eq!(paths.len(), 1);
+        assert_eq!(candidates.len(), 1);
+        let selected_path = std::path::Path::new(candidates[0]["path"].as_str().unwrap());
+        assert_eq!(selected_path.parent().unwrap().file_name().unwrap(), "b");
+        assert_eq!(candidates[0]["bytes"], selected_blob.len() as u64);
         assert_eq!(
-            std::path::Path::new(paths[0])
-                .parent()
-                .unwrap()
-                .file_name()
-                .unwrap(),
-            included
+            std::fs::read(selected_path.join("blob")).unwrap(),
+            selected_blob
         );
-        for name in ["a", "b"] {
-            assert_eq!(
-                std::fs::read(temp.path().join(name).join("node_modules/blob")).unwrap(),
-                b"keep"
-            );
-        }
-        if excluded == "a" {
+        assert_eq!(
+            std::fs::read(temp.path().join("a/node_modules/blob")).unwrap(),
+            excluded_blob
+        );
+        if step == 0 {
             std::fs::rename(temp.path().join("a"), temp.path().join("exchange")).unwrap();
             std::fs::rename(temp.path().join("b"), temp.path().join("a")).unwrap();
             std::fs::rename(temp.path().join("exchange"), temp.path().join("b")).unwrap();
