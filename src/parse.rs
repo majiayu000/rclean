@@ -50,7 +50,11 @@ pub fn parse_duration(raw: &str) -> Result<Duration, ParseError> {
         )));
     }
 
-    let (number, unit) = value.split_at(value.len() - 1);
+    let Some((number, unit)) = value.split_at_checked(value.len() - 1) else {
+        return Err(ParseError::InvalidDuration(format!(
+            "invalid duration '{raw}'. Use values like 30d, 6m, or 1y"
+        )));
+    };
     if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
         return Err(ParseError::InvalidDuration(format!(
             "invalid duration '{raw}'. Use values like 30d, 6m, or 1y"
@@ -90,7 +94,11 @@ pub fn parse_timeout_duration(raw: &str) -> Result<Duration, ParseError> {
         )));
     }
 
-    let (number, unit) = value.split_at(value.len() - 1);
+    let Some((number, unit)) = value.split_at_checked(value.len() - 1) else {
+        return Err(ParseError::InvalidDuration(format!(
+            "invalid timeout '{raw}'. Use values like 5s, 1m, or 1h"
+        )));
+    };
     if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
         return Err(ParseError::InvalidDuration(format!(
             "invalid timeout '{raw}'. Use values like 5s, 1m, or 1h"
@@ -175,6 +183,14 @@ mod tests {
             (timeout, scan_age),
             (Ok(timeout), Ok(scan_age)) if timeout != scan_age
         ));
+    }
+
+    #[test]
+    fn rejects_non_ascii_duration_suffixes_without_panicking() {
+        for raw in ["1秒", "1é", "秒", "1🕒", " 2分钟 "] {
+            assert!(parse_duration(raw).is_err(), "scan duration: {raw}");
+            assert!(parse_timeout_duration(raw).is_err(), "timeout: {raw}");
+        }
     }
 
     #[test]
